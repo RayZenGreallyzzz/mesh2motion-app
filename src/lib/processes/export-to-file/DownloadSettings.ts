@@ -1,4 +1,5 @@
 import { SkeletonType } from '../../enums/SkeletonType.ts'
+import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 
 export enum BoneNamingStructure {
   Default = 'default',
@@ -78,7 +79,7 @@ export class DownloadSettings extends EventTarget {
     this.selected_fbx_export_preset = this.get_default_fbx_export_preset()
     this.set_radio_group_value(this.dom_fbx_preset_group, 'fbx-export-preset', this.selected_fbx_export_preset)
 
-    const is_human_skeleton = skeleton_type === SkeletonType.Human
+    const is_human_skeleton = is_humanoid_skeleton_type(skeleton_type)
 
     // Only the bone naming section is human-only; the popup itself is always available.
     if (this.dom_bone_naming_section !== null) {

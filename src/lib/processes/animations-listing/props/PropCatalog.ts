@@ -49,7 +49,7 @@ function create_definition (
 }
 
 export class PropCatalog {
-  public static readonly supported_skeleton_types: SkeletonType[] = [SkeletonType.Human, SkeletonType.Kaiju]
+  public static readonly supported_skeleton_types: SkeletonType[] = [SkeletonType.Human, SkeletonType.MobileFemale, SkeletonType.Kaiju]
 
   private static readonly loader: GLTFLoader = new GLTFLoader()
   private static readonly model_cache = new Map<string, Promise<Group>>()

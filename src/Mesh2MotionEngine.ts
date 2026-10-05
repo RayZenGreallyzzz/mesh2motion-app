@@ -25,6 +25,7 @@ import { ProcessStep } from './lib/enums/ProcessStep.ts'
 import { type Bone, Group, Scene, type Skeleton, type Vector3 } from 'three'
 
 import { SkeletonType } from './lib/enums/SkeletonType.ts'
+import { is_humanoid_skeleton_type } from './lib/HumanoidSkeleton.ts'
 
 import { CustomSkeletonHelper } from './lib/CustomSkeletonHelper.ts'
 import { EventListeners } from './lib/EventListeners.ts'
@@ -245,7 +246,7 @@ export class Mesh2MotionEngine {
 
   public update_a_pose_options_visibility (): void {
     ArmExtensionControl.getInstance().set_visible(
-      this.load_skeleton_step.skeleton_type() === SkeletonType.Human
+      is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())
     )
   }
 

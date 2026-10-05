@@ -10,6 +10,7 @@ import { AnimationRetargetService } from './AnimationRetargetService.ts'
 import { StepExportRetargetedAnimations } from './steps/StepExportRetargetedAnimations.ts'
 import { UI } from '../lib/UI.ts'
 import { SkeletonType } from '../lib/enums/SkeletonType.ts'
+import { is_humanoid_skeleton_type } from '../lib/HumanoidSkeleton.ts'
 import { DownloadSettings } from '../lib/processes/export-to-file/DownloadSettings.ts'
 import { ModalDialog } from '../lib/ModalDialog.ts'
 
@@ -64,7 +65,7 @@ export class RetargetAnimationListing extends EventTarget {
     })
     this.arm_extension_control.reset()
     this.arm_extension_control.set_visible(
-      AnimationRetargetService.getInstance().get_skeleton_type() === SkeletonType.Human
+      is_humanoid_skeleton_type(AnimationRetargetService.getInstance().get_skeleton_type())
     )
 
     this.show_bone_toggle_button(true)
