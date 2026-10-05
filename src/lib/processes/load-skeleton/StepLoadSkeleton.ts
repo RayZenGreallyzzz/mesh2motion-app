@@ -8,6 +8,7 @@ import type GLTFResult from './interfaces/GLTFResult.ts'
 import { add_origin_markers, remove_origin_markers } from './OriginMarkerManager'
 import { add_preview_skeleton, remove_preview_skeleton } from './PreviewSkeletonManager.ts'
 import { HandHelper } from './HandHelper.ts'
+import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadSkeleton extends EventTarget {
@@ -116,7 +117,8 @@ export class StepLoadSkeleton extends EventTarget {
 
   private hand_skeleton_type (): HandSkeletonType {
     const hand_selection = this.ui.dom_hand_skeleton_selection?.options
-    return hand_selection[hand_selection.selectedIndex].value as HandSkeletonType
+    const selected = hand_selection[hand_selection.selectedIndex].value as HandSkeletonType
+    return effective_hand_skeleton_type(this.skeleton_file_path(), selected)
   }
 
   private add_event_listeners (): void {
@@ -128,11 +130,8 @@ export class StepLoadSkeleton extends EventTarget {
     // Add event listener for skeleton type changes to show/hide hand options
     if (this.ui.dom_skeleton_drop_type !== null) {
       this.ui.dom_skeleton_drop_type.addEventListener('change', () => {
-        // get selected value from skeleton options
-        // const skeleton_selection = this.ui.dom_skeleton_drop_type.options
-        // this.skeleton_t = skeleton_selection[skeleton_selection.selectedIndex].value as SkeletonType
-
-        // hand options only apply to human skeletons, so we need to show/hide when skeleton type changes
+        // hand options only apply to the stock Human preset. Mobile Female uses
+        // SingleBone automatically so there is nothing to configure in the UI.
         this.toggle_ui_hand_skeleton_options()
 
         // remove the "select a skeleton" option if we picked something else
@@ -240,8 +239,8 @@ export class StepLoadSkeleton extends EventTarget {
       this.loaded_armature = original_armature.clone()
       this.loaded_armature.name = 'Loaded Armature'
 
-      // Apply hand skeleton modifications for human skeletons
-      if (this.skeleton_file_path() === SkeletonType.Human) {
+      // Apply hand skeleton modifications for all humanoid presets.
+      if (is_humanoid_skeleton_type(this.skeleton_file_path())) {
         const helper = new HandHelper()
         helper.modify_hand_skeleton(this.loaded_armature, this.hand_skeleton_type())
       }
@@ -277,7 +276,6 @@ export class StepLoadSkeleton extends EventTarget {
     const scale = armature.scale.x // assumes uniform scale
 
     const cloned_armature: Object3D = armature.clone()
-
     // bake scale into all child bone positions
     if (scale !== 1) {
       cloned_armature.traverse((obj) => {
@@ -297,6 +295,8 @@ export class StepLoadSkeleton extends EventTarget {
       return
     }
 
+    // Regular Human keeps the choice. Mobile Female intentionally forces the
+    // single-bone mobile hand setup and hides this control.
     if (this.skeleton_file_path() === SkeletonType.Human) {
       this.ui.dom_hand_skeleton_options.style.display = 'flex'
     } else {
