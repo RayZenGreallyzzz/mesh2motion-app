@@ -7,6 +7,7 @@ import {
 import { Utility } from '../Utilities.js'
 import { SkeletonType } from '../enums/SkeletonType.js'
 import { RigConfig } from '../RigConfig.js'
+import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
 
 /**
  * Handles the core bone-to-vertex weight calculation logic.
@@ -78,9 +79,9 @@ export class WeightCalculator {
           return
         }
 
-        // hip bones should have custom logic for distance. If the distance is too far away we should ignore it
-        // This will help with hips when left/right legs could be closer than knee bones
-        if (this.skeleton_type === SkeletonType.Human &&
+        // Humanoid hip bones use custom distance logic. Mobile Female must use
+        // exactly the same pelvis protection as the stock Human rig.
+        if (is_humanoid_skeleton_type(this.skeleton_type) &&
           (bone.name.includes('hips') || bone.name.includes('pelvis'))) {
           // if the intersection point is lower than the vertex position, that means the vertex is below
           // the hips area, and is part of the left or right leg...ignore that result
