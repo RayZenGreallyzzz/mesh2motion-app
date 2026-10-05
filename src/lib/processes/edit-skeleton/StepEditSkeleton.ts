@@ -115,6 +115,11 @@ export class StepEditSkeleton extends EventTarget {
   }
 
   private update_ui_options_on_begin (skeleton_type: SkeletonType): void {
+    const pose_presets = document.getElementById('humanoid-pose-presets')
+    if (pose_presets !== null) {
+      pose_presets.style.display = is_humanoid_skeleton_type(skeleton_type) ? 'flex' : 'none'
+    }
+
     // keep track of skeleton type to show/hide certain UI elements
     // only human skeletons have the head weight correction option
     if (this.ui.dom_use_head_weight_correction_container != null) {
@@ -173,6 +178,7 @@ export class StepEditSkeleton extends EventTarget {
   }
 
   public begin (main_scene: Scene, skeleton_type: SkeletonType): void {
+    this._current_skeleton_type = skeleton_type
     this.update_ui_options_on_begin(skeleton_type)
 
     // show UI elements for editing mesh
@@ -389,6 +395,69 @@ export class StepEditSkeleton extends EventTarget {
   }
 
   /**
+   * Apply an editable humanoid arm-pose preset. The preset only repositions
+   * elbow and wrist joints; every joint remains draggable afterwards.
+   */
+  public apply_humanoid_arm_pose_preset (pose: 'a' | 't'): void {
+    if (!is_humanoid_skeleton_type(this._current_skeleton_type)) return
+    if (this.threejs_skeleton.bones.length === 0) return
+
+    const angle = pose === 't' ? 0 : 35 * Math.PI / 180
+    this.store_bone_state_for_undo()
+    let applied = false
+
+    for (const side of ['l', 'r'] as const) {
+      const upperarm = this.threejs_skeleton.bones.find(bone => bone.name === 'upperarm_' + side)
+      const lowerarm = this.threejs_skeleton.bones.find(bone => bone.name === 'lowerarm_' + side)
+      const hand = this.threejs_skeleton.bones.find(bone => bone.name === 'hand_' + side)
+      if (upperarm === undefined || lowerarm === undefined || hand === undefined) continue
+
+      upperarm.updateWorldMatrix(true, true)
+      lowerarm.updateWorldMatrix(true, true)
+      hand.updateWorldMatrix(true, true)
+
+      const shoulder = upperarm.getWorldPosition(new Vector3())
+      const elbow = lowerarm.getWorldPosition(new Vector3())
+      const wrist = hand.getWorldPosition(new Vector3())
+      const upper_length = shoulder.distanceTo(elbow)
+      const lower_length = elbow.distanceTo(wrist)
+      if (upper_length <= 0.0001 || lower_length <= 0.0001) continue
+
+      const side_sign = Math.sign(wrist.x - shoulder.x) || (side === 'l' ? 1 : -1)
+      const horizontal = Math.cos(angle)
+      const vertical = Math.sin(angle)
+
+      const elbow_target = new Vector3(
+        shoulder.x + side_sign * horizontal * upper_length,
+        shoulder.y - vertical * upper_length,
+        shoulder.z
+      )
+      this.set_bone_world_position(lowerarm, elbow_target)
+
+      const updated_elbow = lowerarm.getWorldPosition(new Vector3())
+      const wrist_target = new Vector3(
+        updated_elbow.x + side_sign * horizontal * lower_length,
+        updated_elbow.y - vertical * lower_length,
+        updated_elbow.z
+      )
+      this.set_bone_world_position(hand, wrist_target)
+      applied = true
+    }
+
+    if (applied) {
+      this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
+      this.dispatchEvent(new CustomEvent('skeletonTransformed'))
+    }
+  }
+
+  private set_bone_world_position (bone: Bone, world_position: Vector3): void {
+    if (bone.parent === null) return
+    bone.parent.updateWorldMatrix(true, false)
+    bone.position.copy(bone.parent.worldToLocal(world_position.clone()))
+    bone.updateWorldMatrix(true, true)
+  }
+
+  /**
    * Toggle the visibility of the preview plane
    * @param visible Whether the plane should be visible
    */
@@ -448,6 +517,13 @@ export class StepEditSkeleton extends EventTarget {
   }
 
   public add_event_listeners (): void {
+    document.getElementById('pose-preset-a')?.addEventListener('click', () => {
+      this.apply_humanoid_arm_pose_preset('a')
+    })
+    document.getElementById('pose-preset-t')?.addEventListener('click', () => {
+      this.apply_humanoid_arm_pose_preset('t')
+    })
+
     if (this.ui.dom_move_to_origin_button !== null) {
       this.ui.dom_move_to_origin_button.addEventListener('click', () => {
         // the base bone itself is not at the origin, but the parent is the armature object

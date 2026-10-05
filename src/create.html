@@ -208,6 +208,15 @@
               <img class="skeleton-template-image-preview ignore-filters" src="images/icons/zoom.svg" alt="Preview image" width="20" height="20" />
           </div>
 
+          <div id="humanoid-pose-presets" style="display: none; flex-direction: column; gap: 0.35rem;">
+            <span class="pill-switch-label">Arm Pose</span>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="secondary-button" id="pose-preset-a">A-pose</button>
+              <button type="button" class="secondary-button" id="pose-preset-t">T-pose</button>
+            </div>
+            <small>Choose a starting pose, then drag joints directly on the model.</small>
+          </div>
+
           <div style="display: flex; flex-direction: column;">
             
             <div class="pill-switch-group" aria-label="Positioning mode">
