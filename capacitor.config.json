@@ -1,0 +1,9 @@
+{
+  "appId": "com.rayzen.riganimationstudio",
+  "appName": "Rig Animation Studio",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "backgroundColor": "#111111"
+  }
+}
