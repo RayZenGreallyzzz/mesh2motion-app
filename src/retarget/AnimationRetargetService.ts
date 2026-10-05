@@ -6,6 +6,7 @@ import {
 import { RetargetUtils, type TrackNameParts, type BoneRestTransform } from './RetargetUtils.ts'
 import { TargetBoneMappingType } from './steps/StepBoneMapping.ts'
 import { SkeletonType } from '../lib/enums/SkeletonType.ts'
+import { is_humanoid_skeleton_type } from '../lib/HumanoidSkeleton.ts'
 import { Retargeter } from './human-retargeting/Retargeter.ts'
 import { Rig } from './human-retargeting/Rig.ts'
 import { HumanChainConfig } from './human-retargeting/HumanChainConfig.ts'
@@ -143,9 +144,9 @@ export class AnimationRetargetService {
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    // if the source skeleton is of type human, try tuse the human retargeting system
-    // we ignore Mesh2Motion type since that is identical to the source and does not need retargeting
-    if (this.skeleton_type === SkeletonType.Human && this.target_mapping_type !== TargetBoneMappingType.Mesh2Motion) {
+    // Human and Mobile Female share the same advanced swing-twist retargeting.
+    // We ignore Mesh2Motion type since that is identical to the source and does not need retargeting.
+    if (is_humanoid_skeleton_type(this.skeleton_type) && this.target_mapping_type !== TargetBoneMappingType.Mesh2Motion) {
       console.log('Using Human Retargeter for retargeting animation clip:', source_clip.name, this.target_mapping_type)
       return this.apply_human_swing_twist_retargeting(source_clip)
     }
