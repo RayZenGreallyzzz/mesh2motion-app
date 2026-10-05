@@ -40,6 +40,24 @@ export class RigConfig {
       model_variations: humanVariations
     } satisfies RigConfigEntry,
     {
+      // Stage 1 mobile preset: reuse the proven human rig/animations, but route
+      // it through the humanoid-mobile code path and force a lightweight hand
+      // skeleton. A dedicated 27-29 bone rig file can replace rig_file later
+      // without changing the rest of the application.
+      skeleton_type: SkeletonType.MobileFemale,
+      model_file: 'models/model-human.glb',
+      rig_file: 'rigs/rig-human.glb',
+      rig_display_name: 'Human · Mobile Female',
+      animation_files: [
+        '../animations/human-base-animations.glb',
+        '../animations/human-addon-animations.glb',
+        '../animations/human-mocap-animations.glb'
+      ],
+      animation_preview_folder: 'human',
+      position_tracking_bone_name: 'pelvis',
+      skeleton_template_image_url: 'rigs/reference/human.png'
+    } satisfies RigConfigEntry,
+    {
       skeleton_type: SkeletonType.Fox,
       model_file: 'models/model-fox.glb',
       rig_file: 'rigs/rig-fox.glb',
