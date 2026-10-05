@@ -5,6 +5,7 @@ import { type HandSkeletonType, SkeletonType } from '../../enums/SkeletonType'
 import { HandHelper } from './HandHelper'
 import { RigConfig } from '../../RigConfig'
 import { CustomSkeletonHelper } from '../../CustomSkeletonHelper'
+import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton'
 
 const skeleton_group_name: string = 'preview_skeleton_group'
 
@@ -18,6 +19,7 @@ export async function add_preview_skeleton (
   skeleton_scale: number = 1.0,
   show_joints: boolean = true
 ): Promise<Object3D<Object3DEventMap>> {
+  const effective_hand_type = effective_hand_skeleton_type(skeleton_type, hand_skeleton_type)
   let preview_skeleton_group = root.getObjectByName(skeleton_group_name) as Group | undefined
 
   // Check if preview skeleton group exists and matches requested skeleton
@@ -25,7 +27,7 @@ export async function add_preview_skeleton (
     // Read previous skeleton info from userData
     const previous_file_path = preview_skeleton_group.userData.skeleton_type
     const previous_hand_type = preview_skeleton_group.userData.hand_skeleton_type
-    if (previous_file_path === skeleton_type && previous_hand_type === hand_skeleton_type) {
+    if (previous_file_path === skeleton_type && previous_hand_type === effective_hand_type) {
       // Only update scale
       preview_skeleton_group.scale.set(skeleton_scale, skeleton_scale, skeleton_scale)
 
@@ -50,7 +52,7 @@ export async function add_preview_skeleton (
   preview_skeleton_group.name = skeleton_group_name
   // Store current skeleton info for future comparison
   preview_skeleton_group.userData.skeleton_type = skeleton_type
-  preview_skeleton_group.userData.hand_skeleton_type = hand_skeleton_type
+  preview_skeleton_group.userData.hand_skeleton_type = effective_hand_type
   root.add(preview_skeleton_group)
 
   // Resolve the rig file path from the central config
@@ -61,9 +63,9 @@ export async function add_preview_skeleton (
 
   // Load and customize skeleton
   const loaded_scene: Object3D<Object3DEventMap> = await load_skeleton(rig_file)
-  if (skeleton_type === SkeletonType.Human) {
+  if (is_humanoid_skeleton_type(skeleton_type)) {
     const helper = new HandHelper()
-    helper.modify_hand_skeleton(loaded_scene, hand_skeleton_type)
+    helper.modify_hand_skeleton(loaded_scene, effective_hand_type)
   }
   // same custom helper used everywhere else, so the preview matches the
   // edit skeleton display instead of three's default line skeleton
@@ -82,7 +84,7 @@ async function load_skeleton (file_path: string): Promise<Object3D<Object3DEvent
   return gltf.scene as Object3D<Object3DEventMap>
 }
 
-// need a function that will remove the preview skeleton from the scene
+// need a function that will remove any existing preview skeleton first
 export function remove_preview_skeleton (root: Scene): void {
   const skeleton_group = root.getObjectByName(skeleton_group_name)
   if (skeleton_group === undefined) {
