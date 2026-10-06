@@ -193,7 +193,8 @@ export class MeshDragBonePlacement {
       return null
     }
 
-    const first_intersection = forward_intersections[0].point.clone()
+    const first_hit = forward_intersections[0]
+    const first_intersection = first_hit.point.clone()
 
     const scene_bounds = new THREE.Box3()
     mesh_targets.forEach((target) => {
@@ -216,8 +217,36 @@ export class MeshDragBonePlacement {
       return [first_intersection, first_intersection]
     }
 
-    const last_intersection = reverse_intersections[0].point.clone()
-    return [first_intersection, last_intersection]
+    // The old implementation used reverse_intersections[0], which is the
+    // farthest visible surface from the camera. On a character this can pair
+    // the front of an arm with the back of the torso and place the joint behind
+    // the body. Instead, pair the front hit with the nearest valid exit surface
+    // immediately behind it, preferring the same mesh object that was touched.
+    const ray_direction = forward_raycaster.ray.direction
+    const epsilon = Math.max(1e-5, scene_size.length() * 1e-6)
+
+    const same_object_hits = reverse_intersections.filter((intersection) => {
+      return intersection.object === first_hit.object
+    })
+    const candidate_hits = same_object_hits.length > 0 ? same_object_hits : reverse_intersections
+
+    let nearest_exit: Vector3 | null = null
+    let nearest_depth = Number.POSITIVE_INFINITY
+
+    candidate_hits.forEach((intersection) => {
+      const candidate = intersection.point.clone()
+      const depth = candidate.clone().sub(first_intersection).dot(ray_direction)
+      if (depth > epsilon && depth < nearest_depth) {
+        nearest_depth = depth
+        nearest_exit = candidate
+      }
+    })
+
+    if (nearest_exit === null) {
+      return [first_intersection, first_intersection]
+    }
+
+    return [first_intersection, nearest_exit]
   }
 
   private get_point_on_viewport_plane_from_mouse (selected_bone: THREE.Bone, mouse_event: MouseEvent | PointerEvent): Vector3 | null {
