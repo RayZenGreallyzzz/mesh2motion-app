@@ -53,6 +53,7 @@ export class Mesh2MotionEngine {
   private rig_setup_group: Group | null = null
   private rig_setup_locked_state: boolean = true
   private manual_weight_stroke_vertices: Map<number, Set<number>> | null = null
+  private manual_weight_last_sample_ms: number = -Infinity
   public readonly mesh_drag_bone_placement: MeshDragBonePlacement
 
   public view_helper: CustomViewHelper | undefined // mini 3d view to help orient orthographic views
@@ -435,7 +436,10 @@ export class Mesh2MotionEngine {
     else if (select.options.length > 0) select.selectedIndex = 0
 
     const selected = Number.parseInt(select.value, 10)
-    this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
+    const weight_enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
+    this.weight_skin_step.set_manual_weight_preview_bone(
+      (weight_enabled?.checked ?? false) && Number.isFinite(selected) ? selected : null
+    )
     this.update_manual_weight_labels()
   }
 
@@ -482,6 +486,14 @@ export class Mesh2MotionEngine {
   private collect_manual_weight_vertices (event: PointerEvent): boolean {
     if (!this.is_manual_weight_editor_enabled() || this.manual_weight_stroke_vertices === null) return false
 
+    // High-poly mobile characters can have hundreds of thousands of vertices.
+    // Sampling every raw pointermove would scan the mesh far more often than the
+    // screen can usefully display and causes tablet hitching. Keep painting fluid
+    // while capping the expensive spatial scan to roughly 18 Hz.
+    const now = event.timeStamp
+    if (now - this.manual_weight_last_sample_ms < 55) return true
+    this.manual_weight_last_sample_ms = now
+
     const group = this.weight_skin_step.weight_painted_mesh_group()
     if (group === null || !group.visible) return false
 
@@ -525,6 +537,7 @@ export class Mesh2MotionEngine {
   public begin_manual_weight_stroke (event: PointerEvent): boolean {
     if (!this.is_manual_weight_editor_enabled()) return false
     this.manual_weight_stroke_vertices = new Map<number, Set<number>>()
+    this.manual_weight_last_sample_ms = -Infinity
     this.enable_orbit_controls(false)
     return this.collect_manual_weight_vertices(event)
   }
