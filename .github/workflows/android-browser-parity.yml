@@ -1,0 +1,115 @@
+name: Rig Animation Studio Android Browser Parity
+
+on:
+  push:
+    branches:
+      - android-rig-animation-studio
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-browser-parity-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Android branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore browser rig skin core from main
+        run: |
+          git fetch origin main
+          git checkout origin/main -- \
+            src/create.html \
+            src/Mesh2MotionEngine.ts \
+            src/lib/DOMUtilities.ts \
+            src/lib/EventListeners.ts \
+            src/lib/Generators.ts \
+            src/lib/RigConfig.ts \
+            src/lib/UI.ts \
+            src/lib/enums/SkeletonType.ts \
+            src/lib/processes/edit-skeleton/MeshDragBonePlacement.ts \
+            src/lib/processes/edit-skeleton/StepEditSkeleton.ts \
+            src/lib/processes/load-skeleton/PreviewSkeletonManager.ts \
+            src/lib/processes/load-skeleton/StepLoadSkeleton.ts \
+            src/lib/processes/weight-skin/StepWeightSkin.ts \
+            src/lib/solvers/WeightCalculator.ts \
+            src/retarget/AnimationRetargetService.ts \
+            src/retarget/RetargetAnimationListing.ts
+          echo "Browser parity core restored from origin/main"
+          git diff --stat
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Bundle offline DRACO decoder
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+
+      - name: Install Capacitor 8
+        run: npm install --no-save @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+
+      - name: Build browser-parity web app
+        run: npm run build
+
+      - name: Run browser core tests
+        run: npm test -- --run
+
+      - name: Create Android project
+        run: npx cap add android
+
+      - name: Sync Android assets
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Collect APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.9-Browser-Parity-debug.apk
+
+      - name: Publish direct-download release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="rig-animation-studio-v4.9-browser-parity"
+          APK="artifacts/Rig-Animation-Studio-v4.9-Browser-Parity-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --title "Rig Animation Studio v4.9 Browser Parity" \
+              --notes "Diagnostic Android build using the browser main branch rig, bind and skinning core unchanged. Android wrapper/import support remains from the mobile branch."
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Animation-Studio-v4.9-Browser-Parity-APK
+          path: artifacts/Rig-Animation-Studio-v4.9-Browser-Parity-debug.apk
+          if-no-files-found: error
+          retention-days: 14
