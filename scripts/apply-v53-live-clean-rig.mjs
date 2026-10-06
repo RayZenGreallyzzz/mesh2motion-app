@@ -61,6 +61,10 @@ update('src/lib/processes/load-skeleton/StepLoadSkeleton.ts', (source) => {
 })
 
 update('src/lib/processes/weight-skin/StepWeightSkin.ts', (source) => {
+  // v5.4 supersedes the v5.3 clone behavior with a final rest-axis rebuild.
+  // If that newer form is already committed, this replay step is complete.
+  if (source.includes('buildFromPlacedJoints')) return source
+
   source = replaceRequired(
     source,
     `    // Mobile Female no longer binds the edited stock mannequin hierarchy. Build
