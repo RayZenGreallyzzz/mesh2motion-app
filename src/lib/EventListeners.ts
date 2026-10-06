@@ -46,6 +46,10 @@ export class EventListeners {
       this.bootstrap.set_rig_camera_view('back')
     })
 
+    document.getElementById('autorig-humanoid-button')?.addEventListener('click', () => {
+      this.bootstrap.auto_fit_humanoid_rig()
+    })
+
     document.getElementById('manual-weight-enabled')?.addEventListener('change', () => {
       this.bootstrap.sync_manual_weight_editor()
     })

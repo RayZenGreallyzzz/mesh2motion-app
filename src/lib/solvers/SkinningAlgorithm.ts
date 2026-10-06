@@ -12,7 +12,6 @@ import { WeightCalculator } from './WeightCalculator.js'
 import { ExtremityWeightCorrector } from './ExtremityWeightCorrector.js'
 import { WeightSmoother } from './WeightSmoother.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
-import { MobileFemaleWeightCorrector } from './MobileFemaleWeightCorrector.js'
 
 /**
  * SkinningAlgorithm
@@ -90,19 +89,6 @@ export default class SkinningAlgorithm {
         this.arm_plane_offset
       )
       arm_weight_corrector.apply_arm_weight_correction(skin_indices, skin_weights)
-    }
-
-    // Step 1d: Mobile Female uses a dedicated lightweight humanoid correction
-    // pass. It only touches vertices already owned by an arm chain: inboard
-    // jacket/body vertices are returned to the torso, elbow/wrist boundaries
-    // get short blends, and hand vertices remain hand-dominant without the
-    // rigid 100% lock that caused jerky-looking motion in the previous test.
-    if (this.skeleton_type === SkeletonType.MobileFemale) {
-      const mobile_female_corrector = new MobileFemaleWeightCorrector(
-        this.geometry,
-        this.bones_master_data
-      )
-      mobile_female_corrector.apply(skin_indices, skin_weights)
     }
 
     // Step 2: Smooth weight boundaries between adjacent bones

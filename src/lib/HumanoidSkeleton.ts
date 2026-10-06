@@ -9,13 +9,13 @@ export function is_humanoid_skeleton_type (type: SkeletonType | null | undefined
 }
 
 /**
- * Mobile Female intentionally forces the lightest hand setup so the generated
- * rig stays appropriate for mobile/WebGL characters. Regular Human keeps the
- * hand option selected in the UI.
+ * The mobile humanoid uses the simplified articulated hand. This keeps the rig
+ * light enough for WebGL/Android while preserving fingers instead of collapsing
+ * the whole hand into one rigid bone.
  */
 export function effective_hand_skeleton_type (
   type: SkeletonType | null | undefined,
   selected: HandSkeletonType
 ): HandSkeletonType {
-  return type === SkeletonType.MobileFemale ? HandSkeletonType.SingleBone : selected
+  return type === SkeletonType.MobileFemale ? HandSkeletonType.SimplifiedHand : selected
 }
