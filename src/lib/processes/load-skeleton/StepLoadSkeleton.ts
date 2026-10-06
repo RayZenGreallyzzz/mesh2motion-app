@@ -10,7 +10,6 @@ import { add_preview_skeleton, remove_preview_skeleton } from './PreviewSkeleton
 import { HandHelper } from './HandHelper.ts'
 import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
-import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadSkeleton extends EventTarget {
