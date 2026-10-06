@@ -94,6 +94,16 @@ export default class SkinningAlgorithm {
     // Step 2: Smooth weight boundaries between adjacent bones
     const weight_smoother = new WeightSmoother(this.geometry, this.bones_master_data)
     weight_smoother.smooth_bone_weight_boundaries(skin_indices, skin_weights)
+
+    // Mobile Female intentionally uses a lightweight hand skeleton. When the
+    // wrist boundary is smoothed, long fingers/claws can inherit forearm weight
+    // and look rubbery during animations. Keep vertices whose primary owner is
+    // already a hand bone rigid to that hand; elbow/shoulder smoothing is left
+    // untouched.
+    if (this.skeleton_type === SkeletonType.MobileFemale) {
+      this.lock_mobile_female_hand_weights(skin_indices, skin_weights)
+    }
+
     console.timeEnd('calculate_closest_bone_weights')
 
     // Step 4: Normalize weights so all vertices sum to 1.0
@@ -114,5 +124,35 @@ export default class SkinningAlgorithm {
     console.log('do we have any leftover incorrect weights ', weight_normalizer.find_vertices_with_incorrect_weight_sum(skin_weights))
 
     return [skin_indices, skin_weights]
+  }
+
+  private lock_mobile_female_hand_weights (skin_indices: number[], skin_weights: number[]): void {
+    const hand_indices = new Set<number>()
+    this.bones_master_data.forEach((bone, index) => {
+      const name = bone.name.toLowerCase()
+      if (name.includes('hand') &&
+          !name.includes('thumb') &&
+          !name.includes('index') &&
+          !name.includes('middle') &&
+          !name.includes('ring') &&
+          !name.includes('pinky') &&
+          !name.includes('finger')) {
+        hand_indices.add(index)
+      }
+    })
+
+    if (hand_indices.size === 0) return
+
+    const vertex_count = this.geometry.attributes.position.array.length / 3
+    for (let vertex_index = 0; vertex_index < vertex_count; vertex_index++) {
+      const offset = vertex_index * 4
+      if (!hand_indices.has(skin_indices[offset])) continue
+
+      skin_weights[offset] = 1.0
+      for (let influence = 1; influence < 4; influence++) {
+        skin_indices[offset + influence] = 0
+        skin_weights[offset + influence] = 0
+      }
+    }
   }
 }
