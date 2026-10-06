@@ -664,11 +664,11 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · Clean v5.3 LIVE'
+      autorig.textContent = 'АвтоРиг · Rest Axes v5.4'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
-        ? 'Clean Rig v5.3 LIVE · '
+        ? 'Clean Rig v5.4 REST · '
         : ''
       status.textContent = this.rig_setup_locked_state
         ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'
@@ -715,7 +715,10 @@ export class Mesh2MotionEngine {
 
     const previous = select.value
     select.innerHTML = ''
-    this.edit_skeleton_step.skeleton().bones.forEach((bone, index) => {
+    const weightEditorSkeleton = this.process_step === ProcessStep.WeightSkin
+      ? this.weight_skin_step.skeleton()
+      : this.edit_skeleton_step.skeleton()
+    weightEditorSkeleton?.bones.forEach((bone, index) => {
       const option = document.createElement('option')
       option.value = index.toString()
       option.textContent = bone.name || `Bone ${index}`

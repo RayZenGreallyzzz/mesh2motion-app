@@ -28,7 +28,7 @@ export class StepWeightSkin extends EventTarget {
   // so these survive preview rebuilds and are applied again at Bind.
   private readonly manual_weight_deltas = new Map<number, Map<number, Map<number, number>>>()
   private manual_weight_preview_bone_index: number | null = null
-  private clothing_weight_guard_enabled: boolean = true
+  private clothing_weight_guard_enabled: boolean = false
 
   constructor () {
     super()
@@ -41,18 +41,17 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
-    // v5.3: Mobile Female edits the final clean deform rig directly.
-    // Clone that exact hierarchy for Bind instead of rebuilding from world-space
-    // joint positions. This keeps model geometry and bones in the same local
-    // coordinate system and guarantees identical bone ordering for weight paint.
+    // v5.4: the helper lines only prove JOINT POSITIONS are correct. AutoRig
+    // and manual placement do not recompute local bone axes, so binding a clone
+    // of the edit rig preserves stale mannequin rotations and explodes when an
+    // animation plays. Rebuild the bind/rest axes from the final placed joints
+    // in armature-local space before weight solving.
     if (skeleton_type === SkeletonType.MobileFemale) {
-      this.skinning_armature = editable_armature.userData.cleanMobileHumanoidRig === true
-        ? editable_armature.clone(true)
-        : CleanMobileHumanoidRig.build(editable_armature)
+      this.skinning_armature = CleanMobileHumanoidRig.buildFromPlacedJoints(editable_armature)
     } else {
       this.skinning_armature = editable_armature.clone(true)
     }
-    this.skinning_armature.name = 'Armature for skinning'
+    this.skinning_armature.name = 'Armature for skinning · Rest v5.4'
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
   }

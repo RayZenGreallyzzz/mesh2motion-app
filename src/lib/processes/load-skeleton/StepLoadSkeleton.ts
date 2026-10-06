@@ -10,6 +10,7 @@ import { add_preview_skeleton, remove_preview_skeleton } from './PreviewSkeleton
 import { HandHelper } from './HandHelper.ts'
 import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
+import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadSkeleton extends EventTarget {
@@ -244,6 +245,12 @@ export class StepLoadSkeleton extends EventTarget {
       if (is_humanoid_skeleton_type(this.skeleton_file_path())) {
         const helper = new HandHelper()
         helper.modify_hand_skeleton(this.loaded_armature, this.hand_skeleton_type())
+      }
+
+      // Mobile Humanoid v2 keeps the stock human rest frames for animation
+      // compatibility, then prunes/augments the hierarchy into the 27-bone game rig.
+      if (this.skeleton_file_path() === SkeletonType.MobileFemale) {
+        MobileHumanoidRigV2.apply(this.loaded_armature)
       }
 
       // v5.3: build the final deform hierarchy NOW, before the user edits it.
