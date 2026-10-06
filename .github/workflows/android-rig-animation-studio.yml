@@ -65,7 +65,7 @@ jobs:
         run: node scripts/apply-weight-shared-resource-fix.mjs
 
       - name: Apply v4.7 weight diagnostics + clothing guard
-        run: node scripts/apply-weight-diagnostics-v47.mjs
+        run: node scripts/apply-weight-diagnostics-v47b.mjs
 
       - name: Normalize Rig Animation Studio markup
         run: |
