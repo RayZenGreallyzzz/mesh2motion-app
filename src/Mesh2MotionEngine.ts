@@ -596,7 +596,18 @@ export class Mesh2MotionEngine {
     if (this.rig_setup_locked_state) return
 
     this.transform_controls.detach()
-    this.bake_rig_setup_group_transform()
+
+    // Canonical rig world transform v4.8
+    // Keep the user's global move/rotate/scale OUTSIDE the armature instead of
+    // baking it into the root bone. Animation clips contain local quaternion
+    // tracks authored for the canonical browser rig. Baking a global rotation
+    // into the armature makes the joints look correctly placed in bind pose but
+    // causes those animation quaternions to fight the baked orientation and can
+    // twist the entire character. The shared Rig Setup Group stays as the
+    // non-animated world transform; skinning is calculated from the model and
+    // armature's canonical local coordinates and the same world transform is
+    // copied onto the generated preview/skinned outputs afterwards.
+    this.rig_setup_group?.updateWorldMatrix(true, true)
     this.rig_setup_locked_state = true
     this.update_edit_bone_interaction_mode()
     this.update_rig_setup_controls()
@@ -659,6 +670,33 @@ export class Mesh2MotionEngine {
       weight_enabled.disabled = !this.rig_setup_locked_state
       if (!this.rig_setup_locked_state) weight_enabled.checked = false
     }
+  }
+
+  /**
+   * Copy the non-animated Rig Setup Group world transform onto generated skin
+   * outputs. The skeleton itself stays canonical, matching the browser rig and
+   * the coordinate system used by the bundled animation quaternion tracks.
+   */
+  private apply_rig_world_transform_to_skin_outputs (): void {
+    const group = this.rig_setup_group
+    if (group === null) return
+
+    group.updateWorldMatrix(true, true)
+    const position = new THREE.Vector3()
+    const quaternion = new THREE.Quaternion()
+    const scale = new THREE.Vector3()
+    group.matrixWorld.decompose(position, quaternion, scale)
+
+    const apply = (object: THREE.Object3D): void => {
+      object.position.copy(position)
+      object.quaternion.copy(quaternion)
+      object.scale.copy(scale)
+      object.updateMatrixWorld(true)
+    }
+
+    this.weight_skin_step.final_skinned_meshes().forEach(apply)
+    const preview = this.weight_skin_step.weight_painted_mesh_group()
+    if (preview !== null) apply(preview)
   }
 
   public refresh_manual_weight_editor (): void {
@@ -1063,6 +1101,7 @@ export class Mesh2MotionEngine {
 
       this.remove_skinned_meshes_from_scene()
       this.calculate_skin_weighting_for_models()
+      this.apply_rig_world_transform_to_skin_outputs()
       this.scene.add(...this.weight_skin_step.final_skinned_meshes())
       this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
 
@@ -1254,11 +1293,17 @@ export class Mesh2MotionEngine {
   }
 
   public remove_imported_model (): void {
+    // The canonical rig setup group can still own the hidden source model when
+    // restarting the flow. Remove the wrapper itself so no stale armature/model
+    // survives into the next import.
+    if (this.rig_setup_group !== null) {
+      this.rig_setup_group.removeFromParent()
+      this.rig_setup_group = null
+    }
+
     if (this.load_model_step.model_meshes() !== undefined) {
       const imported_model = this.scene.getObjectByName('Imported Model')
-      if (imported_model !== undefined) {
-        this.scene.remove(imported_model)
-      }
+      if (imported_model !== undefined) imported_model.removeFromParent()
     }
   }
 
@@ -1276,6 +1321,7 @@ export class Mesh2MotionEngine {
     if (is_weight_step) this.remove_skinned_meshes_from_scene()
 
     this.calculate_skin_weighting_for_models()
+    this.apply_rig_world_transform_to_skin_outputs()
 
     if (this.scene.getObjectByName('Weight Painted Mesh Preview') === undefined) {
       this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
