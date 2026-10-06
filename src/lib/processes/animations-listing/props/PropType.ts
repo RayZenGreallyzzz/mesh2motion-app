@@ -1,5 +1,6 @@
 export enum PropType {
   None = 'none',
+  Custom = 'custom',
   Pole = 'pole',
   Staff = 'staff',
   ArrowA = 'arrow-a',
