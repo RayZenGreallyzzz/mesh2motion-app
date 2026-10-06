@@ -44,6 +44,19 @@ update('src/lib/processes/load-skeleton/StepLoadSkeleton.ts', (source) => {
     'StepLoadSkeleton live clean rig'
   )
 
+  // Replay-safe: v5.1 may add MobileHumanoidRigV2 again on every CI run,
+  // and replacing that import with CleanMobileHumanoidRig used to leave two
+  // identical imports. Collapse duplicates before returning the generated file.
+  const cleanImport = "import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'"
+  const cleanLines = source.split('\n')
+  let seenCleanImport = false
+  source = cleanLines.filter((line) => {
+    if (line !== cleanImport) return true
+    if (seenCleanImport) return false
+    seenCleanImport = true
+    return true
+  }).join('\n')
+
   return source
 })
 
