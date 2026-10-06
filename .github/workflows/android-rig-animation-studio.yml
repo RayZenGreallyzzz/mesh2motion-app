@@ -46,9 +46,6 @@ jobs:
       - name: Apply existing Android rig fixes
         run: node scripts/apply-android-v3-fixes.mjs
 
-      - name: Apply rig setup lock workflow
-        run: node scripts/apply-rig-setup-lock.mjs
-
       - name: Apply manual weight editor
         run: node scripts/apply-manual-weight-editor.mjs
 
