@@ -1,7 +1,7 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip } from 'three'
 import { AnimationUtility } from './AnimationUtility.ts'
-import { type SkeletonType } from '../../enums/SkeletonType.ts'
+import { SkeletonType } from '../../enums/SkeletonType.ts'
 import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
@@ -223,6 +223,35 @@ export class AnimationLoader extends EventTarget {
   }
 
   /**
+   * Mobile Humanoid v2 deliberately removes finger and terminal leaf bones.
+   * The stock library still contains tracks for them, so strip only those tracks
+   * while preserving every core body/root-motion track unchanged.
+   */
+  private filter_mobile_humanoid_v2_tracks (clips: AnimationClip[]): void {
+    if (this.skeleton_type !== SkeletonType.MobileFemale) return
+
+    const removedPrefixes = ['thumb_', 'index_', 'middle_', 'ring_', 'pinky_']
+    const removedExact = new Set(['head_leaf', 'ball_leaf_l', 'ball_leaf_r'])
+
+    const targetBoneName = (trackName: string): string => {
+      const bonesMatch = trackName.match(/\.bones\[([^\]]+)\]/i)
+      if (bonesMatch !== null) return bonesMatch[1].toLowerCase()
+      const propertyIndex = trackName.lastIndexOf('.')
+      const target = propertyIndex >= 0 ? trackName.slice(0, propertyIndex) : trackName
+      const pathParts = target.split(/[\/|:]/)
+      return (pathParts[pathParts.length - 1] ?? target).toLowerCase()
+    }
+
+    for (const clip of clips) {
+      clip.tracks = clip.tracks.filter(track => {
+        const bone = targetBoneName(track.name)
+        if (removedExact.has(bone)) return false
+        return !removedPrefixes.some(prefix => bone.startsWith(prefix))
+      })
+    }
+  }
+
+  /**
    * Processes raw animation clips from GLTF file
    */
   public process_loaded_animations (
@@ -237,6 +266,8 @@ export class AnimationLoader extends EventTarget {
 
     // Deep clone the animations to avoid modifying originals
     const cloned_animations = AnimationUtility.deep_clone_animation_clips(raw_animations)
+
+    this.filter_mobile_humanoid_v2_tracks(cloned_animations)
 
     const position_tracking_bone_name: string | undefined = 
     RigConfig.by_skeleton_type(this.skeleton_type)?.position_tracking_bone_name

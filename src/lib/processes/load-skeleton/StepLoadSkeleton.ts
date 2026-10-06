@@ -9,6 +9,7 @@ import { add_origin_markers, remove_origin_markers } from './OriginMarkerManager
 import { add_preview_skeleton, remove_preview_skeleton } from './PreviewSkeletonManager.ts'
 import { HandHelper } from './HandHelper.ts'
 import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
+import { MobileHumanoidRigV2 } from '../../mobile-rig/MobileHumanoidRigV2.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadSkeleton extends EventTarget {
@@ -243,6 +244,12 @@ export class StepLoadSkeleton extends EventTarget {
       if (is_humanoid_skeleton_type(this.skeleton_file_path())) {
         const helper = new HandHelper()
         helper.modify_hand_skeleton(this.loaded_armature, this.hand_skeleton_type())
+      }
+
+      // Mobile Humanoid v2 keeps the stock human rest frames for animation
+      // compatibility, then prunes/augments the hierarchy into the 27-bone game rig.
+      if (this.skeleton_file_path() === SkeletonType.MobileFemale) {
+        MobileHumanoidRigV2.apply(this.loaded_armature)
       }
 
       this.loaded_armature.position.set(0, 0, 0)

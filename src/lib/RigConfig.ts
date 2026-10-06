@@ -36,7 +36,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.MobileFemale,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Humanoid AutoRig · Surface Skin v2',
+      rig_display_name: 'Humanoid Rig v2 · Surface Skin',
       animation_files: [
         '../animations/human-base-animations.glb',
         '../animations/human-addon-animations.glb',
