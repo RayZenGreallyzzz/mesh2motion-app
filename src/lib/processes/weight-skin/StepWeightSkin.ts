@@ -41,11 +41,17 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
-    // Mobile Female no longer binds the edited stock mannequin hierarchy. Build
-    // a fresh deform rig from the exact joint positions the user placed.
-    this.skinning_armature = skeleton_type === SkeletonType.MobileFemale
-      ? CleanMobileHumanoidRig.build(editable_armature)
-      : editable_armature.clone()
+    // v5.3: Mobile Female edits the final clean deform rig directly.
+    // Clone that exact hierarchy for Bind instead of rebuilding from world-space
+    // joint positions. This keeps model geometry and bones in the same local
+    // coordinate system and guarantees identical bone ordering for weight paint.
+    if (skeleton_type === SkeletonType.MobileFemale) {
+      this.skinning_armature = editable_armature.userData.cleanMobileHumanoidRig === true
+        ? editable_armature.clone(true)
+        : CleanMobileHumanoidRig.build(editable_armature)
+    } else {
+      this.skinning_armature = editable_armature.clone(true)
+    }
     this.skinning_armature.name = 'Armature for skinning'
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)

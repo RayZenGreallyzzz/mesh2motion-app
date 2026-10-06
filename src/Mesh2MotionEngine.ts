@@ -653,6 +653,7 @@ export class Mesh2MotionEngine {
     const pose_a = document.getElementById('pose-preset-a') as HTMLButtonElement | null
     const pose_t = document.getElementById('pose-preset-t') as HTMLButtonElement | null
     const bind = document.getElementById('action_bind_pose') as HTMLButtonElement | null
+    const autorig = document.getElementById('autorig-humanoid-button') as HTMLButtonElement | null
 
     if (lock_button !== null) {
       lock_button.textContent = this.rig_setup_locked_state ? 'Разблокировать риг' : 'Зафиксировать скелет'
@@ -662,10 +663,16 @@ export class Mesh2MotionEngine {
     if (pose_a !== null) pose_a.disabled = !this.rig_setup_locked_state
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
+    if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
+      autorig.textContent = 'АвтоРиг · Clean v5.3 LIVE'
+    }
     if (status !== null) {
+      const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
+        ? 'Clean Rig v5.3 LIVE · '
+        : ''
       status.textContent = this.rig_setup_locked_state
-        ? 'Риг зафиксирован: правьте суставы, обзор меняется только камерой.'
-        : 'Риг разблокирован: модель и скелет двигаются вместе.'
+        ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'
+        : cleanLive + 'риг разблокирован: модель и скелет двигаются вместе.'
     }
 
     const weight_enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
