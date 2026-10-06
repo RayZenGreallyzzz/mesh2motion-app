@@ -403,6 +403,24 @@ export class StepEditSkeleton extends EventTarget {
     if (!is_humanoid_skeleton_type(this._current_skeleton_type)) return
     if (this.threejs_skeleton.bones.length === 0) return
 
+    const left_upper = this.find_arm_bone('upper', 'l')
+    const right_upper = this.find_arm_bone('upper', 'r')
+    const left_lower = this.find_arm_bone('lower', 'l')
+    const right_lower = this.find_arm_bone('lower', 'r')
+    const left_hand = this.find_arm_bone('hand', 'l')
+    const right_hand = this.find_arm_bone('hand', 'r')
+
+    if (left_upper === undefined || right_upper === undefined ||
+        left_lower === undefined || right_lower === undefined ||
+        left_hand === undefined || right_hand === undefined) return
+
+    this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
+
+    const left_shoulder = left_upper.getWorldPosition(new Vector3())
+    const right_shoulder = right_upper.getWorldPosition(new Vector3())
+    const shoulder_center = left_shoulder.clone().add(right_shoulder).multiplyScalar(0.5)
+    const world_up = new Vector3(0, 1, 0)
+
     const downward_angle = pose === 't' ? 0 : 35 * Math.PI / 180
     const horizontal = Math.cos(downward_angle)
     const vertical = Math.sin(downward_angle)
@@ -410,40 +428,44 @@ export class StepEditSkeleton extends EventTarget {
     this.store_bone_state_for_undo()
     let applied = false
 
-    for (const side of ['l', 'r'] as const) {
-      const upperarm = this.find_arm_bone('upper', side)
-      const lowerarm = this.find_arm_bone('lower', side)
-      const hand = this.find_arm_bone('hand', side)
-      if (upperarm === undefined || lowerarm === undefined || hand === undefined) continue
+    const chains = [
+      { upper: left_upper, lower: left_lower, hand: left_hand },
+      { upper: right_upper, lower: right_lower, hand: right_hand }
+    ]
 
-      this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
-      const shoulder = upperarm.getWorldPosition(new Vector3())
-      const elbow = lowerarm.getWorldPosition(new Vector3())
-      const wrist = hand.getWorldPosition(new Vector3())
+    for (const chain of chains) {
+      const shoulder = chain.upper.getWorldPosition(new Vector3())
+      const elbow = chain.lower.getWorldPosition(new Vector3())
+      const wrist = chain.hand.getWorldPosition(new Vector3())
 
       const upper_length = shoulder.distanceTo(elbow)
       const lower_length = elbow.distanceTo(wrist)
       if (upper_length <= 0.0001 || lower_length <= 0.0001) continue
 
-      // Preserve the model's actual left/right orientation instead of assuming
-      // that a particular bone suffix always maps to +X or -X.
-      const x_delta = Math.abs(elbow.x - shoulder.x) > 0.0001
-        ? elbow.x - shoulder.x
-        : wrist.x - shoulder.x
-      const side_sign = Math.sign(x_delta) || (side === 'l' ? 1 : -1)
+      // Build the arm direction from the character's own shoulder line rather
+      // than world X. This stays correct when the imported model is rotated
+      // around Y and prevents A/T presets from sending arms behind the torso.
+      const outward = shoulder.clone().sub(shoulder_center)
+      outward.addScaledVector(world_up, -outward.dot(world_up))
 
-      const arm_direction = new Vector3(
-        side_sign * horizontal,
-        -vertical,
-        0
-      ).normalize()
+      if (outward.lengthSq() <= 0.000001) {
+        outward.copy(elbow).sub(shoulder)
+        outward.addScaledVector(world_up, -outward.dot(world_up))
+      }
+      if (outward.lengthSq() <= 0.000001) continue
+      outward.normalize()
+
+      const arm_direction = outward
+        .multiplyScalar(horizontal)
+        .addScaledVector(world_up, -vertical)
+        .normalize()
 
       const elbow_target = shoulder.clone().addScaledVector(arm_direction, upper_length)
-      this.set_bone_world_position(lowerarm, elbow_target)
+      this.set_bone_world_position(chain.lower, elbow_target)
 
-      const updated_elbow = lowerarm.getWorldPosition(new Vector3())
+      const updated_elbow = chain.lower.getWorldPosition(new Vector3())
       const wrist_target = updated_elbow.clone().addScaledVector(arm_direction, lower_length)
-      this.set_bone_world_position(hand, wrist_target)
+      this.set_bone_world_position(chain.hand, wrist_target)
       applied = true
     }
 
