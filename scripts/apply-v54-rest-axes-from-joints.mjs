@@ -163,7 +163,7 @@ update('src/lib/mobile-rig/CleanMobileHumanoidRig.ts', (source) => {
     result.userData.rigEngineVersion = '5.4'
     result.updateWorldMatrix(true, true)
 
-    console.log(`Clean Mobile Humanoid Rig v5.4: rebuilt rest axes for ${sourceBones.length} placed deform bones`)
+    console.log('Clean Mobile Humanoid Rig v5.4: rebuilt rest axes for ' + sourceBones.length + ' placed deform bones')
     return result
   }
 
