@@ -1,5 +1,6 @@
 import { UI } from '../../UI.ts'
 import { ModalDialog } from '../../ModalDialog.ts'
+import { PlatformUtils } from '../../PlatformUtils.ts'
 import { type AnimationClip, type SkinnedMesh } from 'three'
 import { type AnimationLoader } from './AnimationLoader.ts'
 import CustomAnimationValidation from './CustomAnimationValidation.ts'
@@ -22,6 +23,7 @@ export class CustomAnimationImporter extends EventTarget {
     super()
     this.ui = UI.getInstance()
     this.animation_loader = animation_loader
+    this.prepare_mobile_import_ui()
     this.add_event_listeners()
   }
 
@@ -30,7 +32,7 @@ export class CustomAnimationImporter extends EventTarget {
     this.skeleton_scale = skeleton_scale
   }
 
-  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }): void {
+  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }) | null {
     this.import_context_provider = provider
   }
 
@@ -43,6 +45,24 @@ export class CustomAnimationImporter extends EventTarget {
 
   public is_enabled (): boolean {
     return this.enabled
+  }
+
+  private prepare_mobile_import_ui (): void {
+    const button = this.ui.dom_import_animations_button
+    if (button !== null && button.querySelector('.ras-import-animation-label') === null) {
+      const label = document.createElement('span')
+      label.className = 'ras-import-animation-label'
+      label.textContent = 'Импорт GLB'
+      button.appendChild(label)
+      button.title = 'Импортировать свою анимацию GLB'
+      button.setAttribute('aria-label', 'Импортировать свою анимацию GLB')
+    }
+
+    // Android document providers report GLB files under several different MIME
+    // types. Let the picker show all files and validate the extension ourselves.
+    if ((PlatformUtils.isAndroid() || PlatformUtils.isIOS()) && this.ui.dom_import_animations_input !== null) {
+      this.ui.dom_import_animations_input.setAttribute('accept', '*/*')
+    }
   }
 
   private add_event_listeners (): void {
@@ -85,7 +105,7 @@ export class CustomAnimationImporter extends EventTarget {
       for (const file of Array.from(files)) {
         const file_name = file.name.toLowerCase()
         if (!file_name.endsWith('.glb')) {
-          new ModalDialog('Unsupported file type. Please select a GLB file.', 'Error').show()
+          new ModalDialog('Анимация', 'Сейчас для своих анимаций поддерживается GLB.').show()
           continue
         }
         await this.import_animation_glb(file)
