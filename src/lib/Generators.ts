@@ -266,10 +266,25 @@ export class Generators {
         }
         selected_weight = Math.max(0, Math.min(1, selected_weight))
 
-        // Dark blue = no influence, bright magenta = full influence.
-        colors[i * 3] = 0.07 + selected_weight * 0.93
-        colors[i * 3 + 1] = 0.09 + selected_weight * 0.10
-        colors[i * 3 + 2] = 0.16 + selected_weight * 0.72
+        // Diagnostic heatmap for one selected bone:
+        // 0% navy -> 25% blue -> 50% green -> 75% yellow -> 100% red.
+        let r = 0; let g = 0; let b = 0
+        if (selected_weight < 0.25) {
+          const t = selected_weight / 0.25
+          r = 0.02 * (1 - t); g = 0.04 + 0.21 * t; b = 0.15 + 0.85 * t
+        } else if (selected_weight < 0.5) {
+          const t = (selected_weight - 0.25) / 0.25
+          r = 0; g = 0.25 + 0.75 * t; b = 1.0 - 0.70 * t
+        } else if (selected_weight < 0.75) {
+          const t = (selected_weight - 0.5) / 0.25
+          r = t; g = 1.0; b = 0.30 * (1 - t)
+        } else {
+          const t = (selected_weight - 0.75) / 0.25
+          r = 1.0; g = 1.0 - 0.95 * t; b = 0
+        }
+        colors[i * 3] = r
+        colors[i * 3 + 1] = g
+        colors[i * 3 + 2] = b
       } else {
         const bone_index = skin_indices[i * 4] // Primary bone assignment
         let color = bone_colors[bone_index]

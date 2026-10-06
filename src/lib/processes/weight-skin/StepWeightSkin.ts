@@ -26,6 +26,7 @@ export class StepWeightSkin extends EventTarget {
   // so these survive preview rebuilds and are applied again at Bind.
   private readonly manual_weight_deltas = new Map<number, Map<number, Map<number, number>>>()
   private manual_weight_preview_bone_index: number | null = null
+  private clothing_weight_guard_enabled: boolean = true
 
   constructor () {
     super()
@@ -176,6 +177,42 @@ export class StepWeightSkin extends EventTarget {
     this.manual_weight_preview_bone_index = bone_index
   }
 
+  public set_clothing_weight_guard_enabled (enabled: boolean): void {
+    this.clothing_weight_guard_enabled = enabled
+  }
+
+  public get_bone_weight_stats (bone_index: number): { boneName: string, influenced: number, total: number, average: number, max: number } {
+    const boneName = this.binding_skeleton?.bones[bone_index]?.name ?? ('Bone ' + bone_index.toString())
+    let influenced = 0
+    let total = 0
+    let weightSum = 0
+    let max = 0
+
+    for (const geometry of this.all_mesh_geometry) {
+      const skinIndex = geometry.getAttribute('skinIndex')
+      const skinWeight = geometry.getAttribute('skinWeight')
+      const positions = geometry.getAttribute('position')
+      if (skinIndex === undefined || skinWeight === undefined || positions === undefined) continue
+      total += positions.count
+      const indexArray = skinIndex.array
+      const weightArray = skinWeight.array
+      for (let vertex = 0; vertex < positions.count; vertex++) {
+        let selectedWeight = 0
+        const offset = vertex * 4
+        for (let slot = 0; slot < 4; slot++) {
+          if (Number(indexArray[offset + slot]) === bone_index) selectedWeight += Number(weightArray[offset + slot] ?? 0)
+        }
+        if (selectedWeight > 0.0001) {
+          influenced++
+          weightSum += selectedWeight
+          max = Math.max(max, selectedWeight)
+        }
+      }
+    }
+
+    return { boneName, influenced, total, average: influenced === 0 ? 0 : weightSum / influenced, max }
+  }
+
   public clear_manual_weight_overrides (): void {
     this.manual_weight_deltas.clear()
   }
@@ -251,6 +288,97 @@ export class StepWeightSkin extends EventTarget {
     }
   }
 
+  private bone_weight_family (bone_index: number): string {
+    const raw = this.binding_skeleton?.bones[bone_index]?.name ?? ''
+    const n = raw.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (n.includes('root')) return 'root'
+    const left = n.includes('left') || n.endsWith('l')
+    const right = n.includes('right') || n.endsWith('r')
+    const arm = /(shoulder|clavicle|upperarm|forearm|lowerarm|hand|wrist|finger|thumb|arm)/.test(n)
+    const leg = /(thigh|upleg|upperleg|shin|calf|foot|toe|leg)/.test(n)
+    if (arm && left) return 'armL'
+    if (arm && right) return 'armR'
+    if (leg && left) return 'legL'
+    if (leg && right) return 'legR'
+    if (/(pelvis|hips|hip)/.test(n)) return 'lowerCore'
+    if (/(spine|chest)/.test(n)) return 'upperCore'
+    if (/(neck|head)/.test(n)) return 'head'
+    return 'other'
+  }
+
+  private apply_clothing_component_guard (geometry: BufferGeometry, skin_indices: number[], skin_weights: number[]): void {
+    if (!this.clothing_weight_guard_enabled || this.binding_skeleton === undefined) return
+    const positions = geometry.getAttribute('position')
+    const index = geometry.index
+    const vertexCount = positions?.count ?? 0
+    // Without an index we cannot reliably separate cape/skirt/accessory islands.
+    // Be conservative and leave browser skinning untouched.
+    if (vertexCount < 24 || index === null) return
+
+    const parent = new Int32Array(vertexCount)
+    for (let i = 0; i < vertexCount; i++) parent[i] = i
+    const find = (value: number): number => {
+      let x = value
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x] }
+      return x
+    }
+    const union = (a: number, b: number): void => {
+      const ra = find(a); const rb = find(b)
+      if (ra !== rb) parent[rb] = ra
+    }
+    for (let i = 0; i + 2 < index.count; i += 3) {
+      const a = index.getX(i); const b = index.getX(i + 1); const c = index.getX(i + 2)
+      union(a, b); union(b, c)
+    }
+
+    const totals = new Map<number, Map<string, number>>()
+    const counts = new Map<number, number>()
+    for (let vertex = 0; vertex < vertexCount; vertex++) {
+      const component = find(vertex)
+      counts.set(component, (counts.get(component) ?? 0) + 1)
+      let familyMap = totals.get(component)
+      if (familyMap === undefined) { familyMap = new Map<string, number>(); totals.set(component, familyMap) }
+      const offset = vertex * 4
+      for (let slot = 0; slot < 4; slot++) {
+        const w = skin_weights[offset + slot] ?? 0
+        if (w <= 0.00001) continue
+        const family = this.bone_weight_family(skin_indices[offset + slot])
+        familyMap.set(family, (familyMap.get(family) ?? 0) + w)
+      }
+    }
+
+    const allowed = new Map<number, Set<string>>()
+    for (const [component, familyMap] of totals) {
+      if ((counts.get(component) ?? 0) < 24) continue
+      const sorted = [...familyMap.entries()].sort((a, b) => b[1] - a[1])
+      const total = sorted.reduce((sum, entry) => sum + entry[1], 0)
+      if (total <= 0 || sorted.length < 2) continue
+      const keep = new Set<string>()
+      let cumulative = 0
+      for (const [family, value] of sorted) {
+        keep.add(family)
+        cumulative += value / total
+        if (cumulative >= 0.90 || keep.size >= 3) break
+      }
+      if (keep.size <= 3 && cumulative >= 0.86) allowed.set(component, keep)
+    }
+
+    for (let vertex = 0; vertex < vertexCount; vertex++) {
+      const keep = allowed.get(find(vertex))
+      if (keep === undefined) continue
+      const offset = vertex * 4
+      let sum = 0
+      const nextWeights = [0, 0, 0, 0]
+      for (let slot = 0; slot < 4; slot++) {
+        const family = this.bone_weight_family(skin_indices[offset + slot])
+        const w = skin_weights[offset + slot] ?? 0
+        if (keep.has(family)) { nextWeights[slot] = w; sum += w }
+      }
+      if (sum <= 0.00001) continue
+      for (let slot = 0; slot < 4; slot++) skin_weights[offset + slot] = nextWeights[slot] / sum
+    }
+  }
+
   public calculate_weights_for_all_mesh_data (regenerate_weight_painted_mesh: boolean = false): void {
     if (this.all_mesh_geometry.length === 0) {
       console.warn('Tried to calculate_weights_for_all_mesh_data() but all_mesh_geometry is empty!')
@@ -263,6 +391,8 @@ export class StepWeightSkin extends EventTarget {
     this.all_mesh_geometry.forEach((geometry_data: BufferGeometry, idx: number) => {
       this.bone_skinning_formula!.set_geometry(geometry_data)
       const [final_skin_indices, final_skin_weights]: number[][] = this.calculate_weights()
+      this.apply_clothing_component_guard(geometry_data, final_skin_indices, final_skin_weights)
+      // Manual paint intentionally runs last so the artist can override the guard.
       this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)
 
       geometry_data.setAttribute('skinIndex', new Uint16BufferAttribute(final_skin_indices, 4))

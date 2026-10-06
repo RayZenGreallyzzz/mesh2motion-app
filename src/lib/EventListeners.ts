@@ -54,7 +54,7 @@ export class EventListeners {
       this.bootstrap.sync_manual_weight_editor()
     })
     document.getElementById('manual-weight-bone')?.addEventListener('change', () => {
-      this.bootstrap.sync_manual_weight_editor()
+      this.bootstrap.preview_selected_weight_bone()
     })
     document.getElementById('manual-weight-radius')?.addEventListener('input', () => {
       this.bootstrap.update_manual_weight_labels()
@@ -64,6 +64,12 @@ export class EventListeners {
     })
     document.getElementById('manual-weight-reset')?.addEventListener('click', () => {
       this.bootstrap.reset_manual_weight_overrides()
+    })
+    document.getElementById('clothing-weight-guard')?.addEventListener('change', () => {
+      this.bootstrap.sync_clothing_weight_guard()
+    })
+    document.getElementById('weight-root-pelvis-debug')?.addEventListener('click', () => {
+      this.bootstrap.update_weight_debug_status(true)
     })
 
     // Listen for skeleton transformation events to update UI and visuals

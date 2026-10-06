@@ -369,7 +369,19 @@
             <label for="manual-weight-strength">Сила <span id="manual-weight-strength-value">15</span>%</label>
             <input id="manual-weight-strength" type="range" min="0.05" max="0.50" step="0.05" value="0.15" />
             <button type="button" class="secondary-button" id="manual-weight-reset">Сбросить ручные правки</button>
-            <small id="manual-weight-status">Зафиксируйте риг, включите кисть и проведите пальцем по модели.</small>
+            <small id="manual-weight-status">Включите кисть, выберите кость и проведите пальцем по модели.</small>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <span class="pill-switch-label">Влияние выбранной кости</span>
+              <div style="height: 10px; border-radius: 5px; background: linear-gradient(90deg, #050a26 0%, #0040ff 25%, #00ff4d 50%, #ffff00 75%, #ff0d00 100%);"></div>
+              <div style="display:flex; justify-content:space-between; font-size:0.72rem;"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+            </div>
+            <div class="styled-checkbox" style="margin: 0;">
+              <input type="checkbox" id="clothing-weight-guard" checked />
+              <label for="clothing-weight-guard">Защита одежды</label>
+            </div>
+            <small>Убирает случайные веса с отдельных плащей, юбок и аксессуаров. Ручная кисть имеет приоритет.</small>
+            <button type="button" class="secondary-button" id="weight-root-pelvis-debug">Проверить Root / Pelvis</button>
+            <small id="weight-debug-status" style="white-space: pre-line; line-height: 1.35;">Выберите кость — здесь появится статистика влияния.</small>
           </div>
 
           <div style="display: flex; gap: 0.5rem;">

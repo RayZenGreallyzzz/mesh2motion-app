@@ -675,13 +675,14 @@ export class Mesh2MotionEngine {
     })
 
     if ([...select.options].some(option => option.value === previous)) select.value = previous
-    else if (select.options.length > 0) select.selectedIndex = 0
+    else {
+      const pelvis = [...select.options].find(option => /pelvis|hips/i.test(option.textContent ?? ''))
+      if (pelvis !== undefined) select.value = pelvis.value
+      else if (select.options.length > 0) select.selectedIndex = 0
+    }
 
     const selected = Number.parseInt(select.value, 10)
-    const weight_enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
-    this.weight_skin_step.set_manual_weight_preview_bone(
-      (weight_enabled?.checked ?? false) && Number.isFinite(selected) ? selected : null
-    )
+    this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
     this.update_manual_weight_labels()
   }
 
@@ -698,9 +699,7 @@ export class Mesh2MotionEngine {
 
     const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
     const selected = select === null ? NaN : Number.parseInt(select.value, 10)
-    this.weight_skin_step.set_manual_weight_preview_bone(
-      enabled.checked && Number.isFinite(selected) ? selected : null
-    )
+    this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
 
     if (enabled.checked) {
       this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
@@ -712,6 +711,52 @@ export class Mesh2MotionEngine {
     }
 
     this.update_manual_weight_labels()
+  }
+
+  public preview_selected_weight_bone (): void {
+    if (this.process_step !== ProcessStep.WeightSkin) return
+    const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
+    const selected = Number.parseInt(select?.value ?? '', 10)
+    this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
+    this.changed_model_preview_display(ModelPreviewDisplay.WeightPainted)
+    this.update_weight_debug_status(false)
+  }
+
+  public sync_clothing_weight_guard (): void {
+    const checkbox = document.getElementById('clothing-weight-guard') as HTMLInputElement | null
+    this.weight_skin_step.set_clothing_weight_guard_enabled(checkbox?.checked ?? true)
+    if (this.process_step === ProcessStep.WeightSkin) {
+      this.regenerate_weight_painted_preview_mesh()
+      this.update_weight_debug_status(false)
+    }
+  }
+
+  public update_weight_debug_status (includeRig: boolean = true): void {
+    const output = document.getElementById('weight-debug-status')
+    if (output === null || this.process_step !== ProcessStep.WeightSkin) return
+    const skeleton = this.weight_skin_step.skeleton()
+    if (skeleton === undefined) { output.textContent = 'Скелет не найден.'; return }
+    const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
+    const selected = Number.parseInt(select?.value ?? '', 10)
+    const fmt = (index: number): string => {
+      if (!Number.isFinite(index) || index < 0) return '—'
+      const s = this.weight_skin_step.get_bone_weight_stats(index)
+      return s.boneName + ': ' + s.influenced.toString() + '/' + s.total.toString() + ' вершин · avg ' + Math.round(s.average * 100).toString() + '% · max ' + Math.round(s.max * 100).toString() + '%'
+    }
+    const rootIndex = skeleton.bones.findIndex(bone => /root/i.test(bone.name))
+    const pelvisIndex = skeleton.bones.findIndex(bone => /pelvis|hips/i.test(bone.name))
+    const outputLines = ['Выбрано — ' + fmt(selected), 'Root — ' + fmt(rootIndex), 'Pelvis — ' + fmt(pelvisIndex)]
+    if (includeRig) {
+      const deg = (value: number): number => Math.round(value * 180 / Math.PI)
+      const describe = (index: number): string => {
+        const bone = skeleton.bones[index]
+        if (bone === undefined) return '—'
+        return bone.name + ': pos(' + bone.position.x.toFixed(2) + ', ' + bone.position.y.toFixed(2) + ', ' + bone.position.z.toFixed(2) + ') rot(' + deg(bone.rotation.x).toString() + '°, ' + deg(bone.rotation.y).toString() + '°, ' + deg(bone.rotation.z).toString() + '°)'
+      }
+      outputLines.push('Bind Root — ' + describe(rootIndex))
+      outputLines.push('Bind Pelvis — ' + describe(pelvisIndex))
+    }
+    output.textContent = outputLines.join('\n')
   }
 
   public update_manual_weight_labels (): void {
@@ -807,12 +852,16 @@ export class Mesh2MotionEngine {
     })
 
     this.regenerate_weight_painted_preview_mesh()
+    this.update_weight_debug_status(false)
     return true
   }
 
   public reset_manual_weight_overrides (): void {
     this.weight_skin_step.clear_manual_weight_overrides()
-    if (this.process_step === ProcessStep.WeightSkin) this.regenerate_weight_painted_preview_mesh()
+    if (this.process_step === ProcessStep.WeightSkin) {
+      this.regenerate_weight_painted_preview_mesh()
+      this.update_weight_debug_status(false)
+    }
   }
 
   // --- Model position gizmo (step 2) ---
