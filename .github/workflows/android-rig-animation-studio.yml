@@ -76,6 +76,9 @@ jobs:
       - name: Apply v5 Surface Skin UI defaults
         run: node scripts/apply-v50-surface-skin-ui.mjs
 
+      - name: Apply v5.1 Humanoid Rig v2
+        run: node scripts/apply-v51-humanoid-rig-v2.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -120,26 +123,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.1-Humanoid-Rig-v2-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.0-surface-skin"
-          APK="artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk"
+          TAG="rig-animation-studio-v5.1-humanoid-rig-v2"
+          APK="artifacts/Rig-Animation-Studio-v5.1-Humanoid-Rig-v2-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.0 Surface Skin" \
-              --notes "Rig Engine v2 test build. Humanoid weights use welded surface connectivity, bone segments and geodesic propagation with max four influences per vertex. Legacy clothing guard is off by default."
+              --title "Rig Animation Studio v5.1 Humanoid Rig v2" \
+              --notes "27-bone mobile humanoid test. Preserves stock human rest frames and core animation bone names, removes fingers/tip bones, adds four arm twist bones, hides the root-to-pelvis helper link, and keeps Surface Skin v2."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.0-Surface-Skin-APK
-          path: artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk
+          name: Rig-Animation-Studio-v5.1-Humanoid-Rig-v2-APK
+          path: artifacts/Rig-Animation-Studio-v5.1-Humanoid-Rig-v2-debug.apk
           if-no-files-found: error
           retention-days: 14
