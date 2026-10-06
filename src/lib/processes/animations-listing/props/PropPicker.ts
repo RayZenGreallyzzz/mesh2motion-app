@@ -40,7 +40,7 @@ export class PropPicker extends EventTarget {
     this.trigger_preview = this.element.querySelector<HTMLElement>('.prop-picker-trigger .prop-picker-thumb') as HTMLElement
     this.trigger_name = this.element.querySelector<HTMLElement>('.prop-picker-name') as HTMLElement
     this.listbox = this.element.querySelector<HTMLElement>('.prop-picker-popup') as HTMLElement
-    this.options.push(...this.listbox.querySelectorAll<HTMLElement>('[role="option"]'))
+    this.collect_options()
 
     this.add_event_listeners()
     this.render_value()
@@ -52,6 +52,17 @@ export class PropPicker extends EventTarget {
 
   public set value (value: PropType) {
     this.current_value = PropCatalog.find(value) !== undefined ? value : PropType.None
+    this.render_value()
+  }
+
+  /** Rebuilds the list after a custom weapon is imported. */
+  public refresh_options (): void {
+    this.listbox.innerHTML = this.options_html()
+    this.collect_options()
+    this.active_index = 0
+    if (this.current_value !== PropType.None && PropCatalog.find(this.current_value) === undefined) {
+      this.current_value = PropType.None
+    }
     this.render_value()
   }
 
@@ -88,6 +99,11 @@ export class PropPicker extends EventTarget {
     if (restore_focus) {
       this.trigger.focus()
     }
+  }
+
+  private collect_options (): void {
+    this.options.length = 0
+    this.options.push(...this.listbox.querySelectorAll<HTMLElement>('[role="option"]'))
   }
 
   private add_event_listeners (): void {
@@ -163,8 +179,9 @@ export class PropPicker extends EventTarget {
   }
 
   private set_active (index: number, scroll_into_view: boolean = true): void {
+    if (this.options.length === 0) return
     this.options[this.active_index]?.classList.remove('active')
-    this.active_index = Math.max(0, index)
+    this.active_index = Math.max(0, Math.min(index, this.options.length - 1))
 
     const option = this.options[this.active_index]
     option.classList.add('active')
