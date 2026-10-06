@@ -46,6 +46,9 @@ jobs:
       - name: Apply existing Android rig fixes
         run: node scripts/apply-android-v3-fixes.mjs
 
+      - name: Apply rig setup lock workflow
+        run: node scripts/apply-rig-setup-lock.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
