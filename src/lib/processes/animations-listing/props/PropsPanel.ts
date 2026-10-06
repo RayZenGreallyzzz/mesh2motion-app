@@ -1,4 +1,6 @@
 import { UI } from '../../../UI.ts'
+import { ModalDialog } from '../../../ModalDialog.ts'
+import { PropCatalog } from './PropCatalog.ts'
 import { PropPicker } from './PropPicker.ts'
 import { PropSide } from './PropSide.ts'
 import { PropType } from './PropType.ts'
@@ -25,6 +27,8 @@ export class PropsPanel extends EventTarget {
     this.right_picker = new PropPicker(dom_right_hand, 'Right')
     this.left_picker.addEventListener('change', () => { this.dispatch_selection_changed() })
     this.right_picker.addEventListener('change', () => { this.dispatch_selection_changed() })
+
+    this.install_custom_weapon_import()
 
     // the toggle only shows while collapsed; the close button inside the panel collapses it
     this.ui.dom_props_toggle_button?.addEventListener('click', () => {
@@ -66,6 +70,58 @@ export class PropsPanel extends EventTarget {
   public set_selection (selection: PropSelection): void {
     if (this.left_picker !== null) { this.left_picker.value = selection.left }
     if (this.right_picker !== null) { this.right_picker.value = selection.right }
+  }
+
+  private install_custom_weapon_import (): void {
+    const panel = this.ui.dom_props_panel
+    if (panel === null || panel.querySelector('#custom-prop-import-button') !== null) return
+
+    const controls = document.createElement('div')
+    controls.className = 'custom-prop-import-controls'
+    controls.innerHTML = `
+      <button type="button" class="secondary-button" id="custom-prop-import-button" title="Загрузить своё оружие GLB">
+        <span aria-hidden="true">＋</span>
+        <span>Своё GLB</span>
+      </button>
+      <input id="custom-prop-import-input" type="file" accept="*/*" hidden />
+    `
+
+    const close_button = this.ui.dom_props_close_button
+    if (close_button !== null) {
+      panel.insertBefore(controls, close_button)
+    } else {
+      panel.appendChild(controls)
+    }
+
+    const import_button = controls.querySelector<HTMLButtonElement>('#custom-prop-import-button')
+    const import_input = controls.querySelector<HTMLInputElement>('#custom-prop-import-input')
+
+    import_button?.addEventListener('click', () => {
+      import_input?.click()
+    })
+
+    import_input?.addEventListener('change', () => {
+      const file = import_input.files?.[0]
+      import_input.value = ''
+      if (file === undefined) return
+
+      if (!file.name.toLowerCase().endsWith('.glb')) {
+        new ModalDialog('Оружие', 'Сейчас для своего оружия поддерживается формат GLB.').show()
+        return
+      }
+
+      PropCatalog.register_custom_glb(file)
+      this.left_picker?.refresh_options()
+      this.right_picker?.refresh_options()
+
+      // Put a newly imported weapon in the right hand by default. The new
+      // "Custom" item remains available in both pickers, so the user can move
+      // it to the left hand or use it in both hands afterwards.
+      if (this.right_picker !== null) {
+        this.right_picker.value = PropType.Custom
+      }
+      this.dispatch_selection_changed()
+    })
   }
 
   private set_expanded (is_expanded: boolean): void {
