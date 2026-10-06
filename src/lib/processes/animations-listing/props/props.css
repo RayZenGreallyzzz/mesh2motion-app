@@ -7,7 +7,7 @@
     display: flex;
     flex-direction: row;
     align-items: flex-start;
-    gap: 0.5rem;
+    gap: 0.35rem;
 }
 
 /* panel sits to the left of the toggle button */
@@ -20,7 +20,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.5rem;
+    padding: 0.35rem 0.45rem;
 }
 
 #props-toggle-button[hidden] {
@@ -36,11 +36,13 @@
 .props-panel {
     display: flex;
     flex-direction: row;
-    gap: 1rem;
-    padding: 1.0rem;
+    align-items: center;
+    gap: 0.45rem;
+    max-width: min(32rem, 58vw);
+    padding: 0.5rem;
     border: 1px solid var(--bg-tertiary);
     border-radius: 6px;
-    background: color-mix(in srgb, var(--bg-primary) 90%, black);
+    background: color-mix(in srgb, var(--bg-primary) 92%, black);
     box-shadow: 1px 1px 8px 0px var(--bg-primary);
 }
 
@@ -55,20 +57,23 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
+    min-width: 0;
     color: var(--text-alternate);
 }
 
 .prop-picker-label {
     white-space: nowrap;
+    font-size: 0.85rem;
 }
 
 .prop-picker-trigger {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    width: 15rem;
-    padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+    gap: 0.35rem;
+    width: 10.5rem;
+    min-height: 2.35rem;
+    padding: 0.2rem 0.4rem 0.2rem 0.2rem;
     background: var(--bg-alternate);
     box-shadow: none;
     color: var(--text-primary);
@@ -91,6 +96,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    font-size: 0.85rem;
 }
 
 .prop-picker-chevron {
@@ -112,10 +118,9 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 1.8rem;
+    height: 1.8rem;
     border-radius: 3px;
-    /* background: color-mix(in srgb, var(--bg-primary) 70%, transparent); */
 }
 
 .prop-picker-thumb img {
@@ -139,10 +144,11 @@
     top: calc(100% + 0.25rem);
     right: 0;
     z-index: 20;
-    width: 16rem;
-    max-height: calc(100vh - var(--navigation-height) - 17rem);
+    width: 13rem;
+    max-height: min(23rem, 46vh);
     overflow-y: auto;
-    padding: 0.5rem;
+    overscroll-behavior: contain;
+    padding: 0.35rem;
     border: 1px solid var(--bg-tertiary);
     border-radius: 6px;
     background: var(--bg-primary);
@@ -155,36 +161,36 @@
 }
 
 .prop-picker-group {
-    margin-top: 0.5rem;
+    margin-top: 0.35rem;
 }
 
 .prop-picker-group-label {
-    margin: 0 0 0.25rem 0.15rem;
-    padding: 0.5rem;
+    margin: 0 0 0.2rem 0;
+    padding: 0.3rem 0.4rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     background: var(--bg-alternate);
     text-align: center;
+    font-size: 0.75rem;
 }
-
-
 
 .prop-picker-option {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     min-width: 0;
-    padding: 0.3rem 0.5rem;
+    padding: 0.25rem 0.35rem;
     border: 1px solid transparent;
     border-radius: 4px;
     color: var(--text-primary);
     cursor: pointer;
+    font-size: 0.82rem;
 }
 
 .prop-picker-option .prop-picker-thumb {
-    width: 3.5rem;
-    height: 3.5rem;
+    width: 2.3rem;
+    height: 2.3rem;
 }
 
 .prop-picker-option-name {
@@ -200,24 +206,59 @@
     border-color: var(--text-primary);
 }
 
-@media (max-width: 48rem) {
-    #props-dock {
-        right: 0.5rem !important;
-        left: 0.5rem;
-    }
+.custom-prop-import-controls {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+}
 
+#custom-prop-import-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 70rem) {
     .props-panel {
-        flex: 1;
-        flex-direction: column;
-        min-width: 0;
+        max-width: min(26rem, 52vw);
+        flex-wrap: wrap;
+        justify-content: flex-end;
     }
 
     .prop-picker-trigger {
-        width: min(15rem, calc(100vw - 9rem));
+        width: 9rem;
+    }
+}
+
+@media (max-width: 48rem) {
+    #props-dock {
+        right: 0.5rem !important;
+        left: auto;
+        max-width: calc(100vw - 1rem);
+    }
+
+    .props-panel {
+        width: min(23rem, calc(100vw - 4.5rem));
+        max-width: none;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.35rem;
+    }
+
+    .prop-picker {
+        width: 100%;
+    }
+
+    .prop-picker-trigger {
+        width: 100%;
     }
 
     .prop-picker-popup {
         right: 0;
-        width: min(22rem, calc(100vw - 2rem));
+        width: min(15rem, calc(100vw - 6rem));
+        max-height: 40vh;
     }
 }
