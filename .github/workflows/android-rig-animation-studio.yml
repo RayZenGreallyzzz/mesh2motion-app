@@ -52,6 +52,9 @@ jobs:
       - name: Apply manual weight editor
         run: node scripts/apply-manual-weight-editor.mjs
 
+      - name: Polish manual weight brush
+        run: node scripts/apply-manual-weight-polish.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
