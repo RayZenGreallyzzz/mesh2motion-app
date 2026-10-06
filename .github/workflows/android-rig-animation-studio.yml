@@ -85,6 +85,9 @@ jobs:
       - name: Apply v5.3 live clean rig coordinate fix
         run: node scripts/apply-v53-live-clean-rig.mjs
 
+      - name: Apply v5.4 rest axes from placed joints
+        run: node scripts/apply-v54-rest-axes-from-joints.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -129,26 +132,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.3-Live-Clean-Rig-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.3-live-clean-rig"
-          APK="artifacts/Rig-Animation-Studio-v5.3-Live-Clean-Rig-debug.apk"
+          TAG="rig-animation-studio-v5.4-rest-axes"
+          APK="artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.3 Live Clean Rig" \
-              --notes "The clean deform rig is now created before joint editing and the same hierarchy is cloned for Bind. This removes the v5.2 edit-vs-bind skeleton split and prevents Rig Setup world transforms from contaminating local skinning coordinates. Root motion remains separate and library animations are retargeted offline."
+              --title "Rig Animation Studio v5.4 Rest Axes" \
+              --notes "Bind now rebuilds the rest orientation of every deform bone from the final placed joint positions in armature-local space. This fixes the v5.3 case where helper lines looked correct but stale mannequin bone axes produced extreme mutant animation deformation. Surface Skin v2 and offline retarget remain enabled."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.3-Live-Clean-Rig-APK
-          path: artifacts/Rig-Animation-Studio-v5.3-Live-Clean-Rig-debug.apk
+          name: Rig-Animation-Studio-v5.4-Rest-Axes-APK
+          path: artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk
           if-no-files-found: error
           retention-days: 14
