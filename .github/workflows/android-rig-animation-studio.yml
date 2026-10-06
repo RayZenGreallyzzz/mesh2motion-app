@@ -43,18 +43,25 @@ jobs:
           mkdir -p static/draco
           cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
 
-      - name: Apply Rig Animation Studio v2 patches
-        run: node scripts/apply-android-pose-presets.mjs
+      - name: Normalize generated v2 markup
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const path = 'src/create.html'
+          let html = fs.readFileSync(path, 'utf8')
+          html = html.replace('    </nav>\n    </nav>\n', '    </nav>\n')
+          fs.writeFileSync(path, html)
+          NODE
 
-      - name: Commit generated v2 source changes
+      - name: Commit markup cleanup if needed
         run: |
           if git diff --quiet -- src; then
-            echo "No generated Rig Animation Studio v2 source changes to commit"
+            echo "No v2 source cleanup needed"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -A src
-            git commit -m "Apply Rig Animation Studio tablet v2 patches"
+            git commit -m "Clean Rig Animation Studio v2 markup"
             git push origin HEAD:android-rig-animation-studio
           fi
 
