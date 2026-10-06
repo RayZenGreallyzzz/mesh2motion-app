@@ -216,6 +216,21 @@
             <small>Choose a starting pose, then drag joints directly on the model.</small>
           </div>
 
+          <div id="rig-setup-controls" class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <span class="pill-switch-label">Положение рига</span>
+            <button type="button" id="rig-setup-lock-button">Зафиксировать скелет</button>
+            <div style="display: flex; gap: 0.35rem;">
+              <button type="button" class="secondary-button" id="rig-setup-move-button" style="flex: 1;">Двигать</button>
+              <button type="button" class="secondary-button" id="rig-setup-rotate-button" style="flex: 1;">Повернуть</button>
+            </div>
+            <div style="display: flex; gap: 0.35rem;">
+              <button type="button" class="secondary-button" id="rig-view-front" style="flex: 1;">Спереди</button>
+              <button type="button" class="secondary-button" id="rig-view-side" style="flex: 1;">Сбоку</button>
+              <button type="button" class="secondary-button" id="rig-view-back" style="flex: 1;">Сзади</button>
+            </div>
+            <small id="rig-setup-status">Риг разблокирован: модель и скелет двигаются вместе.</small>
+          </div>
+
           <div style="display: flex; flex-direction: column;">
             
             <div class="pill-switch-group" aria-label="Positioning mode">

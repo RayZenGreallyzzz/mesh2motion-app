@@ -50,6 +50,8 @@ export class Mesh2MotionEngine {
   public is_transform_controls_dragging: boolean = false
   public readonly transform_controls_hover_distance: number = window.matchMedia?.('(pointer: coarse)').matches ? 0.055 : 0.02 // larger finger hit radius on tablets
   public is_model_gizmo_active: boolean = false
+  private rig_setup_group: Group | null = null
+  private rig_setup_locked_state: boolean = true
   public readonly mesh_drag_bone_placement: MeshDragBonePlacement
 
   public view_helper: CustomViewHelper | undefined // mini 3d view to help orient orthographic views
@@ -252,6 +254,7 @@ export class Mesh2MotionEngine {
 
   public handle_transform_controls_moving (): void {
     if (this.is_model_gizmo_active) { return }
+    if (!this.rig_setup_locked_state) { return }
 
     const selected_bone: Bone = this.transform_controls.object as Bone
 
@@ -265,6 +268,146 @@ export class Mesh2MotionEngine {
         ? this.edit_skeleton_step.find_mirror_bone(selected_bone)
         : undefined
       this.edit_skeleton_step.independent_bone_movement.apply(selected_bone, mirror_bone)
+    }
+  }
+
+  public is_rig_setup_locked (): boolean {
+    return this.rig_setup_locked_state
+  }
+
+  private prepare_rig_setup_group (): void {
+    if (this.rig_setup_group !== null) return
+
+    const model = this.load_model_step.model_meshes()
+    const armature = this.edit_skeleton_step.armature()
+    const group = new Group()
+    group.name = 'Rig Setup Group'
+    group.position.set(0, 0, 0)
+    group.quaternion.identity()
+    group.scale.set(1, 1, 1)
+
+    this.scene.add(group)
+    group.add(model)
+    group.add(armature)
+    group.updateWorldMatrix(true, true)
+    this.rig_setup_group = group
+  }
+
+  private bake_rig_setup_group_transform (): void {
+    const group = this.rig_setup_group
+    if (group === null) return
+
+    const model = this.load_model_step.model_meshes()
+    const armature = this.edit_skeleton_step.armature()
+
+    group.updateWorldMatrix(true, true)
+    armature.updateWorldMatrix(true, true)
+    const armature_world_matrix = armature.matrixWorld.clone()
+
+    // The skinning solver reads raw mesh geometry and the armature below its
+    // container, so bake the shared setup transform into both before ungrouping.
+    ModelCleanupUtility.bake_transforms_into_geometry(model)
+    group.remove(model)
+    this.scene.add(model)
+
+    group.remove(armature)
+    this.scene.add(armature)
+    armature.position.set(0, 0, 0)
+    armature.quaternion.identity()
+    armature.scale.set(1, 1, 1)
+    armature.updateMatrix()
+
+    armature.children.forEach((child) => {
+      child.applyMatrix4(armature_world_matrix)
+    })
+    armature.updateWorldMatrix(true, true)
+
+    group.removeFromParent()
+    this.rig_setup_group = null
+    this.edit_skeleton_step.skeleton().bones[0]?.updateWorldMatrix(true, true)
+    this.regenerate_skeleton_helper(this.edit_skeleton_step.skeleton(), 'Skeleton Helper')
+    this.sync_skeleton_helper_joint_visibility()
+  }
+
+  public unlock_rig_setup (): void {
+    if (this.process_step !== ProcessStep.EditSkeleton) return
+
+    this.prepare_rig_setup_group()
+    this.rig_setup_locked_state = false
+    this.edit_skeleton_step.set_currently_selected_bone(null)
+    this.transform_controls.detach()
+
+    if (this.rig_setup_group !== null) {
+      this.transform_controls.attach(this.rig_setup_group)
+      this.transform_controls.setSpace('world')
+      this.transform_controls.setMode('translate')
+      this.transform_controls.enabled = true
+    }
+
+    this.enable_orbit_controls(true)
+    this.update_rig_setup_controls()
+  }
+
+  public lock_rig_setup (): void {
+    if (this.rig_setup_locked_state) return
+
+    this.transform_controls.detach()
+    this.bake_rig_setup_group_transform()
+    this.rig_setup_locked_state = true
+    this.update_edit_bone_interaction_mode()
+    this.update_rig_setup_controls()
+  }
+
+  public toggle_rig_setup_lock (): void {
+    if (this.rig_setup_locked_state) {
+      this.unlock_rig_setup()
+    } else {
+      this.lock_rig_setup()
+    }
+  }
+
+  public set_rig_setup_transform_mode (mode: 'translate' | 'rotate'): void {
+    if (this.rig_setup_locked_state || this.rig_setup_group === null) return
+    this.transform_controls.setMode(mode)
+    this.transform_controls.attach(this.rig_setup_group)
+    this.transform_controls.enabled = true
+  }
+
+  public set_rig_camera_view (view: 'front' | 'side' | 'back'): void {
+    const target = new THREE.Vector3(0, 0.9, 0)
+    const current_distance = Math.max(this.camera.position.distanceTo(target), 2)
+    this.camera.up.set(0, 1, 0)
+
+    if (view === 'front') {
+      this.set_camera_position(new THREE.Vector3(0, target.y, current_distance))
+    } else if (view === 'side') {
+      this.set_camera_position(new THREE.Vector3(current_distance, target.y, 0))
+    } else {
+      this.set_camera_position(new THREE.Vector3(0, target.y, -current_distance))
+    }
+  }
+
+  private update_rig_setup_controls (): void {
+    const lock_button = document.getElementById('rig-setup-lock-button') as HTMLButtonElement | null
+    const move_button = document.getElementById('rig-setup-move-button') as HTMLButtonElement | null
+    const rotate_button = document.getElementById('rig-setup-rotate-button') as HTMLButtonElement | null
+    const status = document.getElementById('rig-setup-status')
+    const pose_a = document.getElementById('pose-preset-a') as HTMLButtonElement | null
+    const pose_t = document.getElementById('pose-preset-t') as HTMLButtonElement | null
+    const bind = document.getElementById('action_bind_pose') as HTMLButtonElement | null
+
+    if (lock_button !== null) {
+      lock_button.textContent = this.rig_setup_locked_state ? 'Разблокировать риг' : 'Зафиксировать скелет'
+    }
+    if (move_button !== null) move_button.disabled = this.rig_setup_locked_state
+    if (rotate_button !== null) rotate_button.disabled = this.rig_setup_locked_state
+    if (pose_a !== null) pose_a.disabled = !this.rig_setup_locked_state
+    if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
+    if (bind !== null) bind.disabled = !this.rig_setup_locked_state
+    if (status !== null) {
+      status.textContent = this.rig_setup_locked_state
+        ? 'Риг зафиксирован: правьте суставы, обзор меняется только камерой.'
+        : 'Риг разблокирован: модель и скелет двигаются вместе.'
     }
   }
 
@@ -311,6 +454,15 @@ export class Mesh2MotionEngine {
   }
 
   public update_edit_bone_interaction_mode (): void {
+    if (!this.rig_setup_locked_state && this.rig_setup_group !== null) {
+      this.transform_controls.detach()
+      this.transform_controls.attach(this.rig_setup_group)
+      this.transform_controls.enabled = true
+      this.enable_orbit_controls(true)
+      this.is_transform_controls_dragging = false
+      return
+    }
+
     this.mesh_drag_bone_placement.sync_interaction_mode(this.process_step, this.transform_controls)
     this.is_transform_controls_dragging = false
   }
@@ -355,6 +507,14 @@ export class Mesh2MotionEngine {
   }
 
   public process_step_changed (process_step: ProcessStep): ProcessStep {
+    const previous_step = this.process_step
+
+    if (previous_step === ProcessStep.EditSkeleton &&
+        process_step !== ProcessStep.EditSkeleton &&
+        !this.rig_setup_locked_state) {
+      this.lock_rig_setup()
+    }
+
     // we will have the current step turn on the UI elements it needs
     this.ui.hide_all_elements()
 
@@ -413,11 +573,23 @@ export class Mesh2MotionEngine {
     else if (this.process_step === ProcessStep.EditSkeleton) {
       this.load_skeleton_step?.dispose()
 
+      const start_rig_unlocked = previous_step === ProcessStep.LoadSkeleton
+      this.rig_setup_locked_state = !start_rig_unlocked
+      if (start_rig_unlocked) {
+        this.prepare_rig_setup_group()
+      }
+
       this.regenerate_skeleton_helper(this.edit_skeleton_step.skeleton())
       process_step = ProcessStep.EditSkeleton
       this.edit_skeleton_step.begin(this.scene, this.load_skeleton_step.skeleton_type())
-      this.update_edit_bone_interaction_mode()
-      this.transform_controls.setMode(this.transform_controls_type) // 'translate', 'rotate'
+
+      if (start_rig_unlocked) {
+        this.unlock_rig_setup()
+      } else {
+        this.update_edit_bone_interaction_mode()
+        this.transform_controls.setMode(this.transform_controls_type) // 'translate', 'rotate'
+        this.update_rig_setup_controls()
+      }
 
       this.sync_skeleton_helper_joint_visibility()
 
@@ -531,6 +703,8 @@ export class Mesh2MotionEngine {
   }
 
   public handle_transform_controls_mouse_down (mouse_event: MouseEvent | PointerEvent): void {
+    if (!this.rig_setup_locked_state) { return }
+
     // primary click is made for rotating around 3d scene
     const is_primary_button_click = mouse_event.button === 0
 

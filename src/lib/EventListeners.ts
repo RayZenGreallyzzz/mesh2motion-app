@@ -27,6 +27,25 @@ export class EventListeners {
       this.bootstrap.process_step = this.bootstrap.process_step_changed(ProcessStep.EditSkeleton)
     })
 
+    document.getElementById('rig-setup-lock-button')?.addEventListener('click', () => {
+      this.bootstrap.toggle_rig_setup_lock()
+    })
+    document.getElementById('rig-setup-move-button')?.addEventListener('click', () => {
+      this.bootstrap.set_rig_setup_transform_mode('translate')
+    })
+    document.getElementById('rig-setup-rotate-button')?.addEventListener('click', () => {
+      this.bootstrap.set_rig_setup_transform_mode('rotate')
+    })
+    document.getElementById('rig-view-front')?.addEventListener('click', () => {
+      this.bootstrap.set_rig_camera_view('front')
+    })
+    document.getElementById('rig-view-side')?.addEventListener('click', () => {
+      this.bootstrap.set_rig_camera_view('side')
+    })
+    document.getElementById('rig-view-back')?.addEventListener('click', () => {
+      this.bootstrap.set_rig_camera_view('back')
+    })
+
     // Listen for skeleton transformation events to update UI and visuals
     // this can happen with undo/redo system
     this.bootstrap.edit_skeleton_step.addEventListener('skeletonTransformed', () => {
@@ -89,7 +108,7 @@ export class EventListeners {
       }
 
       // edit skeleton step logic that deals with hovering over bones
-      if (this.bootstrap.process_step === ProcessStep.EditSkeleton) {
+      if (this.bootstrap.process_step === ProcessStep.EditSkeleton && this.bootstrap.is_rig_setup_locked()) {
         const hovered_bone = this.bootstrap.edit_skeleton_step.calculate_bone_hover_effect(event, this.bootstrap.camera, this.bootstrap.transform_controls_hover_distance)
 
         // show the overlay and use a hand cursor when hovering over a joint
@@ -113,6 +132,7 @@ export class EventListeners {
     this.bootstrap.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
       const use_mesh_drag_mode =
         this.bootstrap.process_step === ProcessStep.EditSkeleton &&
+        this.bootstrap.is_rig_setup_locked() &&
         this.bootstrap.edit_skeleton_step.is_mesh_drag_placement_enabled()
 
       let did_start_bone_drag = false
@@ -186,7 +206,7 @@ export class EventListeners {
       }
 
       // Store undo state when we start dragging (event.value = true)
-      if (event.value && this.bootstrap.process_step === ProcessStep.EditSkeleton) {
+      if (event.value && this.bootstrap.process_step === ProcessStep.EditSkeleton && this.bootstrap.is_rig_setup_locked()) {
         this.bootstrap.edit_skeleton_step.store_bone_state_for_undo()
 
         // Record children's initial world positions for independent bone movement
@@ -203,6 +223,7 @@ export class EventListeners {
 
       if (!event.value &&
         this.bootstrap.process_step === ProcessStep.EditSkeleton &&
+        this.bootstrap.is_rig_setup_locked() &&
         this.bootstrap.transform_controls.getMode() === 'translate' &&
         this.bootstrap.edit_skeleton_step.independent_bone_movement.is_enabled()) {
         const selected_bone = this.bootstrap.transform_controls.object
