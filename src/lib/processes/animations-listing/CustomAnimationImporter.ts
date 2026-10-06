@@ -32,7 +32,7 @@ export class CustomAnimationImporter extends EventTarget {
     this.skeleton_scale = skeleton_scale
   }
 
-  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }) | null {
+  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }): void {
     this.import_context_provider = provider
   }
 
