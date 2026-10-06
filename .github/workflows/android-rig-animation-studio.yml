@@ -64,6 +64,9 @@ jobs:
       - name: Fix shared skinned resource lifetime
         run: node scripts/apply-weight-shared-resource-fix.mjs
 
+      - name: Normalize v4.7 weight panel
+        run: node scripts/prepatch-v47-panel.mjs
+
       - name: Apply v4.7 weight diagnostics + clothing guard
         run: node scripts/apply-weight-diagnostics-v47b.mjs
 
