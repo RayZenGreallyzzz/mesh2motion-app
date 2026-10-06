@@ -58,6 +58,9 @@ jobs:
       - name: Apply post-bind weight workflow
         run: node scripts/apply-weight-skin-workflow-v45.mjs
 
+      - name: Fix shared skinned resource lifetime
+        run: node scripts/apply-weight-shared-resource-fix.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -102,12 +105,12 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.5-Weight-Workflow-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.5.1-Weights-Hotfix-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v4.5-Weight-Workflow-APK
-          path: artifacts/Rig-Animation-Studio-v4.5-Weight-Workflow-debug.apk
+          name: Rig-Animation-Studio-v4.5.1-Weights-Hotfix-APK
+          path: artifacts/Rig-Animation-Studio-v4.5.1-Weights-Hotfix-debug.apk
           if-no-files-found: error
           retention-days: 14
