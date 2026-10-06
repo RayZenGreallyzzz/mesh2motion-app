@@ -49,6 +49,9 @@ jobs:
       - name: Apply rig setup lock workflow
         run: node scripts/apply-rig-setup-lock.mjs
 
+      - name: Apply manual weight editor
+        run: node scripts/apply-manual-weight-editor.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -93,12 +96,12 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.4-Manual-Weights-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v4-APK
-          path: artifacts/Rig-Animation-Studio-v4-debug.apk
+          name: Rig-Animation-Studio-v4.4-Manual-Weights-APK
+          path: artifacts/Rig-Animation-Studio-v4.4-Manual-Weights-debug.apk
           if-no-files-found: error
           retention-days: 14
