@@ -3,24 +3,17 @@ import { humanVariations, foxVariations, birdVariations, kaijuVariations,
   fishVariations, ModelVariation } from './RigModelVariations'
 
 export interface RigConfigEntry {
-  skeleton_type: SkeletonType // The SkeletonType enum member for this rig
-  model_file: string // Model file path relative to the static root, e.g. 'models/model-human.glb'
-  rig_file: string // Rig/skeleton GLB file path relative to the static root, e.g. 'rigs/rig-human.glb'
-  rig_display_name: string // Display name shown in both the model and skeleton dropdowns
-  animation_files: string[] // Animation filenames (no base path) loaded for this rig type
-  animation_preview_folder: string // Sub-folder name used when referencing animation preview thumbnails
-  skeleton_template_image_url: string // URL for the skeleton template image shown in the edit skeleton step
-  // The bone used for position tracking (e.g., 'hips' or 'head').
-  // we only have one bone per rig that we allow position keyframes (besides root)
+  skeleton_type: SkeletonType
+  model_file: string
+  rig_file: string
+  rig_display_name: string
+  animation_files: string[]
+  animation_preview_folder: string
+  skeleton_template_image_url: string
   position_tracking_bone_name: string 
-  model_variations?: ModelVariation[] // similar models (human, zombie, etc)
+  model_variations?: ModelVariation[]
 }
 
-/**
- * Single source of truth for every supported rig type.
- * To add a new rig, append one entry to `RigConfig.all` and add the
- * corresponding GLB/rig files — no other TypeScript changes are required.
- */
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class RigConfig {
   static readonly all: RigConfigEntry[] = [
@@ -114,26 +107,46 @@ export class RigConfig {
       animation_files: ['../animations/snake-animations.glb'],
       animation_preview_folder: 'snake',
       position_tracking_bone_name: 'head',
-      skeleton_template_image_url: 'rigs/reference/snake.png'
+      skeleton_template_image_url: 'rigs/reference/snake.png',
     } satisfies RigConfigEntry,
     {
       skeleton_type: SkeletonType.Fish,
-      model_file: 'models/model-fish.glb',
-      rig_file: 'rigs/rig-fish.glb',
+      model_file: 'models/model-shark.glb',
+      rig_file: 'rigs/rig-shark.glb',
       rig_display_name: 'Fish',
-      animation_files: ['../animations/fish-animations.glb'],
-      animation_preview_folder: 'fish',
-      position_tracking_bone_name: 'head',
-      skeleton_template_image_url: 'rigs/reference/fish.png',
+      animation_files: ['../animations/shark-animations.glb'],
+      animation_preview_folder: 'shark',
+      position_tracking_bone_name: 'pelvis',
+      skeleton_template_image_url: 'rigs/reference/shark.png',
       model_variations: fishVariations
     } satisfies RigConfigEntry,
+    {
+      skeleton_type: SkeletonType.Horse,
+      model_file: 'models/model-horse.glb',
+      rig_file: 'rigs/rig-horse.glb',
+      rig_display_name: 'Horse',
+      animation_files: ['../animations/horse-animations.glb'],
+      animation_preview_folder: 'horse',
+      position_tracking_bone_name: 'hips',
+      skeleton_template_image_url: 'rigs/reference/horse.png',
+    } satisfies RigConfigEntry
   ]
 
-  static by_skeleton_type (type: SkeletonType | null | undefined): RigConfigEntry | undefined {
-    return this.all.find(entry => entry.skeleton_type === type)
+  static by_key (rig_key: string): RigConfigEntry | undefined {
+    return this.all.find(r => r.skeleton_type === rig_key as SkeletonType)
   }
 
-  static get_animation_file_paths (type: SkeletonType | null | undefined): string[] {
-    return this.by_skeleton_type(type)?.animation_files ?? []
+  static by_skeleton_type (skeleton_type: SkeletonType): RigConfigEntry | undefined {
+    return this.all.find(r => r.skeleton_type === skeleton_type)
+  }
+
+  static rig_file_for (skeleton_type: SkeletonType): string | undefined {
+    return this.by_skeleton_type(skeleton_type)?.rig_file
+  }
+
+  static get_animation_file_paths (skeleton_type: SkeletonType): string[] {
+    const config = this.by_skeleton_type(skeleton_type)
+    if (config === undefined || config.animation_files.length === 0) return []
+    return config.animation_files
   }
 }
