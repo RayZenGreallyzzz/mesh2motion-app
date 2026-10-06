@@ -73,6 +73,9 @@ jobs:
       - name: Apply v4.8 canonical rig transform
         run: node scripts/apply-v48-canonical-rig-transform.mjs
 
+      - name: Apply v5 Surface Skin UI defaults
+        run: node scripts/apply-v50-surface-skin-ui.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -117,26 +120,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.8-Canonical-Bind-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v4.8"
-          APK="artifacts/Rig-Animation-Studio-v4.8-Canonical-Bind-debug.apk"
+          TAG="rig-animation-studio-v5.0-surface-skin"
+          APK="artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v4.8" \
-              --notes "Android test build: canonical browser-style bind orientation. Global Rig Setup transform stays outside the armature so animation quaternions do not fight a baked root rotation."
+              --title "Rig Animation Studio v5.0 Surface Skin" \
+              --notes "Rig Engine v2 test build. Humanoid weights use welded surface connectivity, bone segments and geodesic propagation with max four influences per vertex. Legacy clothing guard is off by default."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v4.8-Canonical-Bind-APK
-          path: artifacts/Rig-Animation-Studio-v4.8-Canonical-Bind-debug.apk
+          name: Rig-Animation-Studio-v5.0-Surface-Skin-APK
+          path: artifacts/Rig-Animation-Studio-v5.0-Surface-Skin-debug.apk
           if-no-files-found: error
           retention-days: 14
