@@ -1,0 +1,42 @@
+name: Report Human Rig Structure
+
+on:
+  push:
+    branches:
+      - android-rig-animation-studio
+    paths:
+      - 'scripts/report-human-rig.mjs'
+      - '.github/workflows/report-human-rig.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report-rig:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate rig and animation report
+        run: node scripts/report-human-rig.mjs
+
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/human-rig-report.json
+          if git diff --cached --quiet; then
+            echo "Report unchanged"
+          else
+            git commit -m "Report human rig structure [skip ci]"
+            git push origin HEAD:android-rig-animation-studio
+          fi
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Human-Rig-Structure-Report
+          path: reports/human-rig-report.json
+          retention-days: 14
