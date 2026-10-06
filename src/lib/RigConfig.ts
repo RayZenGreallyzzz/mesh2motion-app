@@ -28,7 +28,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.Human,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Human',
+      rig_display_name: 'Human · Surface Skin v2',
       animation_files: [
         '../animations/human-base-animations.glb', 
         '../animations/human-addon-animations.glb',
@@ -40,14 +40,10 @@ export class RigConfig {
       model_variations: humanVariations
     } satisfies RigConfigEntry,
     {
-      // Stage 1 mobile preset: reuse the proven human rig/animations, but route
-      // it through the humanoid-mobile code path and force a lightweight hand
-      // skeleton. A dedicated 27-29 bone rig file can replace rig_file later
-      // without changing the rest of the application.
       skeleton_type: SkeletonType.MobileFemale,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Humanoid AutoRig · Browser Skin',
+      rig_display_name: 'Humanoid AutoRig · Surface Skin v2',
       animation_files: [
         '../animations/human-base-animations.glb',
         '../animations/human-addon-animations.glb',
@@ -117,57 +113,27 @@ export class RigConfig {
       rig_display_name: 'Snake',
       animation_files: ['../animations/snake-animations.glb'],
       animation_preview_folder: 'snake',
-      position_tracking_bone_name: 'head', // snake doesn't have hips, so we track position from the head instead
-      skeleton_template_image_url: 'rigs/reference/snake.png',
+      position_tracking_bone_name: 'head',
+      skeleton_template_image_url: 'rigs/reference/snake.png'
     } satisfies RigConfigEntry,
     {
       skeleton_type: SkeletonType.Fish,
-      model_file: 'models/model-shark.glb',
-      rig_file: 'rigs/rig-shark.glb',
+      model_file: 'models/model-fish.glb',
+      rig_file: 'rigs/rig-fish.glb',
       rig_display_name: 'Fish',
-      animation_files: ['../animations/shark-animations.glb'],
-      animation_preview_folder: 'shark',
-      position_tracking_bone_name: 'pelvis',
-      skeleton_template_image_url: 'rigs/reference/shark.png',
+      animation_files: ['../animations/fish-animations.glb'],
+      animation_preview_folder: 'fish',
+      position_tracking_bone_name: 'head',
+      skeleton_template_image_url: 'rigs/reference/fish.png',
       model_variations: fishVariations
     } satisfies RigConfigEntry,
-    {
-      skeleton_type: SkeletonType.Horse,
-      model_file: 'models/model-horse.glb',
-      rig_file: 'rigs/rig-horse.glb',
-      rig_display_name: 'Horse',
-      animation_files: ['../animations/horse-animations.glb'],
-      animation_preview_folder: 'horse',
-      position_tracking_bone_name: 'hips',
-      skeleton_template_image_url: 'rigs/reference/horse.png',
-    } satisfies RigConfigEntry
   ]
 
-  /** Look up a rig by its SkeletonType enum value (which is also used as the key). */
-  static by_key (rig_key: string): RigConfigEntry | undefined {
-    return this.all.find(r => r.skeleton_type === rig_key as SkeletonType)
+  static by_skeleton_type (type: SkeletonType | null | undefined): RigConfigEntry | undefined {
+    return this.all.find(entry => entry.skeleton_type === type)
   }
 
-  /** Look up a rig by its SkeletonType enum value. */
-  static by_skeleton_type (skeleton_type: SkeletonType): RigConfigEntry | undefined {
-    return this.all.find(r => r.skeleton_type === skeleton_type)
+  static get_animation_file_paths (type: SkeletonType | null | undefined): string[] {
+    return this.by_skeleton_type(type)?.animation_files ?? []
   }
-
-  /** Get the rig GLB file path for a given skeleton type. Returns undefined for Error/None. */
-  static rig_file_for (skeleton_type: SkeletonType): string | undefined {
-    return this.by_skeleton_type(skeleton_type)?.rig_file
-  }
-
-  /**
-   * Get all configured animation file paths for a skeleton type.
-   * @param skeleton_type The skeleton type to retrieve animation files for
-   * @returns Array of animation file paths, empty array if no files configured
-   */
-  static get_animation_file_paths (skeleton_type: SkeletonType): string[] {
-    const config = this.by_skeleton_type(skeleton_type)
-    if (config === undefined || config.animation_files.length === 0) return []
-
-    return config.animation_files
-  }
-
 }
