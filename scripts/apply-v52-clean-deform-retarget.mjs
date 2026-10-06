@@ -36,12 +36,16 @@ update('src/lib/processes/weight-skin/StepWeightSkin.ts', (source) => {
     )
   }
 
-  source = replaceRequired(
-    source,
-    `  public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {\n    this.skinning_armature = editable_armature.clone()\n    this.skinning_armature.name = 'Armature for skinning'\n\n    this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)\n  }`,
-    `  public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {\n    // Mobile Female no longer binds the edited stock mannequin hierarchy. Build\n    // a fresh deform rig from the exact joint positions the user placed.\n    this.skinning_armature = skeleton_type === SkeletonType.MobileFemale\n      ? CleanMobileHumanoidRig.build(editable_armature)\n      : editable_armature.clone()\n    this.skinning_armature.name = 'Armature for skinning'\n\n    this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)\n  }`,
-    'StepWeightSkin clean rig creation'
-  )
+  // Replay-safe: v5.3/v5.4 supersede this exact v5.2 method body.
+  if (!source.includes('buildFromPlacedJoints') &&
+      !source.includes('Mobile Female edits the final clean deform rig directly')) {
+    source = replaceRequired(
+      source,
+      `  public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {\n    this.skinning_armature = editable_armature.clone()\n    this.skinning_armature.name = 'Armature for skinning'\n\n    this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)\n  }`,
+      `  public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {\n    // Mobile Female no longer binds the edited stock mannequin hierarchy. Build\n    // a fresh deform rig from the exact joint positions the user placed.\n    this.skinning_armature = skeleton_type === SkeletonType.MobileFemale\n      ? CleanMobileHumanoidRig.build(editable_armature)\n      : editable_armature.clone()\n    this.skinning_armature.name = 'Armature for skinning'\n\n    this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)\n  }`,
+      'StepWeightSkin clean rig creation'
+    )
+  }
 
   source = replaceRequired(
     source,
