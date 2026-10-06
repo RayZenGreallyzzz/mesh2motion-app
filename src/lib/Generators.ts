@@ -236,7 +236,12 @@ export class Generators {
    * It will use the skin_indices to assign colors to the vertices
    * @param skin_indices
    */
-  static create_weight_painted_mesh (skin_indices: number[], orig_geometry: BufferGeometry): Mesh {
+  static create_weight_painted_mesh (
+    skin_indices: number[],
+    orig_geometry: BufferGeometry,
+    skin_weights: number[] = [],
+    selected_bone_index: number | null = null
+  ): Mesh {
     // Clone the geometry to avoid modifying the original
     const cloned_geometry = orig_geometry.clone()
     const vertex_count = cloned_geometry.attributes.position.array.length / 3
@@ -247,21 +252,34 @@ export class Generators {
     // If the mesh is made up of a bunch of small disconnected meshes, there is a good chance we won't need every bone
     const bone_colors: Vector3[] = Generators.generate_deterministic_bone_colors(120)
 
-    // Loop through each vertex and assign color based on the bone index
+    // When a bone is selected by the manual weight editor, show a heatmap of
+    // that bone's actual normalized influence. Otherwise retain the original
+    // deterministic per-bone colors used by the general weight preview.
     const colors = new Float32Array(vertex_count * 3)
     for (let i = 0; i < vertex_count; i++) {
-      const bone_index = skin_indices[i * 4] // Primary bone assignment
-      let color = bone_colors[bone_index]
+      if (selected_bone_index !== null && skin_weights.length >= (i + 1) * 4) {
+        let selected_weight = 0
+        for (let slot = 0; slot < 4; slot++) {
+          if (skin_indices[i * 4 + slot] === selected_bone_index) {
+            selected_weight += skin_weights[i * 4 + slot] ?? 0
+          }
+        }
+        selected_weight = Math.max(0, Math.min(1, selected_weight))
 
-      // this shouldn't happen now, but will be a fallback in case we add a skeleton with more than 120 bones
-      if (color == null || color === undefined) {
-        console.warn(`No color found for bone index ${bone_index}. Using default color. Code needs to increase the number of bone colors generated}`)
-        color = new Vector3(1, 1, 1) // white color
+        // Dark blue = no influence, bright magenta = full influence.
+        colors[i * 3] = 0.07 + selected_weight * 0.93
+        colors[i * 3 + 1] = 0.09 + selected_weight * 0.10
+        colors[i * 3 + 2] = 0.16 + selected_weight * 0.72
+      } else {
+        const bone_index = skin_indices[i * 4] // Primary bone assignment
+        let color = bone_colors[bone_index]
+        if (color == null || color === undefined) {
+          color = new Vector3(1, 1, 1)
+        }
+        colors[i * 3] = color.x
+        colors[i * 3 + 1] = color.y
+        colors[i * 3 + 2] = color.z
       }
-
-      colors[i * 3] = color.x // red
-      colors[i * 3 + 1] = color.y // green
-      colors[i * 3 + 2] = color.z // blue
     }
     cloned_geometry.setAttribute('color', new BufferAttribute(colors, 3))
 

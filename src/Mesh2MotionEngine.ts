@@ -52,6 +52,7 @@ export class Mesh2MotionEngine {
   public is_model_gizmo_active: boolean = false
   private rig_setup_group: Group | null = null
   private rig_setup_locked_state: boolean = true
+  private manual_weight_stroke_vertices: Map<number, Set<number>> | null = null
   public readonly mesh_drag_bone_placement: MeshDragBonePlacement
 
   public view_helper: CustomViewHelper | undefined // mini 3d view to help orient orthographic views
@@ -409,6 +410,156 @@ export class Mesh2MotionEngine {
         ? 'Риг зафиксирован: правьте суставы, обзор меняется только камерой.'
         : 'Риг разблокирован: модель и скелет двигаются вместе.'
     }
+
+    const weight_enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
+    if (weight_enabled !== null) {
+      weight_enabled.disabled = !this.rig_setup_locked_state
+      if (!this.rig_setup_locked_state) weight_enabled.checked = false
+    }
+  }
+
+  public refresh_manual_weight_editor (): void {
+    const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
+    if (select === null) return
+
+    const previous = select.value
+    select.innerHTML = ''
+    this.edit_skeleton_step.skeleton().bones.forEach((bone, index) => {
+      const option = document.createElement('option')
+      option.value = index.toString()
+      option.textContent = bone.name || `Bone ${index}`
+      select.appendChild(option)
+    })
+
+    if ([...select.options].some(option => option.value === previous)) select.value = previous
+    else if (select.options.length > 0) select.selectedIndex = 0
+
+    const selected = Number.parseInt(select.value, 10)
+    this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
+    this.update_manual_weight_labels()
+  }
+
+  public is_manual_weight_editor_enabled (): boolean {
+    const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
+    return this.process_step === ProcessStep.EditSkeleton &&
+      this.rig_setup_locked_state &&
+      (enabled?.checked ?? false)
+  }
+
+  public sync_manual_weight_editor (): void {
+    const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
+    const status = document.getElementById('manual-weight-status')
+    if (enabled === null) return
+
+    if (!this.rig_setup_locked_state && enabled.checked) enabled.checked = false
+
+    const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
+    const selected = select === null ? NaN : Number.parseInt(select.value, 10)
+    this.weight_skin_step.set_manual_weight_preview_bone(
+      enabled.checked && Number.isFinite(selected) ? selected : null
+    )
+
+    if (enabled.checked) {
+      this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
+      this.changed_model_preview_display(ModelPreviewDisplay.WeightPainted)
+      if (status !== null) status.textContent = 'Проведите пальцем по модели. Цвет показывает влияние выбранной кости.'
+    } else if (status !== null) {
+      status.textContent = 'Зафиксируйте риг, включите кисть и проведите пальцем по модели.'
+    }
+
+    this.update_manual_weight_labels()
+  }
+
+  public update_manual_weight_labels (): void {
+    const radius = document.getElementById('manual-weight-radius') as HTMLInputElement | null
+    const strength = document.getElementById('manual-weight-strength') as HTMLInputElement | null
+    const radius_label = document.getElementById('manual-weight-radius-value')
+    const strength_label = document.getElementById('manual-weight-strength-value')
+    if (radius !== null && radius_label !== null) radius_label.textContent = Math.round(Number(radius.value) * 100).toString()
+    if (strength !== null && strength_label !== null) strength_label.textContent = Math.round(Number(strength.value) * 100).toString()
+  }
+
+  private collect_manual_weight_vertices (event: PointerEvent): boolean {
+    if (!this.is_manual_weight_editor_enabled() || this.manual_weight_stroke_vertices === null) return false
+
+    const group = this.weight_skin_step.weight_painted_mesh_group()
+    if (group === null || !group.visible) return false
+
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const pointer = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    )
+    const raycaster = new THREE.Raycaster()
+    raycaster.setFromCamera(pointer, this.camera)
+
+    const paint_surfaces = group.children.filter(child => child.userData.manualWeightSurface === true)
+    const hit = raycaster.intersectObjects(paint_surfaces, false)[0]
+    if (hit === undefined || !(hit.object instanceof THREE.Mesh)) return false
+
+    const mesh_index = Number(hit.object.userData.weightMeshIndex)
+    if (!Number.isInteger(mesh_index)) return false
+
+    const radius_input = document.getElementById('manual-weight-radius') as HTMLInputElement | null
+    const radius = Math.max(0.001, Number(radius_input?.value ?? 0.08))
+    const radius_squared = radius * radius
+    const local_point = hit.object.worldToLocal(hit.point.clone())
+    const positions = hit.object.geometry.getAttribute('position')
+    if (positions === undefined) return false
+
+    let vertices = this.manual_weight_stroke_vertices.get(mesh_index)
+    if (vertices === undefined) {
+      vertices = new Set<number>()
+      this.manual_weight_stroke_vertices.set(mesh_index, vertices)
+    }
+
+    const vertex = new THREE.Vector3()
+    for (let index = 0; index < positions.count; index++) {
+      vertex.fromBufferAttribute(positions, index)
+      if (vertex.distanceToSquared(local_point) <= radius_squared) vertices.add(index)
+    }
+
+    return true
+  }
+
+  public begin_manual_weight_stroke (event: PointerEvent): boolean {
+    if (!this.is_manual_weight_editor_enabled()) return false
+    this.manual_weight_stroke_vertices = new Map<number, Set<number>>()
+    this.enable_orbit_controls(false)
+    return this.collect_manual_weight_vertices(event)
+  }
+
+  public continue_manual_weight_stroke (event: PointerEvent): boolean {
+    if (this.manual_weight_stroke_vertices === null) return false
+    this.collect_manual_weight_vertices(event)
+    return true
+  }
+
+  public end_manual_weight_stroke (): boolean {
+    const stroke = this.manual_weight_stroke_vertices
+    if (stroke === null) return false
+    this.manual_weight_stroke_vertices = null
+    this.enable_orbit_controls(true)
+
+    const bone_select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
+    const strength_input = document.getElementById('manual-weight-strength') as HTMLInputElement | null
+    const remove = (document.getElementById('manual-weight-remove') as HTMLInputElement | null)?.checked ?? false
+    const bone_index = Number.parseInt(bone_select?.value ?? '', 10)
+    const strength = Math.max(0.01, Math.min(1, Number(strength_input?.value ?? 0.15)))
+    if (!Number.isFinite(bone_index)) return true
+
+    const delta = remove ? -strength : strength
+    stroke.forEach((vertices, mesh_index) => {
+      this.weight_skin_step.add_manual_weight_adjustment(mesh_index, [...vertices], bone_index, delta)
+    })
+
+    this.regenerate_weight_painted_preview_mesh()
+    return true
+  }
+
+  public reset_manual_weight_overrides (): void {
+    this.weight_skin_step.clear_manual_weight_overrides()
+    if (this.process_step === ProcessStep.EditSkeleton) this.regenerate_weight_painted_preview_mesh()
   }
 
   // --- Model position gizmo (step 2) ---
@@ -549,6 +700,7 @@ export class Mesh2MotionEngine {
     if (this.process_step === ProcessStep.LoadModel) {
       // reset the state in the case of coming back to this step
       this.remove_imported_model()
+      this.weight_skin_step.clear_manual_weight_overrides()
       this.load_model_step.clear_loaded_model_data()
       this.load_model_step.begin()
     }
@@ -592,6 +744,7 @@ export class Mesh2MotionEngine {
       }
 
       this.sync_skeleton_helper_joint_visibility()
+      this.refresh_manual_weight_editor()
 
       this.changed_model_preview_display(this.mesh_preview_display_type) // show weight painted mesh by default
     }

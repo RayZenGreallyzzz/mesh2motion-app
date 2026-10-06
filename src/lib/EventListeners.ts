@@ -46,6 +46,22 @@ export class EventListeners {
       this.bootstrap.set_rig_camera_view('back')
     })
 
+    document.getElementById('manual-weight-enabled')?.addEventListener('change', () => {
+      this.bootstrap.sync_manual_weight_editor()
+    })
+    document.getElementById('manual-weight-bone')?.addEventListener('change', () => {
+      this.bootstrap.sync_manual_weight_editor()
+    })
+    document.getElementById('manual-weight-radius')?.addEventListener('input', () => {
+      this.bootstrap.update_manual_weight_labels()
+    })
+    document.getElementById('manual-weight-strength')?.addEventListener('input', () => {
+      this.bootstrap.update_manual_weight_labels()
+    })
+    document.getElementById('manual-weight-reset')?.addEventListener('click', () => {
+      this.bootstrap.reset_manual_weight_overrides()
+    })
+
     // Listen for skeleton transformation events to update UI and visuals
     // this can happen with undo/redo system
     this.bootstrap.edit_skeleton_step.addEventListener('skeletonTransformed', () => {
@@ -98,6 +114,11 @@ export class EventListeners {
         return
       }
 
+      if (this.bootstrap.continue_manual_weight_stroke(event)) {
+        event.preventDefault()
+        return
+      }
+
       if (this.bootstrap.is_transform_controls_dragging) {
         this.bootstrap.handle_transform_controls_moving()
       }
@@ -108,7 +129,7 @@ export class EventListeners {
       }
 
       // edit skeleton step logic that deals with hovering over bones
-      if (this.bootstrap.process_step === ProcessStep.EditSkeleton && this.bootstrap.is_rig_setup_locked()) {
+      if (this.bootstrap.process_step === ProcessStep.EditSkeleton && this.bootstrap.is_rig_setup_locked() && !this.bootstrap.is_manual_weight_editor_enabled()) {
         const hovered_bone = this.bootstrap.edit_skeleton_step.calculate_bone_hover_effect(event, this.bootstrap.camera, this.bootstrap.transform_controls_hover_distance)
 
         // show the overlay and use a hand cursor when hovering over a joint
@@ -130,6 +151,14 @@ export class EventListeners {
     })
 
     this.bootstrap.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
+      if (this.bootstrap.is_manual_weight_editor_enabled()) {
+        this.active_canvas_pointer_id = event.pointerId
+        this.bootstrap.renderer.domElement.setPointerCapture(event.pointerId)
+        event.preventDefault()
+        this.bootstrap.begin_manual_weight_stroke(event)
+        return
+      }
+
       const use_mesh_drag_mode =
         this.bootstrap.process_step === ProcessStep.EditSkeleton &&
         this.bootstrap.is_rig_setup_locked() &&
@@ -158,7 +187,8 @@ export class EventListeners {
         return
       }
 
-      this.bootstrap.handle_mesh_drag_mode_mouse_up()
+      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke()
+      if (!finished_weight_stroke) this.bootstrap.handle_mesh_drag_mode_mouse_up()
 
       if (this.active_canvas_pointer_id !== null &&
         this.bootstrap.renderer.domElement.hasPointerCapture(this.active_canvas_pointer_id)) {
@@ -175,7 +205,8 @@ export class EventListeners {
         return
       }
 
-      this.bootstrap.handle_mesh_drag_mode_mouse_up()
+      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke()
+      if (!finished_weight_stroke) this.bootstrap.handle_mesh_drag_mode_mouse_up()
 
       if (this.active_canvas_pointer_id !== null &&
         this.bootstrap.renderer.domElement.hasPointerCapture(this.active_canvas_pointer_id)) {
