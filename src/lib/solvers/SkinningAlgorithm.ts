@@ -6,33 +6,29 @@ import {
 
 import { Utility } from '../Utilities.js'
 import { SkeletonType } from '../enums/SkeletonType.js'
+import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
 import { HeadWeightCorrector } from './HeadWeightCorrector.js'
 import { ArmWeightCorrector } from './ArmWeightCorrector.js'
 import { WeightCalculator } from './WeightCalculator.js'
 import { ExtremityWeightCorrector } from './ExtremityWeightCorrector.js'
 import { WeightSmoother } from './WeightSmoother.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
+import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 
 /**
  * SkinningAlgorithm
- * Orchestrates the bone weight calculation pipeline:
- * 1. Calculate initial bone weights (WeightCalculator)
- * 2. Smooth boundary weights (WeightSmoother)
- * 3. Normalize weights to sum to 1.0 (WeightNormalizer)
- * 4. Apply head weight correction if enabled (HeadWeightCorrector)
- * 5. Optionally render debug visualizations (SolverDebugVisualizer)
+ *
+ * Humanoids use Rig Engine v2 surface/geodesic skinning. Animal rigs keep the
+ * original Mesh2Motion closest-bone pipeline until they get their own tuned
+ * surface presets.
  */
 export default class SkinningAlgorithm {
   private bones_master_data: Bone[] = []
   private geometry: BufferGeometry = new BufferGeometry()
   private skeleton_type: SkeletonType | null = null
 
-  // Head weight correction properties
   private use_head_weight_correction: boolean = false
   private preview_plane_height: number = 1.4
-
-  // Arm plane correction properties. The offset is relative to the shoulder
-  // joint's X, which the corrector reads off the bones itself.
   private use_arm_plane_correction: boolean = false
   private arm_plane_offset: number = 0.0
 
@@ -65,23 +61,39 @@ export default class SkinningAlgorithm {
     const skin_indices: number[] = []
     const skin_weights: number[] = []
 
-    // Step 1: Calculate initial bone-to-vertex weight assignments
+    if (is_humanoid_skeleton_type(this.skeleton_type)) {
+      const surface_calculator = new SurfaceGeodesicWeightCalculator(this.bones_master_data, this.geometry)
+      surface_calculator.calculate(skin_indices, skin_weights)
+
+      const weight_normalizer = new WeightNormalizer(this.geometry)
+      weight_normalizer.normalize_weights(skin_weights)
+
+      // Keep the optional head divider as a user-requested override. The old arm
+      // plane correction is deliberately not applied: surface propagation already
+      // prevents arm influences from teleporting across empty space into the torso.
+      if (this.use_head_weight_correction) {
+        const head_weight_corrector = new HeadWeightCorrector(
+          this.geometry,
+          this.bones_master_data,
+          this.preview_plane_height
+        )
+        head_weight_corrector.apply_head_weight_correction(skin_indices, skin_weights)
+        weight_normalizer.normalize_weights(skin_weights)
+      }
+
+      return [skin_indices, skin_weights]
+    }
+
+    // Legacy non-humanoid pipeline.
     const weight_calculator = new WeightCalculator(this.bones_master_data, this.geometry, this.skeleton_type)
     weight_calculator.initialize_caches()
 
     console.time('calculate_closest_bone_weights')
     weight_calculator.calculate_median_bone_weights(skin_indices, skin_weights)
 
-    // Step 1b: Pull parent-side vertices off extremity bones (e.g. knuckle
-    // vertices grabbed by a finger). Runs before smoothing so the corrected
-    // assignments are what the smoother sees.
     const extremity_corrector = new ExtremityWeightCorrector(this.geometry, this.bones_master_data)
     extremity_corrector.apply_extremity_weight_correction(skin_indices, skin_weights)
 
-    // Step 1c: Hand torso vertices back from the arm bones. Arms that hang down
-    // (A-pose or lower) run close to the ribcage, so the closest-bone pass gives
-    // them chest vertices. Runs before smoothing so the smoother blends the new
-    // torso/arm boundary instead of leaving a hard seam.
     if (this.use_arm_plane_correction) {
       const arm_weight_corrector = new ArmWeightCorrector(
         this.geometry,
@@ -91,27 +103,21 @@ export default class SkinningAlgorithm {
       arm_weight_corrector.apply_arm_weight_correction(skin_indices, skin_weights)
     }
 
-    // Step 2: Smooth weight boundaries between adjacent bones
     const weight_smoother = new WeightSmoother(this.geometry, this.bones_master_data)
     weight_smoother.smooth_bone_weight_boundaries(skin_indices, skin_weights)
     console.timeEnd('calculate_closest_bone_weights')
 
-    // Step 4: Normalize weights so all vertices sum to 1.0
     const weight_normalizer = new WeightNormalizer(this.geometry)
     weight_normalizer.normalize_weights(skin_weights)
 
-    // Step 5: Apply head weight correction if enabled
     if (this.use_head_weight_correction) {
       const head_weight_corrector = new HeadWeightCorrector(
         this.geometry,
         this.bones_master_data,
         this.preview_plane_height
       )
-      console.log('applying the head weight correction...')
       head_weight_corrector.apply_head_weight_correction(skin_indices, skin_weights)
     }
-
-    console.log('do we have any leftover incorrect weights ', weight_normalizer.find_vertices_with_incorrect_weight_sum(skin_weights))
 
     return [skin_indices, skin_weights]
   }
