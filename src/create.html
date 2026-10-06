@@ -336,8 +336,8 @@
 
         <span id="weight-skin-tools" style="display: none; flex-direction: column; gap: 0.65rem;">
           <div class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.45rem;">
-            <strong>Веса</strong>
-            <small>Модель уже привязана к скелету. Выберите кость и поправьте влияние кистью, затем переходите к анимациям.</small>
+            <strong>Rig Engine v2 · Surface Skin</strong>
+            <small>Автовеса идут по связной поверхности меша и сегментам костей. Для первого теста не включайте ручную кисть.</small>
           </div>
 
           <div class="pill-switch-group" aria-label="Preview Display">
@@ -376,10 +376,10 @@
               <div style="display:flex; justify-content:space-between; font-size:0.72rem;"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
             </div>
             <div class="styled-checkbox" style="margin: 0;">
-              <input type="checkbox" id="clothing-weight-guard" checked />
+              <input type="checkbox" id="clothing-weight-guard" />
               <label for="clothing-weight-guard">Защита одежды</label>
             </div>
-            <small>Убирает случайные веса с отдельных плащей, юбок и аксессуаров. Ручная кисть имеет приоритет.</small>
+            <small>Legacy guard. Для Surface Skin v2 оставьте выключенным; включайте только для сравнения.</small>
             <button type="button" class="secondary-button" id="weight-root-pelvis-debug">Проверить Root / Pelvis</button>
             <small id="weight-debug-status" style="white-space: pre-line; line-height: 1.35;">Выберите кость — здесь появится статистика влияния.</small>
           </div>
