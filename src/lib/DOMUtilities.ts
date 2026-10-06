@@ -66,21 +66,9 @@ export class DOMUtilities {
    * Render shared top-right navigation links into the provided mount element.
    */
   static populate_top_nav_links (mount: HTMLElement): void {
-    const nav_links = DOMUtilities.top_nav_links
-
-    // Keep mount behavior consistent with original inline nav structure.
     mount.style.display = 'inline-flex'
     mount.style.alignItems = 'center'
-
-    mount.innerHTML = `
-      <a href="#" id="learn-link">Learn</a>
-      <a href="#" id="attribution-link">Contributors</a>
-      <a href="${nav_links.support_href}" id="nav-support-mesh2motion" target="_blank">💗</a>
-      <a href="${nav_links.github_href}" id="nav-github" target="_blank">
-        <img src="${nav_links.github_icon_src}" width="24" height="24" alt="GitHub" />
-      </a>
-      <span id="settings-dropdown-mount"></span>
-    `
+    mount.innerHTML = '<span id="settings-dropdown-mount"></span>'
   }
 
   /**
@@ -406,6 +394,14 @@ export class DOMUtilities {
         </button>
 
         <div id="settings-dropdown-content" class="nav-dropdown-content" hidden>
+          <div class="settings-dropdown-row">
+            <label for="app-language-select">Language</label>
+            <select id="app-language-select" aria-label="Language">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+
           <button id="theme-toggle" class="settings-dropdown-row">
             <span class="theme-icon"></span>
             <span class="theme-label"></span>

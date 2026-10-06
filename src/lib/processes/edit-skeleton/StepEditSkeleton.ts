@@ -395,59 +395,86 @@ export class StepEditSkeleton extends EventTarget {
   }
 
   /**
-   * Apply an editable humanoid arm-pose preset. The preset only repositions
-   * elbow and wrist joints; every joint remains draggable afterwards.
+   * Apply an editable humanoid A/T arm pose without changing bone rotations.
+   * We move joint heads in world space, preserving the measured limb lengths,
+   * and keep each arm in the shoulder plane so it cannot fold behind the body.
    */
   public apply_humanoid_arm_pose_preset (pose: 'a' | 't'): void {
     if (!is_humanoid_skeleton_type(this._current_skeleton_type)) return
     if (this.threejs_skeleton.bones.length === 0) return
 
-    const angle = pose === 't' ? 0 : 35 * Math.PI / 180
+    const downward_angle = pose === 't' ? 0 : 35 * Math.PI / 180
+    const horizontal = Math.cos(downward_angle)
+    const vertical = Math.sin(downward_angle)
+
     this.store_bone_state_for_undo()
     let applied = false
 
     for (const side of ['l', 'r'] as const) {
-      const upperarm = this.threejs_skeleton.bones.find(bone => bone.name === 'upperarm_' + side)
-      const lowerarm = this.threejs_skeleton.bones.find(bone => bone.name === 'lowerarm_' + side)
-      const hand = this.threejs_skeleton.bones.find(bone => bone.name === 'hand_' + side)
+      const upperarm = this.find_arm_bone('upper', side)
+      const lowerarm = this.find_arm_bone('lower', side)
+      const hand = this.find_arm_bone('hand', side)
       if (upperarm === undefined || lowerarm === undefined || hand === undefined) continue
 
-      upperarm.updateWorldMatrix(true, true)
-      lowerarm.updateWorldMatrix(true, true)
-      hand.updateWorldMatrix(true, true)
-
+      this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
       const shoulder = upperarm.getWorldPosition(new Vector3())
       const elbow = lowerarm.getWorldPosition(new Vector3())
       const wrist = hand.getWorldPosition(new Vector3())
+
       const upper_length = shoulder.distanceTo(elbow)
       const lower_length = elbow.distanceTo(wrist)
       if (upper_length <= 0.0001 || lower_length <= 0.0001) continue
 
-      const side_sign = Math.sign(wrist.x - shoulder.x) || (side === 'l' ? 1 : -1)
-      const horizontal = Math.cos(angle)
-      const vertical = Math.sin(angle)
+      // Preserve the model's actual left/right orientation instead of assuming
+      // that a particular bone suffix always maps to +X or -X.
+      const x_delta = Math.abs(elbow.x - shoulder.x) > 0.0001
+        ? elbow.x - shoulder.x
+        : wrist.x - shoulder.x
+      const side_sign = Math.sign(x_delta) || (side === 'l' ? 1 : -1)
 
-      const elbow_target = new Vector3(
-        shoulder.x + side_sign * horizontal * upper_length,
-        shoulder.y - vertical * upper_length,
-        shoulder.z
-      )
+      const arm_direction = new Vector3(
+        side_sign * horizontal,
+        -vertical,
+        0
+      ).normalize()
+
+      const elbow_target = shoulder.clone().addScaledVector(arm_direction, upper_length)
       this.set_bone_world_position(lowerarm, elbow_target)
 
       const updated_elbow = lowerarm.getWorldPosition(new Vector3())
-      const wrist_target = new Vector3(
-        updated_elbow.x + side_sign * horizontal * lower_length,
-        updated_elbow.y - vertical * lower_length,
-        updated_elbow.z
-      )
+      const wrist_target = updated_elbow.clone().addScaledVector(arm_direction, lower_length)
       this.set_bone_world_position(hand, wrist_target)
       applied = true
     }
 
     if (applied) {
       this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
+      this.refresh_arm_plane_position()
       this.dispatchEvent(new CustomEvent('skeletonTransformed'))
     }
+  }
+
+  private find_arm_bone (role: 'upper' | 'lower' | 'hand', side: 'l' | 'r'): Bone | undefined {
+    const aliases: Record<'upper' | 'lower' | 'hand', Record<'l' | 'r', string[]>> = {
+      upper: {
+        l: ['upperarm_l', 'leftarm', 'upperarml', 'leftupperarm'],
+        r: ['upperarm_r', 'rightarm', 'upperarmr', 'rightupperarm']
+      },
+      lower: {
+        l: ['lowerarm_l', 'leftforearm', 'forearml', 'leftlowerarm'],
+        r: ['lowerarm_r', 'rightforearm', 'forearmr', 'rightlowerarm']
+      },
+      hand: {
+        l: ['hand_l', 'lefthand', 'handl'],
+        r: ['hand_r', 'righthand', 'handr']
+      }
+    }
+
+    const wanted = new Set(aliases[role][side].map(name => name.replace(/[^a-z0-9]/g, '')))
+    return this.threejs_skeleton.bones.find((bone) => {
+      const normalized = bone.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+      return wanted.has(normalized)
+    })
   }
 
   private set_bone_world_position (bone: Bone, world_position: Vector3): void {

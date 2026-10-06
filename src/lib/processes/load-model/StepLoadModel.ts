@@ -2,6 +2,8 @@ import { UI } from '../../UI.ts'
 import { ModelZipLoader } from './ModelZipLoader.ts'
 import { CustomFBXLoader, type FBXResults } from './CustomFBXLoader.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { DOMUtilities } from '../../DOMUtilities.ts'
 
 import { Scene } from 'three/src/scenes/Scene.js'
@@ -15,7 +17,9 @@ import { PlatformUtils } from '../../PlatformUtils.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
+  private readonly draco_loader = new DRACOLoader()
   private readonly gltf_loader = new GLTFLoader()
+  private pending_glb_object_url: string | null = null
   private readonly custom_fbx_loader: CustomFBXLoader = new CustomFBXLoader()
   private readonly ui: UI = UI.getInstance()
   private original_model_data: Scene | Group = new Scene()
@@ -52,6 +56,13 @@ export class StepLoadModel extends EventTarget {
   objects_count = 0
 
   private original_geometry_positions: Float32Array[] = []
+
+  constructor () {
+    super()
+    this.draco_loader.setDecoderPath('/draco/')
+    this.gltf_loader.setDRACOLoader(this.draco_loader)
+    this.gltf_loader.setMeshoptDecoder(MeshoptDecoder)
+  }
 
   /**
    * Skinned mesh data that will be used for retargeting
@@ -119,15 +130,32 @@ export class StepLoadModel extends EventTarget {
     if (this.ui.dom_upload_model_button !== null) {
       // handle file upload
       this.ui.dom_upload_model_button.addEventListener('change', (event: Event) => {
-        const file = event.target.files[0]
-        const file_extension: string = Utility.get_file_extension(file.name)
+        const file = (event.target as HTMLInputElement).files?.[0]
+        if (file === undefined) return
+
+        const file_extension: string = Utility.get_file_extension(file.name).toLowerCase()
         this.source_file_name = file.name
+
+        // GLB is already a binary container. Feeding it to FileReader as a base64
+        // DataURL wastes a large amount of memory in Android WebView and caused
+        // perfectly valid 10-20 MB character files to fail inconsistently.
+        if (file_extension === 'glb') {
+          if (this.pending_glb_object_url !== null) {
+            URL.revokeObjectURL(this.pending_glb_object_url)
+          }
+          const object_url = URL.createObjectURL(file)
+          this.pending_glb_object_url = object_url
+          this.load_model_file(object_url, file_extension)
+          return
+        }
 
         const reader = new FileReader()
         reader.readAsDataURL(file)
         reader.onload = () => {
-          console.log('File reader loaded', reader)
           this.load_model_file(reader.result, file_extension)
+        }
+        reader.onerror = () => {
+          new ModalDialog('Ошибка чтения файла', 'Android не смог прочитать выбранный файл. Попробуйте выбрать файл ещё раз.').show()
         }
       })
 
@@ -208,16 +236,56 @@ export class StepLoadModel extends EventTarget {
     if (file_extension === 'fbx') {
       this.load_fbx_file(model_file_path)
     } else if (file_extension === 'glb') {
-      this.gltf_loader.load(model_file_path as string, (gltf) => {
-        const loaded_scene: Scene = gltf.scene
-        this.process_loaded_scene(loaded_scene)
-      })
+      if (typeof model_file_path !== 'string') {
+        this.show_glb_load_error(new Error('GLB source is not a URL'))
+        return
+      }
+
+      const source_url = model_file_path
+      this.gltf_loader.load(
+        source_url,
+        (gltf) => {
+          this.finish_pending_glb_url(source_url)
+          const loaded_scene: Scene = gltf.scene
+          this.process_loaded_scene(loaded_scene)
+        },
+        undefined,
+        (error) => {
+          this.finish_pending_glb_url(source_url)
+          this.show_glb_load_error(error)
+        }
+      )
     } else if (file_extension === 'zip') {
       console.log('ZIP file can contain GLTF+BIN model data')
       this.handle_zip_file(model_file_path)
     } else {
       console.error('Unsupported file format to load. Only acccepts FBX, (ZIP)GLTF+BIN, GLB:', model_file_path)
     }
+  }
+
+  private finish_pending_glb_url (source_url: string): void {
+    if (this.pending_glb_object_url !== source_url) return
+    URL.revokeObjectURL(source_url)
+    this.pending_glb_object_url = null
+  }
+
+  private show_glb_load_error (error: unknown): void {
+    const raw_message = error instanceof Error ? error.message : String(error)
+    console.error('GLB load failed:', error)
+
+    let hint = 'Файл GLB не удалось открыть.'
+    if (/draco/i.test(raw_message)) {
+      hint += ' Модель использует DRACO-сжатие; встроенный декодер не смог обработать данные.'
+    } else if (/meshopt/i.test(raw_message)) {
+      hint += ' Модель использует Meshopt-сжатие; декодирование завершилось ошибкой.'
+    } else if (/ktx2|basis/i.test(raw_message)) {
+      hint += ' В модели используются KTX2/Basis-текстуры. Для такой модели потребуется KTX2-декодер.'
+    } else {
+      hint += ' Проверьте, что это корректный бинарный glTF 2.0 (.glb).'
+    }
+
+    const details = raw_message.length > 240 ? raw_message.slice(0, 240) + '…' : raw_message
+    new ModalDialog('Ошибка загрузки модели', hint + '<br><br><small>' + details + '</small>').show()
   }
 
   private load_fbx_file (model_file_path: string | ArrayBuffer | null): void {

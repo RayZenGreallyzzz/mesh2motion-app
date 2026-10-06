@@ -1,7 +1,7 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
-    <title style="display: none">Create - Mesh2Motion</title>
+    <title>Rig Animation Studio</title>
     <link rel="icon" type="image/png" href="./images/favicon.png" />
     <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
     <meta charset="UTF-8" />
@@ -23,22 +23,22 @@
     <link rel="stylesheet" href="./dialog.css" crossorigin="anonymous" />
     <link rel="stylesheet" href="./settings-dropdown.css" crossorigin="anonymous" />
     <link rel="stylesheet" href="./offline.css" crossorigin="anonymous" />
+    <link rel="stylesheet" href="./rig-animation-studio.css" crossorigin="anonymous" />
     <link rel="stylesheet" href="./lib/processes/animations-listing/props/props.css" crossorigin="anonymous" />
 
 
-    <nav>
-      <div style="display: inline-flex; align-items: center">
-        <a id="logo-branding" href="https://mesh2motion.org"
-          ><img src="./images/mesh2motion.svg" width="130" alt="Mesh2Motion logo"
-        /></a>
-        <a href="/">Explore</a>
-        <span class="active-nav-item">Use Your Model</span>
-        <a href="/retarget/index.html">Use Your Rigged Model</a>
+    <nav class="ras-nav">
+      <div id="ras-branding" aria-label="Rig Animation Studio">
+        <span class="ras-brand-mark">RA</span>
+        <span class="ras-brand-copy">
+          <strong>Rig Animation Studio</strong>
+          <small>Mobile Rig &amp; Animation</small>
+        </span>
       </div>
-
       <div style="display: inline-flex; align-items: center;">
-      <div id="top-nav-links-mount"></div>
+        <div id="top-nav-links-mount"></div>
       </div>
+    </nav>
     </nav>
 
     <div id="header-ui-mount"></div>
@@ -468,6 +468,8 @@
         <span id="selected-bone-overlay-text"></span>
       </span>
     </div>
+
+    <script type="module" src="./RigAnimationStudioLocalization.ts"></script>
 
     <!-- build version information-->
     <span id="build-version"></span>
