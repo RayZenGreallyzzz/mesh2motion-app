@@ -128,13 +128,36 @@ export class StepLoadModel extends EventTarget {
     }
 
     if (this.ui.dom_upload_model_button !== null) {
+      // Android document providers frequently expose valid GLB/FBX files with a
+      // generic MIME type (application/octet-stream). Extension-based accept
+      // filters can therefore hide perfectly valid user models. Let mobile file
+      // pickers show every file and validate the extension ourselves below.
+      if (PlatformUtils.isIOS() || PlatformUtils.isAndroid()) {
+        this.ui.dom_upload_model_button.setAttribute('accept', '*/*')
+      }
+
       // handle file upload
       this.ui.dom_upload_model_button.addEventListener('change', (event: Event) => {
-        const file = (event.target as HTMLInputElement).files?.[0]
+        const input = event.target as HTMLInputElement
+        const file = input.files?.[0]
         if (file === undefined) return
 
         const file_extension: string = Utility.get_file_extension(file.name).toLowerCase()
         this.source_file_name = file.name
+
+        // Clear the native picker value after taking the File reference. Android
+        // otherwise does not fire another change event when the same model is
+        // selected again after returning to the import step.
+        input.value = ''
+
+        const supported_extensions = new Set(['glb', 'fbx', 'zip'])
+        if (!supported_extensions.has(file_extension)) {
+          new ModalDialog(
+            'Неподдерживаемый файл',
+            'Можно загрузить модель в формате GLB, FBX или ZIP (GLTF+BIN). Выбран файл: <b>' + file.name + '</b>'
+          ).show()
+          return
+        }
 
         // GLB is already a binary container. Feeding it to FileReader as a base64
         // DataURL wastes a large amount of memory in Android WebView and caused
@@ -158,12 +181,6 @@ export class StepLoadModel extends EventTarget {
           new ModalDialog('Ошибка чтения файла', 'Android не смог прочитать выбранный файл. Попробуйте выбрать файл ещё раз.').show()
         }
       })
-
-      // iOS has a weird issue with accepted file extensions, so we need to just
-      // accept everything for that platform
-      if (PlatformUtils.isIOS()) {
-        this.ui.dom_upload_model_button.setAttribute('accept', '*/*')
-      }
     }
 
     if (this.ui.dom_load_model_debug_checkbox !== null) {
