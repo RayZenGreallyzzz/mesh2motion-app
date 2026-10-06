@@ -43,7 +43,7 @@ jobs:
           mkdir -p static/draco
           cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
 
-      - name: Apply Android v3 rig fixes
+      - name: Apply existing Android rig fixes
         run: node scripts/apply-android-v3-fixes.mjs
 
       - name: Normalize Rig Animation Studio markup
@@ -59,12 +59,12 @@ jobs:
       - name: Commit generated source fixes if needed
         run: |
           if git diff --quiet -- src; then
-            echo "No generated v3 source changes needed"
+            echo "No generated source changes needed"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -A src
-            git commit -m "Apply Rig Animation Studio v3 arm fix"
+            git commit -m "Apply Rig Animation Studio generated fixes"
             git push origin HEAD:android-rig-animation-studio
           fi
 
@@ -90,12 +90,12 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v3-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v3-APK
-          path: artifacts/Rig-Animation-Studio-v3-debug.apk
+          name: Rig-Animation-Studio-v4-APK
+          path: artifacts/Rig-Animation-Studio-v4-debug.apk
           if-no-files-found: error
           retention-days: 14
