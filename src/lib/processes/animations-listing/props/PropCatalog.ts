@@ -1,10 +1,12 @@
-import { Euler, Group, Mesh, type Object3D } from 'three'
+import { Box3, Euler, Group, Mesh, Vector3, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { SkeletonType } from '../../../enums/SkeletonType.ts'
 import { PropType } from './PropType.ts'
 import { PropSide } from './PropSide.ts'
 
-export type PropCategory = 'Polearms' | 'Staves' | 'Ranged' | 'Axes' | 'Daggers' | 'Fist Weapons' | 'Hammers' | 'Shields' | 'Swords' | 'Wands' | 'Guns' | 'Tools'
+export type PropCategory = 'Custom' | 'Polearms' | 'Staves' | 'Ranged' | 'Axes' | 'Daggers' | 'Fist Weapons' | 'Hammers' | 'Shields' | 'Swords' | 'Wands' | 'Guns' | 'Tools'
 
 export interface PropMountOffset {
   // meters for a rig at skeleton scale 1.0, along the hand bone toward the fingers
@@ -51,8 +53,21 @@ function create_definition (
 export class PropCatalog {
   public static readonly supported_skeleton_types: SkeletonType[] = [SkeletonType.Human, SkeletonType.MobileFemale, SkeletonType.Kaiju]
 
-  private static readonly loader: GLTFLoader = new GLTFLoader()
+  private static readonly draco_loader: DRACOLoader = (() => {
+    const loader = new DRACOLoader()
+    loader.setDecoderPath('/draco/')
+    return loader
+  })()
+
+  private static readonly loader: GLTFLoader = (() => {
+    const loader = new GLTFLoader()
+    loader.setDRACOLoader(PropCatalog.draco_loader)
+    loader.setMeshoptDecoder(MeshoptDecoder)
+    return loader
+  })()
+
   private static readonly model_cache = new Map<string, Promise<Group>>()
+  private static custom_asset_url: string | null = null
 
   private static readonly definitions: PropDefinition[] = [
     create_definition(PropType.Pole, 'Spear', 'Polearms', 'spear_A.glb'),
@@ -109,6 +124,42 @@ export class PropCatalog {
     return this.definitions.find((definition) => definition.type === type)
   }
 
+  /**
+   * Registers one user supplied GLB as the current custom weapon for this session.
+   * Re-importing replaces the previous custom weapon and releases its object URL.
+   */
+  public static register_custom_glb (file: File): PropDefinition {
+    if (this.custom_asset_url !== null) {
+      this.model_cache.delete(this.custom_asset_url)
+      URL.revokeObjectURL(this.custom_asset_url)
+    }
+
+    this.custom_asset_url = URL.createObjectURL(file)
+    const display_name = file.name.replace(/\.glb$/i, '') || 'Custom weapon'
+    const definition: PropDefinition = {
+      type: PropType.Custom,
+      display_name,
+      category: 'Custom',
+      asset_path: this.custom_asset_url,
+      preview_path: 'images/icons/props.svg',
+      model_offset_y: 0,
+      default_mount_offsets: {
+        [PropSide.Left]: { along_hand: 0.09, below_palm: 0.035, rotation: new Euler() },
+        [PropSide.Right]: { along_hand: 0.09, below_palm: 0.035, rotation: new Euler() }
+      },
+      rig_mount_offsets: {}
+    }
+
+    const previous_index = this.definitions.findIndex((item) => item.type === PropType.Custom)
+    if (previous_index >= 0) {
+      this.definitions[previous_index] = definition
+    } else {
+      this.definitions.unshift(definition)
+    }
+
+    return definition
+  }
+
   public static async create_object (definition: PropDefinition): Promise<Object3D> {
     const model = (await this.load_model(definition.asset_path)).clone(true)
     model.traverse((child) => {
@@ -119,6 +170,13 @@ export class PropCatalog {
           : child.material.clone()
       }
     })
+
+    // Custom files arrive from many DCC tools with wildly different unit scales.
+    // Bring only extreme sizes into a sensible weapon range while preserving the
+    // model's authored origin and orientation so grip placement still works.
+    if (definition.type === PropType.Custom) {
+      this.normalize_custom_weapon_scale(model)
+    }
 
     const prop_object = new Group()
     model.position.y += definition.model_offset_y
@@ -132,6 +190,20 @@ export class PropCatalog {
 
   public static mount_offset (definition: PropDefinition, skeleton_type: SkeletonType, side: PropSide): PropMountOffset {
     return definition.rig_mount_offsets[skeleton_type]?.[side] ?? definition.default_mount_offsets[side]
+  }
+
+  private static normalize_custom_weapon_scale (model: Group): void {
+    model.updateMatrixWorld(true)
+    const size = new Box3().setFromObject(model).getSize(new Vector3())
+    const longest = Math.max(size.x, size.y, size.z)
+    if (!Number.isFinite(longest) || longest <= 1e-6) return
+
+    // Leave already sensible meter-scale props untouched. Only normalize files
+    // that are clearly authored in centimeters/millimeters or huge scene units.
+    if (longest < 0.15 || longest > 3.0) {
+      model.scale.multiplyScalar(0.75 / longest)
+      model.updateMatrixWorld(true)
+    }
   }
 
   private static async load_model (asset_path: string): Promise<Group> {
