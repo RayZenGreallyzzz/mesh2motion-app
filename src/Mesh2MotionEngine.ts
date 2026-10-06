@@ -445,8 +445,7 @@ export class Mesh2MotionEngine {
 
   public is_manual_weight_editor_enabled (): boolean {
     const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
-    return this.process_step === ProcessStep.EditSkeleton &&
-      this.rig_setup_locked_state &&
+    return this.process_step === ProcessStep.WeightSkin &&
       (enabled?.checked ?? false)
   }
 
@@ -454,8 +453,6 @@ export class Mesh2MotionEngine {
     const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
     const status = document.getElementById('manual-weight-status')
     if (enabled === null) return
-
-    if (!this.rig_setup_locked_state && enabled.checked) enabled.checked = false
 
     const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
     const selected = select === null ? NaN : Number.parseInt(select.value, 10)
@@ -467,8 +464,9 @@ export class Mesh2MotionEngine {
       this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
       this.changed_model_preview_display(ModelPreviewDisplay.WeightPainted)
       if (status !== null) status.textContent = 'Проведите пальцем по модели. Цвет показывает влияние выбранной кости.'
-    } else if (status !== null) {
-      status.textContent = 'Зафиксируйте риг, включите кисть и проведите пальцем по модели.'
+    } else {
+      this.changed_model_preview_display(ModelPreviewDisplay.Textured)
+      if (status !== null) status.textContent = 'Включите кисть, выберите кость и проведите пальцем по модели.'
     }
 
     this.update_manual_weight_labels()
@@ -572,7 +570,7 @@ export class Mesh2MotionEngine {
 
   public reset_manual_weight_overrides (): void {
     this.weight_skin_step.clear_manual_weight_overrides()
-    if (this.process_step === ProcessStep.EditSkeleton) this.regenerate_weight_painted_preview_mesh()
+    if (this.process_step === ProcessStep.WeightSkin) this.regenerate_weight_painted_preview_mesh()
   }
 
   // --- Model position gizmo (step 2) ---
@@ -648,6 +646,9 @@ export class Mesh2MotionEngine {
         break
       case ProcessStep.BindPose:
         this.process_step = ProcessStep.BindPose
+        break
+      case ProcessStep.WeightSkin:
+        this.process_step = ProcessStep.WeightSkin
         break
       case ProcessStep.AnimationsListing:
         this.process_step = ProcessStep.AnimationsListing
@@ -757,19 +758,32 @@ export class Mesh2MotionEngine {
       }
 
       this.sync_skeleton_helper_joint_visibility()
-      this.refresh_manual_weight_editor()
-
-      this.changed_model_preview_display(this.mesh_preview_display_type) // show weight painted mesh by default
+      this.mesh_preview_display_type = ModelPreviewDisplay.Textured
+      this.changed_model_preview_display(this.mesh_preview_display_type)
     }
     else if (this.process_step === ProcessStep.BindPose) {
-      this.transform_controls.enabled = false // shouldn't be editing bones
+      this.transform_controls.enabled = false
+      this.process_step_changed(ProcessStep.WeightSkin)
+    }
+    else if (this.process_step === ProcessStep.WeightSkin) {
+      this.process_step = ProcessStep.WeightSkin
+      this.transform_controls.enabled = false
+      this.dispose_skeleton_helper()
+
+      this.remove_skinned_meshes_from_scene()
       this.calculate_skin_weighting_for_models()
+      this.scene.add(...this.weight_skin_step.final_skinned_meshes())
+      this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
 
-      this.remove_skinned_meshes_from_scene() // clean up in case we had skinned meshes in scene previously
-      this.scene.add(...this.weight_skin_step.final_skinned_meshes()) // add final skinned mesh to scene
+      this.load_model_step.model_meshes().visible = false
+      this.mesh_preview_display_type = ModelPreviewDisplay.Textured
+      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = true })
+      this.weight_skin_step.weight_painted_mesh_group().visible = false
 
-      this.weight_skin_step.weight_painted_mesh_group().visible = false // hide weight painted mesh
-      this.process_step_changed(ProcessStep.AnimationsListing)
+      if (this.ui.dom_weight_skin_tools !== null) this.ui.dom_weight_skin_tools.style.display = 'flex'
+      if (this.ui.dom_current_step_element !== null) this.ui.dom_current_step_element.textContent = 'Веса'
+      this.refresh_manual_weight_editor()
+      this.sync_manual_weight_editor()
     }
     else if (this.process_step === ProcessStep.AnimationsListing) {
       this.process_step = ProcessStep.AnimationsListing
@@ -831,14 +845,24 @@ export class Mesh2MotionEngine {
   public changed_model_preview_display (mesh_textured_display_type: ModelPreviewDisplay): void {
     this.mesh_preview_display_type = mesh_textured_display_type
 
-    // show/hide loaded textured model depending on view
+    if (this.process_step === ProcessStep.WeightSkin) {
+      if (this.mesh_preview_display_type === ModelPreviewDisplay.WeightPainted) {
+        this.regenerate_weight_painted_preview_mesh()
+        return
+      }
+
+      this.load_model_step.model_meshes().visible = false
+      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = true })
+      this.weight_skin_step.weight_painted_mesh_group().visible = false
+      return
+    }
+
     this.load_model_step.model_meshes().visible = this.mesh_preview_display_type === ModelPreviewDisplay.Textured
 
     if (this.mesh_preview_display_type === ModelPreviewDisplay.WeightPainted) {
       this.regenerate_weight_painted_preview_mesh()
     }
 
-    // show/hide weight painted mesh depending on view
     this.weight_skin_step.weight_painted_mesh_group().visible =
       this.mesh_preview_display_type === ModelPreviewDisplay.WeightPainted
   }
@@ -947,12 +971,21 @@ export class Mesh2MotionEngine {
   }
 
   public regenerate_weight_painted_preview_mesh (): void {
-    // needed for skinning process
+    const is_weight_step = this.process_step === ProcessStep.WeightSkin
+    if (is_weight_step) this.remove_skinned_meshes_from_scene()
+
     this.calculate_skin_weighting_for_models()
 
-    // if the weight painted mesh is not in scene, add it
-    if (this.scene.getObjectByName('Weight Painted Mesh') === undefined) {
+    if (this.scene.getObjectByName('Weight Painted Mesh Preview') === undefined) {
       this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
+    }
+
+    if (is_weight_step) {
+      this.scene.add(...this.weight_skin_step.final_skinned_meshes())
+      const show_textured = this.mesh_preview_display_type === ModelPreviewDisplay.Textured
+      this.load_model_step.model_meshes().visible = false
+      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = show_textured })
+      this.weight_skin_step.weight_painted_mesh_group().visible = !show_textured
     }
   }
 

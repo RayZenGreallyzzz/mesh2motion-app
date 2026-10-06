@@ -283,6 +283,17 @@ export class EventListeners {
       this.bootstrap.process_step_changed(ProcessStep.BindPose)
     })
 
+    document.getElementById('action_weights_back_to_skeleton')?.addEventListener('click', () => {
+      this.bootstrap.remove_skinned_meshes_from_scene()
+      this.bootstrap.remove_weight_painted_mesh_preview()
+      this.bootstrap.process_step = this.bootstrap.process_step_changed(ProcessStep.EditSkeleton)
+      this.bootstrap.edit_skeleton_step.set_currently_selected_bone(null)
+    })
+
+    document.getElementById('action_weights_to_animations')?.addEventListener('click', () => {
+      this.bootstrap.process_step = this.bootstrap.process_step_changed(ProcessStep.AnimationsListing)
+    })
+
     // rotate model after loading it in to orient it correctly
     this.bootstrap.ui.dom_rotate_model_x_button?.addEventListener('click', () => {
       ModelCleanupUtility.rotate_model_geometry(this.bootstrap.load_model_step.model_meshes(), 'x', 90)
@@ -358,18 +369,11 @@ export class EventListeners {
         })
     })
 
-    // going back to edit skeleton step after skinning
-    // this will do a lot of resetting
+    // Return from animations to the post-bind weight editing stage.
     this.bootstrap.ui.dom_back_to_edit_skeleton_button?.addEventListener('click', () => {
-      this.bootstrap.remove_skinned_meshes_from_scene() // clear any existing skinned meshes
+      this.bootstrap.remove_skinned_meshes_from_scene()
       this.bootstrap.debugging_visual_object = Utility.regenerate_debugging_scene(this.bootstrap.scene)
-      this.bootstrap.process_step = this.bootstrap.process_step_changed(ProcessStep.EditSkeleton)
-
-      // reset current bone selection for edit skeleton step
-      this.bootstrap.edit_skeleton_step.set_currently_selected_bone(null)
-
-      // reset the undo/redo system
-      this.bootstrap.edit_skeleton_step.clear_undo_history()
+      this.bootstrap.process_step = this.bootstrap.process_step_changed(ProcessStep.WeightSkin)
     })
 
     // going back to load skeleton step from edit skeleton step

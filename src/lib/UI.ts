@@ -68,6 +68,7 @@ export class UI {
   dom_arm_plane_offset_label: HTMLElement | null = null
   dom_arm_plane_setting_container: HTMLElement | null = null
 
+  dom_weight_skin_tools: HTMLElement | null = null
   dom_skinned_mesh_tools: HTMLElement | null = null
   dom_skinned_mesh_animation_tools: HTMLElement | null = null
   dom_back_to_edit_skeleton_button: HTMLButtonElement | null = null
@@ -213,7 +214,8 @@ export class UI {
     this.dom_scale_skeleton_percentage_display = document.querySelector('#scale-skeleton-percentage-display')
     this.dom_scale_skeleton_controls = document.querySelector('#scale-skeleton-controls')
 
-    // UI controls for working with skinned mesh
+    // UI controls for post-bind weight editing / working with skinned mesh
+    this.dom_weight_skin_tools = document.querySelector('#weight-skin-tools')
     this.dom_skinned_mesh_tools = document.querySelector('#skinned-step-tools')
     this.dom_skinned_mesh_animation_tools = document.querySelector('#skinned-step-animation-export-options')
 
@@ -284,6 +286,9 @@ export class UI {
     }
     if (this.dom_skeleton_edit_tools != null) {
       this.dom_skeleton_edit_tools.style.display = 'none'
+    }
+    if (this.dom_weight_skin_tools != null) {
+      this.dom_weight_skin_tools.style.display = 'none'
     }
     if (this.dom_skinned_mesh_tools != null) {
       this.dom_skinned_mesh_tools.style.display = 'none'

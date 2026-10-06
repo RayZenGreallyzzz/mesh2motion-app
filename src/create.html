@@ -285,40 +285,6 @@
             </div>
           </div>
 
-          <div class="pill-switch-group" aria-label="Preview Display">
-            <span class="pill-switch-label">Preview Display</span>
-            <div id="mesh-preview-group" class="pill-switch">
-              <input id="preview-painted" type="radio" name="mesh-preview-type" value="weight-painted" />
-              <label for="preview-painted" title="Weight painted mesh">Weights</label>
-              <input id="preview-textured" type="radio" name="mesh-preview-type" value="textured" checked="checked" />
-              <label for="preview-textured" title="Textured mesh">Textured</label>
-            </div>
-          </div>
-
-
-
-          <div id="manual-weight-editor" class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.5rem;">
-            <span class="pill-switch-label">Ручные веса</span>
-            <div class="styled-checkbox" style="margin: 0;">
-              <input type="checkbox" id="manual-weight-enabled" />
-              <label for="manual-weight-enabled">Кисть весов</label>
-            </div>
-            <label for="manual-weight-bone">Кость</label>
-            <select id="manual-weight-bone"></select>
-            <div class="pill-switch">
-              <input type="radio" id="manual-weight-add" name="manual-weight-mode" value="add" checked />
-              <label for="manual-weight-add">Добавить</label>
-              <input type="radio" id="manual-weight-remove" name="manual-weight-mode" value="remove" />
-              <label for="manual-weight-remove">Убрать</label>
-            </div>
-            <label for="manual-weight-radius">Размер кисти <span id="manual-weight-radius-value">8</span>%</label>
-            <input id="manual-weight-radius" type="range" min="0.02" max="0.30" step="0.01" value="0.08" />
-            <label for="manual-weight-strength">Сила <span id="manual-weight-strength-value">15</span>%</label>
-            <input id="manual-weight-strength" type="range" min="0.05" max="0.50" step="0.05" value="0.15" />
-            <button type="button" class="secondary-button" id="manual-weight-reset">Сбросить ручные правки</button>
-            <small id="manual-weight-status">Зафиксируйте риг, включите кисть и проведите пальцем по модели.</small>
-          </div>
-
           <div class="styled-checkbox">
             <input type="checkbox" id="mirror-skeleton" name="mirror-skeleton" value="mirror" checked>
             <label for="mirror-skeleton">Mirror Left/Right Joints</label>
@@ -363,6 +329,50 @@
           <div class="display: flex; gap: 0.5rem;">
             <button class="no-style-button" id="action_back_to_load_skeleton">&#x2039; Back</button>
             <button id="action_bind_pose">Bind pose</button>
+          </div>
+        </span>
+
+        <span id="weight-skin-tools" style="display: none; flex-direction: column; gap: 0.65rem;">
+          <div class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.45rem;">
+            <strong>Веса</strong>
+            <small>Модель уже привязана к скелету. Выберите кость и поправьте влияние кистью, затем переходите к анимациям.</small>
+          </div>
+
+          <div class="pill-switch-group" aria-label="Preview Display">
+            <span class="pill-switch-label">Preview Display</span>
+            <div id="mesh-preview-group" class="pill-switch">
+              <input id="preview-painted" type="radio" name="mesh-preview-type" value="weight-painted" />
+              <label for="preview-painted" title="Weight painted mesh">Weights</label>
+              <input id="preview-textured" type="radio" name="mesh-preview-type" value="textured" checked="checked" />
+              <label for="preview-textured" title="Textured mesh">Textured</label>
+            </div>
+          </div>
+
+          <div id="manual-weight-editor" class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <span class="pill-switch-label">Ручные веса</span>
+            <div class="styled-checkbox" style="margin: 0;">
+              <input type="checkbox" id="manual-weight-enabled" />
+              <label for="manual-weight-enabled">Кисть весов</label>
+            </div>
+            <label for="manual-weight-bone">Кость</label>
+            <select id="manual-weight-bone"></select>
+            <div class="pill-switch">
+              <input type="radio" id="manual-weight-add" name="manual-weight-mode" value="add" checked />
+              <label for="manual-weight-add">Добавить</label>
+              <input type="radio" id="manual-weight-remove" name="manual-weight-mode" value="remove" />
+              <label for="manual-weight-remove">Убрать</label>
+            </div>
+            <label for="manual-weight-radius">Размер кисти <span id="manual-weight-radius-value">8</span>%</label>
+            <input id="manual-weight-radius" type="range" min="0.02" max="0.30" step="0.01" value="0.08" />
+            <label for="manual-weight-strength">Сила <span id="manual-weight-strength-value">15</span>%</label>
+            <input id="manual-weight-strength" type="range" min="0.05" max="0.50" step="0.05" value="0.15" />
+            <button type="button" class="secondary-button" id="manual-weight-reset">Сбросить ручные правки</button>
+            <small id="manual-weight-status">Зафиксируйте риг, включите кисть и проведите пальцем по модели.</small>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" class="no-style-button" id="action_weights_back_to_skeleton">&#x2039; Скелет</button>
+            <button type="button" id="action_weights_to_animations" style="flex: 1;">Анимации &#x203a;</button>
           </div>
         </span>
 
@@ -413,7 +423,7 @@
 
             <div class="download-actions-row">
               <button class="no-style-button" id="action_back_to_edit_skeleton">
-                &#x2039; Back
+                &#x2039; Веса
               </button>
 
               <!-- testing the mirroring options. Hide this for now until we get a better implementation for per animations -->
