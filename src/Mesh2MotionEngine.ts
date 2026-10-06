@@ -947,8 +947,18 @@ export class Mesh2MotionEngine {
 
   public remove_skinned_meshes_from_scene (): void {
     const existing_skinned_meshes = this.scene.children.filter((child: THREE.Object3D) => child.name.includes('Skinned Mesh'))
+
+    // SkinnedMesh instances created by StepWeightSkin intentionally reuse the
+    // geometry/material objects owned by StepLoadModel. Disposing a temporary
+    // skinned result here also disposes those shared GPU resources, so the next
+    // weight recalculation/rebind may render with missing textures, hitch while
+    // re-uploading buffers, or otherwise behave inconsistently on Android.
+    //
+    // This method only removes transient skinned wrappers from the scene. The
+    // source model remains the owner of geometry/material resources and handles
+    // their lifetime when a model is actually replaced.
     existing_skinned_meshes.forEach((existing_skinned_mesh: THREE.Object3D) => {
-      Utility.remove_object_with_children(existing_skinned_mesh)
+      existing_skinned_mesh.removeFromParent()
     })
   }
 
