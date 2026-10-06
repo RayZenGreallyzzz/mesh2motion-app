@@ -4,7 +4,8 @@ import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
 import { Generators } from '../../Generators.ts'
 
 import { type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute } from 'three'
-import { type SkeletonType } from '../../enums/SkeletonType.ts'
+import { SkeletonType } from '../../enums/SkeletonType.ts'
+import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepWeightSkin extends EventTarget {
@@ -12,6 +13,7 @@ export class StepWeightSkin extends EventTarget {
   private skinning_armature: Object3D | undefined
   private bone_skinning_formula: SkinningAlgorithm | undefined
   private binding_skeleton: Skeleton | undefined
+  private binding_scene_root: Object3D | undefined
   private skinned_meshes: SkinnedMesh[] = []
 
   // stores the geometry data for meshes we will skin
@@ -39,7 +41,11 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
-    this.skinning_armature = editable_armature.clone()
+    // Mobile Female no longer binds the edited stock mannequin hierarchy. Build
+    // a fresh deform rig from the exact joint positions the user placed.
+    this.skinning_armature = skeleton_type === SkeletonType.MobileFemale
+      ? CleanMobileHumanoidRig.build(editable_armature)
+      : editable_armature.clone()
     this.skinning_armature.name = 'Armature for skinning'
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
@@ -81,9 +87,12 @@ export class StepWeightSkin extends EventTarget {
       return
     }
 
-    // when we copy over the armature with the bind, we will lose the reference in the variable
-    this.binding_skeleton = Generators.create_skeleton(this.skinning_armature.children[0])
+    // Keep the complete runtime hierarchy root. For Mobile Female this is a
+    // non-Bone Object3D named root, followed by pelvis as the first deform Bone.
+    this.binding_scene_root = this.skinning_armature.children[0]
+    this.binding_skeleton = Generators.create_skeleton(this.binding_scene_root)
     this.binding_skeleton.name = 'Mesh Binding Skeleton'
+    this.binding_skeleton.calculateInverses()
   }
 
   /**
@@ -131,8 +140,14 @@ export class StepWeightSkin extends EventTarget {
     skinned_mesh.name = 'Skinned Mesh ' + idx.toString()
     skinned_mesh.castShadow = true // skinned mesh won't update right if this is false
 
-    // do the binding for the mesh to the skeleton
-    skinned_mesh.add(this.binding_skeleton.bones[0])
+    // The app intentionally shares one Skeleton between all material meshes.
+    // Own the root hierarchy from the first mesh only; every other mesh can bind
+    // to the same live bone matrices without reparenting the bones away again.
+    if (idx === 0 && this.binding_scene_root !== undefined) {
+      skinned_mesh.add(this.binding_scene_root)
+    } else if (idx === 0) {
+      skinned_mesh.add(this.binding_skeleton.bones[0])
+    }
     skinned_mesh.bind(this.binding_skeleton)
 
     return skinned_mesh

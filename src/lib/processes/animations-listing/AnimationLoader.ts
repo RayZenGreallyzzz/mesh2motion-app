@@ -5,6 +5,8 @@ import { SkeletonType } from '../../enums/SkeletonType.ts'
 import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
+import { MobileHumanoidAnimationRetargeter } from '../../mobile-rig/MobileHumanoidAnimationRetargeter.ts'
+import { type SkinnedMesh } from 'three'
 
 export interface AnimationLoadProgress {
   loaded: number
@@ -49,7 +51,8 @@ export class AnimationLoader extends EventTarget {
    */
   public async load_animations (
     skeleton_type: SkeletonType,
-    skeleton_scale: number = 1.0
+    skeleton_scale: number = 1.0,
+    retarget_target?: SkinnedMesh
   ): Promise<TransformedAnimationClipPair[]> {
     this.skeleton_type = skeleton_type
     const configured_animation_files = RigConfig.get_animation_file_paths(this.skeleton_type)
@@ -105,14 +108,29 @@ export class AnimationLoader extends EventTarget {
               // Emit progress update
               this.emit_enhanced_progress(file_path, 1, 1)
 
-              // Check if all animations are loaded
+              // Check if all animations are loaded. Retarget exactly once after
+              // all three human libraries are present so concurrent GLTF callbacks
+              // never mutate the same source/target skeleton at the same time.
               if (completed_loads === total_loads) {
-                // Sort animations alphabetically by name
-                loaded_clips.sort((a, b) => {
-                  return a.display_animation_clip.name.localeCompare(b.display_animation_clip.name)
-                })
+                const finalize = async (): Promise<void> => {
+                  let final_clips = loaded_clips
+                  if (this.skeleton_type === SkeletonType.MobileFemale && retarget_target !== undefined) {
+                    final_clips = await MobileHumanoidAnimationRetargeter.retargetPairs(retarget_target, loaded_clips)
+                  }
 
-                resolve(loaded_clips)
+                  final_clips.sort((a, b) => {
+                    return a.display_animation_clip.name.localeCompare(b.display_animation_clip.name)
+                  })
+
+                  resolve(final_clips)
+                }
+
+                void finalize().catch((error: unknown) => {
+                  if (has_error) return
+                  has_error = true
+                  const error_message = error instanceof Error ? error.message : String(error)
+                  reject(new Error(`Failed to retarget animations: ${error_message}`))
+                })
               }
             } catch (error) {
               if (!has_error) {

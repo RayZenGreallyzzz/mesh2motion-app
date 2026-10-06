@@ -296,7 +296,7 @@ export class StepAnimationsListing extends EventTarget {
     this.animation_mixer = new AnimationMixer(new Object3D())
 
     // Load animations using the new AnimationLoader
-    this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
+    this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale, final_skinned_meshes[0])
       .then((loaded_clips: TransformedAnimationClipPair[]) => {
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()
@@ -412,10 +412,19 @@ export class StepAnimationsListing extends EventTarget {
    * @param skinned_mesh
    */
   private reset_root_motion_position (skinned_mesh: SkinnedMesh): void {
+    // Mobile Humanoid keeps root-motion as a non-deform Object3D. Never zero
+    // skeleton.bones[0] blindly: on the clean rig that bone is pelvis.
+    const motion_root = skinned_mesh.getObjectByName('root')
+    if (motion_root !== undefined) {
+      motion_root.position.set(0, 0, 0)
+      motion_root.updateMatrixWorld(true)
+      return
+    }
+
     if (skinned_mesh.skeleton.bones.length > 0) {
-      const root_bone = skinned_mesh.skeleton.bones[0] // should always be root bone
-      root_bone.position.set(0, 0, 0)
-      root_bone.updateMatrixWorld(true)
+      const legacy_root = skinned_mesh.skeleton.bones[0]
+      legacy_root.position.set(0, 0, 0)
+      legacy_root.updateMatrixWorld(true)
     }
   }
 
@@ -428,7 +437,13 @@ export class StepAnimationsListing extends EventTarget {
 
     const all_animation_actions: AnimationAction[] = []
 
+    // Material submeshes share one live binding skeleton. Animate each unique
+    // skeleton only once, using the first mesh which owns the root hierarchy.
+    const animated_skeletons = new Set<object>()
     this.skinned_meshes_to_animate.forEach((skinned_mesh: SkinnedMesh) => {
+      if (animated_skeletons.has(skinned_mesh.skeleton)) return
+      animated_skeletons.add(skinned_mesh.skeleton)
+
       this.reset_root_motion_position(skinned_mesh)
 
       const clip_to_play: AnimationClip = this.animation_clips_loaded[this.current_playing_index].display_animation_clip
@@ -437,7 +452,6 @@ export class StepAnimationsListing extends EventTarget {
       anim_action.stop()
       anim_action.play()
 
-      // Collect all animation actions for the animation player
       all_animation_actions.push(anim_action)
     })
 

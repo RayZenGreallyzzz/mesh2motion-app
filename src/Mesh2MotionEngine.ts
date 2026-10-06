@@ -200,7 +200,10 @@ export class Mesh2MotionEngine {
     this.dispose_skeleton_helper()
 
     // no color passed, so bone shapes and joints both use the bone category colors
-    this.skeleton_helper = new CustomSkeletonHelper(this.find_skeleton_root_bone(new_skeleton))
+    const mobileHelperThickness = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale ? 0.045 : 0.1
+    this.skeleton_helper = new CustomSkeletonHelper(this.find_skeleton_root_bone(new_skeleton), {
+      thickness_ratio: mobileHelperThickness
+    })
     this.skeleton_helper.name = helper_name
     this.scene.add(this.skeleton_helper)
   }
