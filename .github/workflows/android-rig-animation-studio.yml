@@ -55,6 +55,9 @@ jobs:
       - name: Polish manual weight brush
         run: node scripts/apply-manual-weight-polish.mjs
 
+      - name: Apply post-bind weight workflow
+        run: node scripts/apply-weight-skin-workflow-v45.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -99,12 +102,12 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.4-Manual-Weights-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v4.5-Weight-Workflow-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v4.4-Manual-Weights-APK
-          path: artifacts/Rig-Animation-Studio-v4.4-Manual-Weights-debug.apk
+          name: Rig-Animation-Studio-v4.5-Weight-Workflow-APK
+          path: artifacts/Rig-Animation-Studio-v4.5-Weight-Workflow-debug.apk
           if-no-files-found: error
           retention-days: 14
