@@ -711,11 +711,11 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · RIGID TEST v5.5'
+      autorig.textContent = 'АвтоРиг · Bone Chain v5.8'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
-        ? 'RIGID SKIN v5.5 · '
+        ? 'BONE CHAIN v5.8 · '
         : ''
       status.textContent = this.rig_setup_locked_state
         ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'

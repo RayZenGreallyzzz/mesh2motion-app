@@ -5,7 +5,6 @@ import { SkeletonType } from '../../enums/SkeletonType.ts'
 import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
-import { MobileHumanoidAnimationRetargeter } from '../../mobile-rig/MobileHumanoidAnimationRetargeter.ts'
 import { type SkinnedMesh } from 'three'
 
 export interface AnimationLoadProgress {
@@ -52,7 +51,7 @@ export class AnimationLoader extends EventTarget {
   public async load_animations (
     skeleton_type: SkeletonType,
     skeleton_scale: number = 1.0,
-    retarget_target?: SkinnedMesh
+    _retarget_target?: SkinnedMesh
   ): Promise<TransformedAnimationClipPair[]> {
     this.skeleton_type = skeleton_type
     const configured_animation_files = RigConfig.get_animation_file_paths(this.skeleton_type)
@@ -113,10 +112,10 @@ export class AnimationLoader extends EventTarget {
               // never mutate the same source/target skeleton at the same time.
               if (completed_loads === total_loads) {
                 const finalize = async (): Promise<void> => {
-                  let final_clips = loaded_clips
-                  if (this.skeleton_type === SkeletonType.MobileFemale && retarget_target !== undefined) {
-                    final_clips = await MobileHumanoidAnimationRetargeter.retargetPairs(retarget_target, loaded_clips)
-                  }
+                  // v5.8: Mobile Female keeps the stock human Bone rest axes and names.
+                  // Play cleaned human clips directly. The old retarget path repeatedly
+                  // called target.skeleton.pose(), amplifying the broken root/pelvis chain.
+                  const final_clips = loaded_clips
 
                   final_clips.sort((a, b) => {
                     return a.display_animation_clip.name.localeCompare(b.display_animation_clip.name)

@@ -3,9 +3,8 @@ import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
 
 import { Generators } from '../../Generators.ts'
 
-import { type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute } from 'three'
+import { Bone, type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute } from 'three'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
-import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepWeightSkin extends EventTarget {
@@ -42,18 +41,14 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
-    // v5.4: rebuild the bind/rest axes from final joint positions.
-    if (skeleton_type === SkeletonType.MobileFemale) {
-      this.skinning_armature = CleanMobileHumanoidRig.buildFromPlacedJoints(editable_armature)
-    } else {
-      this.skinning_armature = editable_armature.clone(true)
-    }
-    this.skinning_armature.name = 'Armature for skinning · Rest v5.4'
+    // v5.8: bind the exact Bone hierarchy the user edited. No second rig rebuild,
+    // no rest-axis rewrite, and no non-Bone object inside the skeleton chain.
+    this.skinning_armature = editable_armature.clone(true)
+    this.skinning_armature.name = 'Armature for skinning · Bone Chain v5.8'
 
-    // v5.5 diagnostic: remove ALL multi-bone blending for Mobile Female.
-    // If stretching/flattening disappears, the fault is weight blending/LBS,
-    // not joint placement, bind transforms or animation retargeting.
-    this.rigid_skin_test_enabled = skeleton_type === SkeletonType.MobileFemale
+    // v5.7 HARD SKIN proved the monster deformation survives even with one
+    // 100% bone per vertex, so weight blending is not the root cause.
+    this.rigid_skin_test_enabled = false
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
   }
@@ -99,6 +94,19 @@ export class StepWeightSkin extends EventTarget {
     this.binding_scene_root = this.skinning_armature.children[0]
     this.binding_skeleton = Generators.create_skeleton(this.binding_scene_root)
     this.binding_skeleton.name = 'Mesh Binding Skeleton'
+
+    // Regression guard: except for the top/root Bone, every tracked Bone must
+    // have a Bone parent. A Group/Object3D spacer breaks Skeleton.pose().
+    const brokenBone = this.binding_skeleton.bones.find((bone, index) =>
+      index > 0 && !(bone.parent instanceof Bone)
+    )
+    if (brokenBone !== undefined) {
+      throw new Error(
+        'Invalid humanoid Bone chain: ' + brokenBone.name +
+        ' has non-Bone parent ' + (brokenBone.parent?.name ?? '(none)')
+      )
+    }
+
     this.binding_skeleton.calculateInverses()
   }
 

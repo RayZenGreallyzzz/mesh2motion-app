@@ -90,7 +90,12 @@ class CustomSkeletonHelper extends InstancedMesh {
     const segment_bone_indices: number[] = []
     for (let i = 0; i < bones.length; i++) {
       if (bones[i].parent && bones[i].parent.isBone) {
-        segment_bone_indices.push(i)
+        // v5.8: hide the technical root->pelvis segment visually only.
+        // Never modify the actual Bone hierarchy just to change helper rendering.
+        const parentName = String(bones[i].parent.name ?? '').toLowerCase()
+        const childName = String(bones[i].name ?? '').toLowerCase()
+        const isRootPelvisLink = parentName === 'root' && /pelvis|hips/.test(childName)
+        if (!isRootPelvisLink) segment_bone_indices.push(i)
       }
     }
 

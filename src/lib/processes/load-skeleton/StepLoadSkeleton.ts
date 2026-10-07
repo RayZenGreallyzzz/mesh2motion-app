@@ -9,7 +9,6 @@ import { add_origin_markers, remove_origin_markers } from './OriginMarkerManager
 import { add_preview_skeleton, remove_preview_skeleton } from './PreviewSkeletonManager.ts'
 import { HandHelper } from './HandHelper.ts'
 import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
-import { CleanMobileHumanoidRig } from '../../mobile-rig/CleanMobileHumanoidRig.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadSkeleton extends EventTarget {
@@ -246,18 +245,11 @@ export class StepLoadSkeleton extends EventTarget {
         helper.modify_hand_skeleton(this.loaded_armature, this.hand_skeleton_type())
       }
 
-      // Mobile Humanoid v2 keeps the stock human rest frames for animation
-      // compatibility, then prunes/augments the hierarchy into the 27-bone game rig.
+      // v5.8: keep the real humanoid hierarchy continuous Bone -> Bone.
+      // Three.js Skeleton.pose() needs Bone parents to reconstruct local bind matrices.
       if (this.skeleton_file_path() === SkeletonType.MobileFemale) {
-        MobileHumanoidRigV2.apply(this.loaded_armature)
-      }
-
-      // v5.3: build the final deform hierarchy NOW, before the user edits it.
-      // The exact same clean rig is later cloned for skinning, so Edit, Bind and
-      // animation all operate on one coordinate system and one bone ordering.
-      if (this.skeleton_file_path() === SkeletonType.MobileFemale) {
-        this.loaded_armature = CleanMobileHumanoidRig.build(this.loaded_armature)
-        this.loaded_armature.name = 'Loaded Clean Mobile Armature v5.3'
+        this.loaded_armature.userData.mobileContinuousBoneChain = true
+        this.loaded_armature.name = 'Loaded Mobile Armature v5.8 · Continuous Bone Chain'
       }
 
       this.loaded_armature.position.set(0, 0, 0)
