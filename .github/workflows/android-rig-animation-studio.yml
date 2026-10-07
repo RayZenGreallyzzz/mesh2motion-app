@@ -46,6 +46,9 @@ jobs:
       - name: Apply v5.6 depth-aware 3D AutoRig
         run: node scripts/apply-v56-depth-aware-autorig.mjs
 
+      - name: Apply v5.7 HARD SKIN diagnostic
+        run: node scripts/apply-v57-rigid-diagnostic.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -90,26 +93,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.6-3D-Depth-AutoRig-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.7-HARD-SKIN-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.6-3d-depth-autorig"
-          APK="artifacts/Rig-Animation-Studio-v5.6-3D-Depth-AutoRig-debug.apk"
+          TAG="rig-animation-studio-v5.7-hard-skin"
+          APK="artifacts/Rig-Animation-Studio-v5.7-HARD-SKIN-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.6 3D Depth AutoRig" \
-              --notes "AutoRig now resolves Z/depth for pelvis, spine, shoulders, arms, hands, hips, knees, feet and toes from local model geometry slices instead of preserving the near-planar stock rig depth. The v5.5 rigid one-bone diagnostic is disabled and normal Surface Skin v2 weights are restored."
+              --title "Rig Animation Studio v5.7 HARD SKIN Diagnostic" \
+              --notes "Diagnostic build: Mobile Female collapses every vertex to exactly one 100% bone influence after Surface Skin. This intentionally removes all LBS blending so we can distinguish weight-blend joint collapse from bind/retarget problems. Expect hard hinge joints; the test is only whether limbs still stretch/flatten."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.6-3D-Depth-AutoRig-APK
-          path: artifacts/Rig-Animation-Studio-v5.6-3D-Depth-AutoRig-debug.apk
+          name: Rig-Animation-Studio-v5.7-HARD-SKIN-APK
+          path: artifacts/Rig-Animation-Studio-v5.7-HARD-SKIN-debug.apk
           if-no-files-found: error
           retention-days: 14
