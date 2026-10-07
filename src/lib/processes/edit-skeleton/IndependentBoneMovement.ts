@@ -46,6 +46,156 @@ export class IndependentBoneMovement {
   }
 
   /**
+   * Rebuild humanoid rest orientations from the joint positions the user actually
+   * fitted on the model.
+   *
+   * Three.js Bones are transform nodes: moving a child joint changes the visible
+   * segment direction, but does NOT rotate the parent Bone's local basis. Stock
+   * animation quaternions then rotate around stale axes and arms/legs twist.
+   *
+   * This pass preserves every fitted joint WORLD position, derives each Bone's
+   * swing from the original rig direction -> fitted direction, and keeps the
+   * original rig's roll/twist as the reference. It is intentionally run just
+   * before Bind, so AutoRig and manual placement share the exact same canonical
+   * rest-pose finalization.
+   */
+  public rebuild_orientations_from_joint_positions (skeleton: Skeleton): void {
+    if (skeleton.bones.length === 0 || this._rest_bone_world_positions.size === 0) {
+      return
+    }
+
+    skeleton.bones[0]?.updateWorldMatrix(true, true)
+
+    const desired_world_positions = new Map<string, Vector3>()
+    skeleton.bones.forEach((bone) => {
+      desired_world_positions.set(bone.uuid, bone.getWorldPosition(new Vector3()).clone())
+    })
+
+    const bone_set = new Set<Bone>(skeleton.bones)
+
+    const visit = (bone: Bone): void => {
+      const desired_position = desired_world_positions.get(bone.uuid)
+
+      // Parent orientations may already have changed earlier in this traversal.
+      // Re-express this joint's saved world position in the NEW parent frame so
+      // no joint visually moves while we repair the axes.
+      if (desired_position !== undefined && bone.parent !== null) {
+        bone.parent.updateWorldMatrix(true, false)
+        bone.position.copy(bone.parent.worldToLocal(desired_position.clone()))
+      }
+
+      const rest_world_rotation = this._rest_bone_world_rotations.get(bone.uuid)
+      let target_world_rotation = rest_world_rotation?.clone()
+
+      // The non-deforming root is a coordinate-system carrier. Keep its authored
+      // orientation stable; otherwise moving the pelvis would rotate the entire rig.
+      const is_root = bone.name.toLowerCase() === 'root'
+
+      if (!is_root && rest_world_rotation !== undefined) {
+        const primary_child = this._primary_child_from_rest_axis(bone)
+
+        if (primary_child !== null) {
+          const rest_bone_position = this._rest_bone_world_positions.get(bone.uuid)
+          const rest_child_position = this._rest_bone_world_positions.get(primary_child.uuid)
+          const desired_child_position = desired_world_positions.get(primary_child.uuid)
+
+          if (
+            rest_bone_position !== undefined &&
+            rest_child_position !== undefined &&
+            desired_position !== undefined &&
+            desired_child_position !== undefined
+          ) {
+            const rest_direction = rest_child_position.clone().sub(rest_bone_position)
+            const fitted_direction = desired_child_position.clone().sub(desired_position)
+
+            if (rest_direction.lengthSq() > 1e-10 && fitted_direction.lengthSq() > 1e-10) {
+              rest_direction.normalize()
+              fitted_direction.normalize()
+
+              // Minimal swing from authored long-axis direction to fitted segment.
+              // Premultiplying preserves the source rig's roll around that axis.
+              const swing = new Quaternion().setFromUnitVectors(rest_direction, fitted_direction)
+              target_world_rotation = swing.multiply(rest_world_rotation.clone()).normalize()
+            }
+          }
+        }
+      }
+
+      if (target_world_rotation !== undefined) {
+        const parent_world_rotation = new Quaternion()
+
+        if (bone.parent !== null) {
+          bone.parent.getWorldQuaternion(parent_world_rotation)
+        } else {
+          parent_world_rotation.identity()
+        }
+
+        bone.quaternion.copy(
+          parent_world_rotation.clone().invert().multiply(target_world_rotation).normalize()
+        )
+      }
+
+      bone.updateWorldMatrix(true, false)
+
+      bone.children.forEach((child) => {
+        if (this._is_bone(child) && bone_set.has(child)) {
+          visit(child)
+        }
+      })
+    }
+
+    const roots = skeleton.bones.filter((bone) =>
+      bone.parent === null || !this._is_bone(bone.parent) || !bone_set.has(bone.parent)
+    )
+
+    roots.forEach(visit)
+    roots.forEach((root) => root.updateWorldMatrix(true, true))
+  }
+
+  /**
+   * Pick the child that represents the Bone's authored long axis.
+   * Blender/glTF bone chains use local +Y for the head->tail direction. On
+   * branching joints (pelvis, chest, hand) this avoids averaging unrelated
+   * branches such as both thighs/shoulders/fingers.
+   */
+  private _primary_child_from_rest_axis (bone: Bone): Bone | null {
+    const rest_bone_position = this._rest_bone_world_positions.get(bone.uuid)
+    const rest_world_rotation = this._rest_bone_world_rotations.get(bone.uuid)
+    if (rest_bone_position === undefined || rest_world_rotation === undefined) {
+      return null
+    }
+
+    const children = bone.children.filter((child): child is Bone =>
+      this._is_bone(child) && this._rest_bone_world_positions.has(child.uuid)
+    )
+    if (children.length === 0) return null
+    if (children.length === 1) return children[0]
+
+    const authored_long_axis = new Vector3(0, 1, 0)
+      .applyQuaternion(rest_world_rotation)
+      .normalize()
+
+    let best_child: Bone | null = null
+    let best_alignment = -Infinity
+
+    children.forEach((child) => {
+      const child_position = this._rest_bone_world_positions.get(child.uuid)
+      if (child_position === undefined) return
+
+      const direction = child_position.clone().sub(rest_bone_position)
+      if (direction.lengthSq() <= 1e-10) return
+
+      const alignment = direction.normalize().dot(authored_long_axis)
+      if (alignment > best_alignment) {
+        best_alignment = alignment
+        best_child = child
+      }
+    })
+
+    return best_child
+  }
+
+  /**
    * Snapshot the world-space position and rotation of each direct bone child
    * at drag start.  Clears any previously stored transforms first.
    * When mirror mode is also active, pass the mirror bone as the second argument
