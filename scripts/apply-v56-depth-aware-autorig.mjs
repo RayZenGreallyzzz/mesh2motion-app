@@ -12,7 +12,7 @@ function update(path, transform) {
 }
 
 update('src/Mesh2MotionEngine.ts', (source) => {
-  if (!source.includes('const depthCenterAt = (x: number, y: number')) {
+  if (!source.includes('const depthCenterAt = (')) {
     const anchor = `    const setWorld = (bone: Bone | undefined, x: number, y: number, z?: number): void => {
       if (bone === undefined || bone.parent === null) return
       bone.parent.updateWorldMatrix(true, false)
