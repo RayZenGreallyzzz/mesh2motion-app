@@ -14,6 +14,7 @@ import { ExtremityWeightCorrector } from './ExtremityWeightCorrector.js'
 import { WeightSmoother } from './WeightSmoother.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
+import { HumanoidJointWeightCorrector } from './HumanoidJointWeightCorrector.js'
 
 /**
  * SkinningAlgorithm
@@ -64,6 +65,15 @@ export default class SkinningAlgorithm {
     if (is_humanoid_skeleton_type(this.skeleton_type)) {
       const surface_calculator = new SurfaceGeodesicWeightCalculator(this.bones_master_data, this.geometry)
       surface_calculator.calculate(skin_indices, skin_weights)
+
+      // Refine only the real shoulder/elbow transitions that the geodesic pass
+      // already assigned. This preserves connected-surface separation while
+      // replacing abrupt joint boundaries with compact anatomical gradients.
+      const joint_weight_corrector = new HumanoidJointWeightCorrector(
+        this.geometry,
+        this.bones_master_data
+      )
+      joint_weight_corrector.apply(skin_indices, skin_weights)
 
       const weight_normalizer = new WeightNormalizer(this.geometry)
       weight_normalizer.normalize_weights(skin_weights)
