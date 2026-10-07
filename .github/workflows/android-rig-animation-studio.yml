@@ -43,54 +43,6 @@ jobs:
           mkdir -p static/draco
           cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
 
-      - name: Apply existing Android rig fixes
-        run: node scripts/apply-android-v3-fixes.mjs
-
-      - name: Apply browser skinning + humanoid AutoRig
-        run: node scripts/apply-v46-browser-autorig.mjs
-
-      - name: Prepatch manual weight heatmap
-        run: node scripts/prepatch-manual-weight-heatmap.mjs
-
-      - name: Apply manual weight editor
-        run: node scripts/apply-manual-weight-editor.mjs
-
-      - name: Polish manual weight brush
-        run: node scripts/apply-manual-weight-polish.mjs
-
-      - name: Apply post-bind weight workflow
-        run: node scripts/apply-weight-skin-workflow-v45.mjs
-
-      - name: Fix shared skinned resource lifetime
-        run: node scripts/apply-weight-shared-resource-fix.mjs
-
-      - name: Normalize v4.7 weight panel
-        run: node scripts/prepatch-v47-panel.mjs
-
-      - name: Apply v4.7 weight diagnostics + clothing guard
-        run: node scripts/apply-weight-diagnostics-v47b.mjs
-
-      - name: Apply v4.8 canonical rig transform
-        run: node scripts/apply-v48-canonical-rig-transform.mjs
-
-      - name: Apply v5 Surface Skin UI defaults
-        run: node scripts/apply-v50-surface-skin-ui.mjs
-
-      - name: Apply v5.1 Humanoid Rig v2
-        run: node scripts/apply-v51-humanoid-rig-v2.mjs
-
-      - name: Apply v5.2 clean deform rig + retarget
-        run: node scripts/apply-v52-clean-deform-retarget.mjs
-
-      - name: Apply v5.3 live clean rig coordinate fix
-        run: node scripts/apply-v53-live-clean-rig.mjs
-
-      - name: Apply v5.4 rest axes from placed joints
-        run: node scripts/apply-v54-rest-axes-from-joints.mjs
-
-      - name: Apply v5.5 rigid skin diagnostic
-        run: node scripts/apply-v55-rigid-skin-test.mjs
-
       - name: Apply v5.6 depth-aware 3D AutoRig
         run: node scripts/apply-v56-depth-aware-autorig.mjs
 
