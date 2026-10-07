@@ -1,51 +1,103 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { type AnimationClip, Group, type Skeleton } from 'three'
+import { retargetClip as threeRetargetClip } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import {
+  BufferGeometry,
+  Group,
+  Matrix4,
+  MeshBasicMaterial,
+  Quaternion,
+  type Skeleton,
+  SkinnedMesh
+} from 'three'
 import { RetargetUtils, type BoneRestTransform } from '../../../retarget/RetargetUtils.ts'
-import { Retargeter } from '../../../retarget/human-retargeting/Retargeter.ts'
-import { Rig } from '../../../retarget/human-retargeting/Rig.ts'
-import { HumanChainConfig } from '../../../retarget/human-retargeting/HumanChainConfig.ts'
 import { RigConfig } from '../../RigConfig.ts'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
 import { type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { AnimationUtility } from './AnimationUtility.ts'
 
 /**
- * Production retarget path for Mobile Female.
+ * Mobile Female v6.2
  *
- * The editable skeleton can have different local rest rotations/proportions from
- * the stock Human rig. Copying Human quaternion tracks directly (or applying a
- * local quaternion delta) is therefore not sufficient. This bridge uses the
- * project's chain-based swing/twist retargeter so motion is transferred in rig
- * space and then baked back into target-bone tracks.
+ * Retarget stock Human clips using Three.js SkeletonUtils.retargetClip().
+ * The target skeleton's user-edited pose at Bind time is the authoritative
+ * rest/bind pose. Per-bone localOffsets are generated automatically from the
+ * difference between source and target WORLD rest rotations:
+ *
+ *   offset = inverse(sourceRestWorld) * targetRestWorld
+ *
+ * SkeletonUtils then converts the corrected world rotation back into each
+ * target bone's local parent space. This lets the user freely change joint
+ * positions / bone lengths BEFORE Bind without requiring Human's local axes.
  */
 export class MobileFemaleAnimationRetargeter {
   private static source_armature_promise: Promise<Group> | null = null
   private static readonly target_rest_cache = new WeakMap<Skeleton, BoneRestTransform[]>()
 
+  public static remember_bind_pose (target_skeleton: Skeleton): void {
+    this.target_rest_cache.set(
+      target_skeleton,
+      RetargetUtils.capture_bone_rest_transforms(target_skeleton)
+    )
+  }
+
   public static async retarget_pair (
     pair: TransformedAnimationClipPair,
-    target_skeleton: Skeleton
+    target_mesh: SkinnedMesh
   ): Promise<TransformedAnimationClipPair> {
     const source_armature = await this.load_source_armature()
-
-    let target_rest = this.target_rest_cache.get(target_skeleton)
-    if (target_rest === undefined) {
-      target_rest = RetargetUtils.capture_bone_rest_transforms(target_skeleton)
-      this.target_rest_cache.set(target_skeleton, target_rest)
+    const source_skeleton = RetargetUtils.create_skeleton_from_group_object(source_armature)
+    if (source_skeleton === null) {
+      throw new Error('Could not create source Human skeleton for retargeting')
     }
 
-    const mapping = this.create_identity_mapping(source_armature, target_skeleton)
-    if (mapping.size === 0) {
+    let target_rest = this.target_rest_cache.get(target_mesh.skeleton)
+    if (target_rest === undefined) {
+      target_rest = RetargetUtils.capture_bone_rest_transforms(target_mesh.skeleton)
+      this.target_rest_cache.set(target_mesh.skeleton, target_rest)
+    }
+
+    // Detached target copy: baking a clip must never move the live preview rig.
+    const target_skeleton = RetargetUtils.clone_skeleton(target_mesh.skeleton, target_rest)
+
+    const source_proxy = this.create_skeleton_proxy(source_skeleton)
+    const target_proxy = this.create_skeleton_proxy(target_skeleton)
+
+    // SkeletonUtils.retarget() calls target.skeleton.pose() before every frame.
+    // Our detached clone is already restored to the authoritative user-edited
+    // bind pose, and native pose() is unsafe for rigs with a non-Bone armature
+    // parent. Keep this exact pose instead.
+    ;(target_skeleton as any).pose = (): void => {}
+
+    source_proxy.updateMatrixWorld(true)
+    target_proxy.updateMatrixWorld(true)
+
+    const { names, localOffsets } = this.build_world_rest_offsets(
+      source_skeleton,
+      target_skeleton
+    )
+
+    if (Object.keys(names).length === 0) {
       throw new Error('Mobile Female retargeting found no common Human bones')
     }
 
-    const retargeted = this.retarget_clip(
+    const retargeted = threeRetargetClip(
+      target_proxy as any,
+      source_proxy as any,
       pair.original_animation_clip,
-      source_armature,
-      target_skeleton,
-      target_rest,
-      mapping
+      {
+        hip: 'pelvis',
+        names,
+        localOffsets,
+        preserveBoneMatrix: false,
+        preserveBonePositions: true,
+        useTargetMatrix: true,
+        useFirstFramePosition: false,
+        fps: 30,
+        scale: 1
+      } as any
     )
+
+    retargeted.name = pair.original_animation_clip.name
 
     return {
       original_animation_clip: retargeted,
@@ -54,15 +106,62 @@ export class MobileFemaleAnimationRetargeter {
     }
   }
 
-  public static async retarget_pairs (
-    animation_pairs: TransformedAnimationClipPair[],
+  private static create_skeleton_proxy (skeleton: Skeleton): SkinnedMesh {
+    const proxy = new SkinnedMesh(new BufferGeometry(), new MeshBasicMaterial())
+    proxy.name = 'Retarget Skeleton Proxy'
+    proxy.skeleton = skeleton
+
+    // RetargetUtils.clone_skeleton can preserve an armature Group above the first
+    // Bone. Attach those detached parents to the proxy so matrixWorld reflects
+    // the actual bind hierarchy. If there is no such parent, attach the root Bone.
+    const attached = new Set<object>()
+    skeleton.bones
+      .filter((bone) => bone.parent === null || bone.parent.type !== 'Bone')
+      .forEach((bone) => {
+        const hierarchy_root = bone.parent !== null && bone.parent.type !== 'Bone'
+          ? bone.parent
+          : bone
+        if (!attached.has(hierarchy_root)) {
+          proxy.add(hierarchy_root)
+          attached.add(hierarchy_root)
+        }
+      })
+
+    proxy.updateMatrixWorld(true)
+    return proxy
+  }
+
+  private static build_world_rest_offsets (
+    source_skeleton: Skeleton,
     target_skeleton: Skeleton
-  ): Promise<TransformedAnimationClipPair[]> {
-    const result: TransformedAnimationClipPair[] = []
-    for (const pair of animation_pairs) {
-      result.push(await this.retarget_pair(pair, target_skeleton))
-    }
-    return result
+  ): { names: Record<string, string>, localOffsets: Record<string, Matrix4> } {
+    const names: Record<string, string> = {}
+    const localOffsets: Record<string, Matrix4> = {}
+
+    const source_by_name = new Map(
+      source_skeleton.bones.map((bone) => [bone.name, bone] as const)
+    )
+
+    const source_world = new Quaternion()
+    const target_world = new Quaternion()
+    const offset = new Quaternion()
+
+    target_skeleton.bones.forEach((target_bone) => {
+      const source_bone = source_by_name.get(target_bone.name)
+      if (source_bone === undefined) return
+
+      names[target_bone.name] = source_bone.name
+
+      source_bone.getWorldQuaternion(source_world)
+      target_bone.getWorldQuaternion(target_world)
+
+      // SkeletonUtils multiplies sourceWorld * localOffset. Choose the offset
+      // that reconstructs targetRestWorld when the source is at rest.
+      offset.copy(source_world).invert().multiply(target_world).normalize()
+      localOffsets[target_bone.name] = new Matrix4().makeRotationFromQuaternion(offset)
+    })
+
+    return { names, localOffsets }
   }
 
   private static async load_source_armature (): Promise<Group> {
@@ -82,59 +181,5 @@ export class MobileFemaleAnimationRetargeter {
     })()
 
     return await this.source_armature_promise
-  }
-
-  private static create_identity_mapping (
-    source_armature: Group,
-    target_skeleton: Skeleton
-  ): Map<string, string> {
-    const source_names = new Set<string>()
-
-    source_armature.traverse((child) => {
-      if (child.type === 'Bone') source_names.add(child.name)
-    })
-
-    // AnimationRetargetService convention: target bone -> source bone.
-    const mapping = new Map<string, string>()
-    target_skeleton.bones.forEach((bone) => {
-      if (source_names.has(bone.name)) {
-        mapping.set(bone.name, bone.name)
-      }
-    })
-
-    return mapping
-  }
-
-  private static retarget_clip (
-    source_clip: AnimationClip,
-    source_armature: Group,
-    target_skeleton: Skeleton,
-    target_rest: BoneRestTransform[],
-    mapping: Map<string, string>
-  ): AnimationClip {
-    // A fresh source skeleton per clip avoids animation state leaking from one
-    // baked clip into the next.
-    const source_skeleton = RetargetUtils.create_skeleton_from_group_object(source_armature)
-    if (source_skeleton === null) {
-      throw new Error('Could not create source Human skeleton for retargeting')
-    }
-
-    // Work on a detached target copy restored to the exact user-edited rest pose.
-    const detached_target = RetargetUtils.clone_skeleton(target_skeleton, target_rest)
-
-    const source_rig = new Rig(source_skeleton)
-    const target_rig = new Rig(detached_target)
-
-    const source_config = HumanChainConfig.build_custom_source_config(mapping)
-    const target_config = HumanChainConfig.build_custom_target_config(source_config, mapping)
-
-    source_rig.fromConfig(source_config)
-    target_rig.fromConfig(target_config)
-
-    const retargeter = new Retargeter(source_rig, target_rig, source_clip)
-    retargeter.update(0.001)
-
-    const tracks = retargeter.bake_animation_to_tracks(30)
-    return new AnimationClip(source_clip.name, source_clip.duration, tracks)
   }
 }
