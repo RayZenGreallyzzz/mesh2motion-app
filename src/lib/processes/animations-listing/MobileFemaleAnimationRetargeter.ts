@@ -20,34 +20,49 @@ import { AnimationUtility } from './AnimationUtility.ts'
  */
 export class MobileFemaleAnimationRetargeter {
   private static source_armature_promise: Promise<Group> | null = null
+  private static readonly target_rest_cache = new WeakMap<Skeleton, BoneRestTransform[]>()
+
+  public static async retarget_pair (
+    pair: TransformedAnimationClipPair,
+    target_skeleton: Skeleton
+  ): Promise<TransformedAnimationClipPair> {
+    const source_armature = await this.load_source_armature()
+
+    let target_rest = this.target_rest_cache.get(target_skeleton)
+    if (target_rest === undefined) {
+      target_rest = RetargetUtils.capture_bone_rest_transforms(target_skeleton)
+      this.target_rest_cache.set(target_skeleton, target_rest)
+    }
+
+    const mapping = this.create_identity_mapping(source_armature, target_skeleton)
+    if (mapping.size === 0) {
+      throw new Error('Mobile Female retargeting found no common Human bones')
+    }
+
+    const retargeted = this.retarget_clip(
+      pair.original_animation_clip,
+      source_armature,
+      target_skeleton,
+      target_rest,
+      mapping
+    )
+
+    return {
+      original_animation_clip: retargeted,
+      display_animation_clip: AnimationUtility.deep_clone_animation_clip(retargeted),
+      metadata: pair.metadata
+    }
+  }
 
   public static async retarget_pairs (
     animation_pairs: TransformedAnimationClipPair[],
     target_skeleton: Skeleton
   ): Promise<TransformedAnimationClipPair[]> {
-    const source_armature = await this.load_source_armature()
-    const target_rest = RetargetUtils.capture_bone_rest_transforms(target_skeleton)
-    const mapping = this.create_identity_mapping(source_armature, target_skeleton)
-
-    if (mapping.size === 0) {
-      throw new Error('Mobile Female retargeting found no common Human bones')
+    const result: TransformedAnimationClipPair[] = []
+    for (const pair of animation_pairs) {
+      result.push(await this.retarget_pair(pair, target_skeleton))
     }
-
-    return animation_pairs.map((pair) => {
-      const retargeted = this.retarget_clip(
-        pair.original_animation_clip,
-        source_armature,
-        target_skeleton,
-        target_rest,
-        mapping
-      )
-
-      return {
-        original_animation_clip: retargeted,
-        display_animation_clip: AnimationUtility.deep_clone_animation_clip(retargeted),
-        metadata: pair.metadata
-      }
-    })
+    return result
   }
 
   private static async load_source_armature (): Promise<Group> {
