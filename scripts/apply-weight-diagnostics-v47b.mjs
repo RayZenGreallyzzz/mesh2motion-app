@@ -56,7 +56,7 @@ const insertBeforeMethodEnd = (source, methodStartMarker, nextMarker, lineToInse
     source = replaceOnce(source, marker, helpers, 'clothing guard helper')
   }
 
-  if (!source.includes('Manual paint intentionally runs last')) {
+  if (!source.includes('this.apply_clothing_component_guard(geometry_data, final_skin_indices, final_skin_weights)')) {
     const old = `      const [final_skin_indices, final_skin_weights]: number[][] = this.calculate_weights()\n      this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)\n`
     const next = `      const [final_skin_indices, final_skin_weights]: number[][] = this.calculate_weights()\n      this.apply_clothing_component_guard(geometry_data, final_skin_indices, final_skin_weights)\n      // Manual paint intentionally runs last so the artist can override the guard.\n      this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)\n`
     source = replaceOnce(source, old, next, 'guard application order')
