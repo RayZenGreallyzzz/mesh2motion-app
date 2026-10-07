@@ -19,6 +19,7 @@ import { AnimationSearch } from './AnimationSearch.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { type AnimationExportSelection } from './interfaces/AnimationExportSelection.ts'
 import { PropsManager } from './props/PropsManager.ts'
+import { MobileFemaleAnimationRetargeter } from './MobileFemaleAnimationRetargeter.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepAnimationsListing extends EventTarget {
@@ -32,6 +33,7 @@ export class StepAnimationsListing extends EventTarget {
   private skinned_meshes_to_animate: SkinnedMesh[] = []
   private model_variation_switcher: ModelVariationSwitcher | null = null
   private current_playing_index: number = 0
+  private readonly mobile_female_retarget_cache = new Map<number, TransformedAnimationClipPair>()
   private skeleton_type: SkeletonType = SkeletonType.Human
 
   private animations_file_path: string = 'animations/'
@@ -133,6 +135,7 @@ export class StepAnimationsListing extends EventTarget {
     this.skinned_meshes_to_animate = []
     this.animation_mixer = new AnimationMixer(new Object3D())
     this.current_playing_index = 0
+    this.mobile_female_retarget_cache.clear()
     this.animation_search = null
     this.model_variation_pelvis_position_scale = 1.0
     this.reset_ui_elements()
@@ -213,7 +216,7 @@ export class StepAnimationsListing extends EventTarget {
     }
 
     this.rebuild_warped_animations()
-    this.play_animation(this.current_playing_index)
+    void this.play_animation(this.current_playing_index)
   }
 
   /**
@@ -228,7 +231,7 @@ export class StepAnimationsListing extends EventTarget {
     }
 
     this.rebuild_warped_animations()
-    this.play_animation(this.current_playing_index)
+    void this.play_animation(this.current_playing_index)
   }
 
   /**
@@ -259,7 +262,7 @@ export class StepAnimationsListing extends EventTarget {
     this.props_manager.attach_to_skinned_meshes(new_skinned_meshes)
 
     // replay current animation on the new meshes
-    this.play_animation(this.current_playing_index)
+    void this.play_animation(this.current_playing_index)
     this.animation_player.play()
   }
 
@@ -340,7 +343,7 @@ export class StepAnimationsListing extends EventTarget {
       this.update_filtered_animation_listing_ui()
     })
 
-    this.play_animation(0) // play the first animation by default
+    void this.play_animation(0) // play the first animation by default
   }
 
   private onAnimationLoadProgress (progress: AnimationLoadProgress): void {
@@ -428,12 +431,35 @@ export class StepAnimationsListing extends EventTarget {
     }
   }
 
-  private play_animation (index: number = 0): void {
+  private async play_animation (index: number = 0): Promise<void> {
     this.current_playing_index = index
 
     // animation mixer has internal cache with animations. doing this helps clear it
     // otherwise modifications like arm extension will not update
     this.animation_mixer = new AnimationMixer(new Object3D())
+
+    let pair_to_play = this.animation_clips_loaded[this.current_playing_index]
+    if (
+      this.skeleton_type === SkeletonType.MobileFemale &&
+      this.skinned_meshes_to_animate.length > 0
+    ) {
+      const cached = this.mobile_female_retarget_cache.get(this.current_playing_index)
+      if (cached !== undefined) {
+        pair_to_play = cached
+      } else {
+        try {
+          const retargeted = await MobileFemaleAnimationRetargeter.retarget_pair(
+            pair_to_play,
+            this.skinned_meshes_to_animate[0].skeleton
+          )
+          this.mobile_female_retarget_cache.set(this.current_playing_index, retargeted)
+          pair_to_play = retargeted
+        } catch (error) {
+          console.error('Failed to retarget selected Mobile Female animation:', error)
+          return
+        }
+      }
+    }
 
     const all_animation_actions: AnimationAction[] = []
 
@@ -446,7 +472,7 @@ export class StepAnimationsListing extends EventTarget {
 
       this.reset_root_motion_position(skinned_mesh)
 
-      const clip_to_play: AnimationClip = this.animation_clips_loaded[this.current_playing_index].display_animation_clip
+      const clip_to_play: AnimationClip = pair_to_play.display_animation_clip
       const anim_action: AnimationAction = this.animation_mixer.clipAction(clip_to_play, skinned_mesh)
 
       anim_action.stop()
@@ -457,8 +483,7 @@ export class StepAnimationsListing extends EventTarget {
 
     // Update the animation player with the current animation and all actions
     if (all_animation_actions.length > 0) {
-      const clip_to_play: AnimationClip = this.animation_clips_loaded[this.current_playing_index].display_animation_clip
-      this.animation_player.set_animation(clip_to_play, all_animation_actions)
+      this.animation_player.set_animation(pair_to_play.display_animation_clip, all_animation_actions)
     }
   }
 
@@ -502,7 +527,7 @@ export class StepAnimationsListing extends EventTarget {
           const animation_index_str = play_button.getAttribute('data-index')
           if (animation_index_str != null) {
             const animation_index: number = Number(animation_index_str)
-            this.play_animation(animation_index)
+            void this.play_animation(animation_index)
           }
         }
       })
@@ -519,7 +544,7 @@ export class StepAnimationsListing extends EventTarget {
       this.mirror_animations_enabled = is_checked
       // Rebuild animations with or without mirroring
       this.rebuild_warped_animations()
-      this.play_animation(this.current_playing_index)
+      void this.play_animation(this.current_playing_index)
     })
 
     // event listener for animation view mode tabs (Library vs Selected)
@@ -546,7 +571,7 @@ export class StepAnimationsListing extends EventTarget {
   // called by ArmExtensionControl whenever the arm extension amount changes
   private update_a_pose_value (): void {
     this.rebuild_warped_animations()
-    this.play_animation(this.current_playing_index)
+    void this.play_animation(this.current_playing_index)
   }
 
   public build_animation_clip_ui (animation_clips_to_load: TransformedAnimationClipPair[], theme_manager: ThemeManager): void {
