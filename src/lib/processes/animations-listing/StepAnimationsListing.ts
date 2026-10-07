@@ -34,6 +34,7 @@ export class StepAnimationsListing extends EventTarget {
   private model_variation_switcher: ModelVariationSwitcher | null = null
   private current_playing_index: number = 0
   private readonly mobile_female_retarget_cache = new Map<number, TransformedAnimationClipPair>()
+  private readonly mobile_female_retarget_cache_limit = 2
   private skeleton_type: SkeletonType = SkeletonType.Human
 
   private animations_file_path: string = 'animations/'
@@ -261,6 +262,10 @@ export class StepAnimationsListing extends EventTarget {
     this.skinned_meshes_to_animate = new_skinned_meshes
     this.props_manager.attach_to_skinned_meshes(new_skinned_meshes)
 
+    // Retargeted clips are target-skeleton specific. Never reuse a baked clip
+    // after swapping to a different model/variation.
+    this.mobile_female_retarget_cache.clear()
+
     // replay current animation on the new meshes
     void this.play_animation(this.current_playing_index)
     this.animation_player.play()
@@ -396,6 +401,9 @@ export class StepAnimationsListing extends EventTarget {
    * Rebuilds all of the warped animations by applying the specified warps.
    */
   private rebuild_warped_animations (): void {
+    // Any mirror/arm-extension change invalidates baked mobile retarget clips.
+    this.mobile_female_retarget_cache.clear()
+
     // Reset all of the warped clips to the corresponding original clip.
     this.animation_clips_loaded.forEach((warped_clip: TransformedAnimationClipPair) => {
       warped_clip.display_animation_clip = AnimationUtility.deep_clone_animation_clip(warped_clip.original_animation_clip)
@@ -452,6 +460,9 @@ export class StepAnimationsListing extends EventTarget {
     ) {
       const cached = this.mobile_female_retarget_cache.get(this.current_playing_index)
       if (cached !== undefined) {
+        // LRU touch: move the active entry to the newest end of the Map.
+        this.mobile_female_retarget_cache.delete(this.current_playing_index)
+        this.mobile_female_retarget_cache.set(this.current_playing_index, cached)
         pair_to_play = cached
       } else {
         try {
@@ -460,6 +471,15 @@ export class StepAnimationsListing extends EventTarget {
             this.skinned_meshes_to_animate[0]
           )
           this.mobile_female_retarget_cache.set(this.current_playing_index, retargeted)
+
+          // Tablet memory guard: keep only the two most recently used baked
+          // previews. 178 full retargeted clips must never accumulate in RAM.
+          while (this.mobile_female_retarget_cache.size > this.mobile_female_retarget_cache_limit) {
+            const oldest = this.mobile_female_retarget_cache.keys().next().value
+            if (oldest === undefined) break
+            this.mobile_female_retarget_cache.delete(oldest)
+          }
+
           pair_to_play = retargeted
         } catch (error) {
           console.error('Failed to retarget selected Mobile Female animation:', error)
