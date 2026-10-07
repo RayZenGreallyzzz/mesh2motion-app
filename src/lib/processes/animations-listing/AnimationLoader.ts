@@ -6,7 +6,7 @@ import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
 import { type SkinnedMesh } from 'three'
-import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
+import { MobileFemaleAnimationRetargeter } from './MobileFemaleAnimationRetargeter.ts'
 
 export interface AnimationLoadProgress {
   loaded: number
@@ -118,12 +118,14 @@ export class AnimationLoader extends EventTarget {
                   // called target.skeleton.pose(), amplifying the broken root/pelvis chain.
                   const final_clips = loaded_clips
 
+                  let final_clips = loaded_clips
+
                   if (
                     this.skeleton_type === SkeletonType.MobileFemale &&
                     _retarget_target !== undefined
                   ) {
-                    await RestPoseAnimationBridge.apply_to_mobile_female(
-                      final_clips,
+                    final_clips = await MobileFemaleAnimationRetargeter.retarget_pairs(
+                      loaded_clips,
                       _retarget_target.skeleton
                     )
                   }
