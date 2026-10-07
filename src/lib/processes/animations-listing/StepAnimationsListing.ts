@@ -287,6 +287,13 @@ export class StepAnimationsListing extends EventTarget {
     this.skinned_meshes_to_animate = final_skinned_meshes
     this.props_manager.attach_to_skinned_meshes(final_skinned_meshes)
 
+    if (
+      this.skeleton_type === SkeletonType.MobileFemale &&
+      final_skinned_meshes.length > 0
+    ) {
+      MobileFemaleAnimationRetargeter.remember_bind_pose(final_skinned_meshes[0].skeleton)
+    }
+
     // Set the animations file path on the loader
     this.animation_loader.set_animations_file_path(this.animations_file_path)
 
@@ -450,7 +457,7 @@ export class StepAnimationsListing extends EventTarget {
         try {
           const retargeted = await MobileFemaleAnimationRetargeter.retarget_pair(
             pair_to_play,
-            this.skinned_meshes_to_animate[0].skeleton
+            this.skinned_meshes_to_animate[0]
           )
           this.mobile_female_retarget_cache.set(this.current_playing_index, retargeted)
           pair_to_play = retargeted
