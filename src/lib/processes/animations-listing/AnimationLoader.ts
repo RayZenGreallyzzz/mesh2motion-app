@@ -294,10 +294,15 @@ export class AnimationLoader extends EventTarget {
     // Apply skeleton scaling to position keyframes
     AnimationUtility.apply_skeleton_scale_to_position_keyframes(cloned_animations, skeleton_scale)
 
-    // Create the transformed pairs
+    // Create the transformed pairs. Mobile Female keeps one shared clip until
+    // the user actually applies a non-destructive warp (mirror/arm extension),
+    // at which point StepAnimationsListing creates the display clone lazily.
+    // This avoids holding two full copies of all 178 library clips on tablets.
     return cloned_animations.map(clip => ({
       original_animation_clip: clip,
-      display_animation_clip: AnimationUtility.deep_clone_animation_clip(clip),
+      display_animation_clip: this.skeleton_type === SkeletonType.MobileFemale
+        ? clip
+        : AnimationUtility.deep_clone_animation_clip(clip),
       metadata: {
         ...this.create_default_metadata(),
         ...metadata_override
