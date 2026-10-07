@@ -471,6 +471,16 @@ export class StepEditSkeleton extends EventTarget {
 
     if (applied) {
       this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
+
+      // A/T presets are real rest-pose edits, not just visual joint offsets.
+      // Moving the elbow/wrist changes the arm segment direction, but Three.js
+      // does not rotate the parent Bone basis automatically. Rebuild the fitted
+      // upperarm/lowerarm orientations now so the visible A/T pose and the Bone
+      // local axes agree before Bind and before any later manual fine tuning.
+      this.independent_bone_movement
+        .rebuild_orientations_from_joint_positions(this.threejs_skeleton)
+
+      this.threejs_skeleton.bones[0]?.updateWorldMatrix(true, true)
       this.refresh_arm_plane_position()
       this.dispatchEvent(new CustomEvent('skeletonTransformed'))
     }
