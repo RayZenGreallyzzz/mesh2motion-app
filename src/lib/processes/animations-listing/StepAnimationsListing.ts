@@ -19,6 +19,7 @@ import { AnimationSearch } from './AnimationSearch.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { type AnimationExportSelection } from './interfaces/AnimationExportSelection.ts'
 import { PropsManager } from './props/PropsManager.ts'
+import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepAnimationsListing extends EventTarget {
@@ -297,7 +298,17 @@ export class StepAnimationsListing extends EventTarget {
 
     // Load animations using the new AnimationLoader
     this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
-      .then((loaded_clips: TransformedAnimationClipPair[]) => {
+      .then(async (loaded_clips: TransformedAnimationClipPair[]) => {
+        if (
+          this.skeleton_type === SkeletonType.MobileFemale &&
+          this.skinned_meshes_to_animate.length > 0
+        ) {
+          await RestPoseAnimationBridge.apply_to_mobile_female(
+            loaded_clips,
+            this.skinned_meshes_to_animate[0].skeleton
+          )
+        }
+
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()
       })
