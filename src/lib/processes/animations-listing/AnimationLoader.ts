@@ -6,7 +6,6 @@ import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
 import { type SkinnedMesh } from 'three'
-import { MobileFemaleAnimationRetargeter } from './MobileFemaleAnimationRetargeter.ts'
 
 export interface AnimationLoadProgress {
   loaded: number
@@ -113,19 +112,9 @@ export class AnimationLoader extends EventTarget {
               // never mutate the same source/target skeleton at the same time.
               if (completed_loads === total_loads) {
                 const finalize = async (): Promise<void> => {
-                  // Mobile Female uses the production chain-based retargeter so
-                  // edited proportions/rest rotations are preserved safely.
-                  let final_clips = loaded_clips
-
-                  if (
-                    this.skeleton_type === SkeletonType.MobileFemale &&
-                    _retarget_target !== undefined
-                  ) {
-                    final_clips = await MobileFemaleAnimationRetargeter.retarget_pairs(
-                      loaded_clips,
-                      _retarget_target.skeleton
-                    )
-                  }
+                  // Return the library immediately. Mobile Female retargeting is
+                  // performed lazily per selected clip in StepAnimationsListing.
+                  const final_clips = loaded_clips
 
                   final_clips.sort((a, b) => {
                     return a.display_animation_clip.name.localeCompare(b.display_animation_clip.name)
