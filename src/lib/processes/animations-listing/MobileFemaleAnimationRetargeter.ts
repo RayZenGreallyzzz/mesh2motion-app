@@ -92,7 +92,9 @@ export class MobileFemaleAnimationRetargeter {
         preserveBonePositions: true,
         useTargetMatrix: true,
         useFirstFramePosition: false,
-        fps: 30,
+        // Tablet preview: 18 fps is enough to inspect rig deformation while
+        // cutting retarget bake work and cached keyframe memory by ~40%.
+        fps: 18,
         scale: 1
       } as any
     )
