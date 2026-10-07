@@ -88,6 +88,9 @@ jobs:
       - name: Apply v5.4 rest axes from placed joints
         run: node scripts/apply-v54-rest-axes-from-joints.mjs
 
+      - name: Apply v5.5 rigid skin diagnostic
+        run: node scripts/apply-v55-rigid-skin-test.mjs
+
       - name: Normalize Rig Animation Studio markup
         run: |
           node --input-type=module <<'NODE'
@@ -132,26 +135,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.5-Rigid-Skin-Test-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.4-rest-axes"
-          APK="artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk"
+          TAG="rig-animation-studio-v5.5-rigid-skin-test"
+          APK="artifacts/Rig-Animation-Studio-v5.5-Rigid-Skin-Test-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.4 Rest Axes" \
-              --notes "Bind now rebuilds the rest orientation of every deform bone from the final placed joint positions in armature-local space. This fixes the v5.3 case where helper lines looked correct but stale mannequin bone axes produced extreme mutant animation deformation. Surface Skin v2 and offline retarget remain enabled."
+              --title "Rig Animation Studio v5.5 Rigid Skin Test" \
+              --notes "Diagnostic build: Mobile Female keeps the v5.4 rest-axis rebuild but collapses every final skin vertex to its strongest bone at 100 percent influence. This removes all multi-bone LBS blending so stretching/flattening can be isolated from bind/retarget problems."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.4-Rest-Axes-APK
-          path: artifacts/Rig-Animation-Studio-v5.4-Rest-Axes-debug.apk
+          name: Rig-Animation-Studio-v5.5-Rigid-Skin-Test-APK
+          path: artifacts/Rig-Animation-Studio-v5.5-Rigid-Skin-Test-debug.apk
           if-no-files-found: error
           retention-days: 14
