@@ -101,7 +101,7 @@ update('src/lib/RigConfig.ts', (source) => {
 update('src/Mesh2MotionEngine.ts', (source) => {
   // v5.4 owns the newer visible status/button text. Never make an older replay
   // search for v5.3 anchors once Rest Axes has already been committed.
-  if (source.includes('АвтоРиг · Rest Axes v5.4') || source.includes('АвтоРиг · 3D Depth v5.6')) return source
+  if (source.includes('АвтоРиг · Rest Axes v5.4') || source.includes('АвтоРиг · RIGID TEST v5.5') || source.includes('АвтоРиг · 3D Depth v5.6')) return source
 
   const anchor = `    const bind = document.getElementById('action_bind_pose') as HTMLButtonElement | null
 `
