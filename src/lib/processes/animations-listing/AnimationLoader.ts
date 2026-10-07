@@ -113,11 +113,8 @@ export class AnimationLoader extends EventTarget {
               // never mutate the same source/target skeleton at the same time.
               if (completed_loads === total_loads) {
                 const finalize = async (): Promise<void> => {
-                  // v5.8: Mobile Female keeps the stock human Bone rest axes and names.
-                  // Play cleaned human clips directly. The old retarget path repeatedly
-                  // called target.skeleton.pose(), amplifying the broken root/pelvis chain.
-                  const final_clips = loaded_clips
-
+                  // Mobile Female uses the production chain-based retargeter so
+                  // edited proportions/rest rotations are preserved safely.
                   let final_clips = loaded_clips
 
                   if (
