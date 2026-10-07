@@ -1444,6 +1444,16 @@ export class Mesh2MotionEngine {
   }
 
   public setup_weight_skinning_config (): void {
+    // Finalize the editable humanoid into a real bind/rest skeleton first.
+    // Joint placement only changes Bone positions; Three.js does not infer a
+    // parent Bone's orientation from where its child joint was moved. Rebuild
+    // those axes now so AutoRig and manual placement produce the same coherent
+    // rest pose before weights, bone inverses, and animation retargeting.
+    if (is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())) {
+      this.edit_skeleton_step.independent_bone_movement
+        .rebuild_orientations_from_joint_positions(this.edit_skeleton_step.skeleton())
+    }
+
     this.weight_skin_step.create_bone_formula_object(this.edit_skeleton_step.armature(), this.load_skeleton_step.skeleton_type())
 
     // Pass head weight correction settings to the weight skin step
