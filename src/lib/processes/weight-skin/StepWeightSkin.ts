@@ -53,7 +53,7 @@ export class StepWeightSkin extends EventTarget {
     // v5.5 diagnostic: remove ALL multi-bone blending for Mobile Female.
     // If stretching/flattening disappears, the fault is weight blending/LBS,
     // not joint placement, bind transforms or animation retargeting.
-    this.rigid_skin_test_enabled = false
+    this.rigid_skin_test_enabled = skeleton_type === SkeletonType.MobileFemale
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
   }
