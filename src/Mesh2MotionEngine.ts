@@ -1444,19 +1444,9 @@ export class Mesh2MotionEngine {
   }
 
   public setup_weight_skinning_config (): void {
-    // v5.8.1 root-cause baseline:
-    // Mobile Female uses the stock Human animation library. Preserve the fitted
-    // JOINT POSITIONS, but restore the exact authored Human rest rotations before
-    // bind. The previous hybrid pipeline rewrote rest axes and then retargeted
-    // the same Human clips again, which produced stretched limbs/flat joints.
-    if (this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      this.edit_skeleton_step.independent_bone_movement
-        .restore_authored_orientations_preserve_joint_positions(this.edit_skeleton_step.skeleton())
-    } else if (is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())) {
-      this.edit_skeleton_step.independent_bone_movement
-        .rebuild_orientations_from_joint_positions(this.edit_skeleton_step.skeleton())
-    }
-
+    // v5.8 baseline: bind the exact editable skeleton as-is. Do not rewrite or
+    // "restore" local bone rotations here; stock Human clips expect the authored
+    // Human local quaternion basis throughout the entire bind/playback pipeline.
     this.weight_skin_step.create_bone_formula_object(this.edit_skeleton_step.armature(), this.load_skeleton_step.skeleton_type())
 
     // Pass head weight correction settings to the weight skin step
