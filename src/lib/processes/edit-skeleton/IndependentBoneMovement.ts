@@ -196,6 +196,61 @@ export class IndependentBoneMovement {
   }
 
   /**
+   * v5.8.1 source-axis baseline.
+   *
+   * Keep every joint at the position fitted by AutoRig/manual placement, but
+   * restore the authored Human rig WORLD rotations captured at load time.
+   * Built-in clips were authored for those axes. This deliberately separates
+   * character proportions (joint positions) from the animation coordinate frame
+   * (bone rotations) and prevents accumulated rest-axis/retarget corrections.
+   */
+  public restore_authored_orientations_preserve_joint_positions (skeleton: Skeleton): void {
+    if (skeleton.bones.length === 0 || this._rest_bone_world_rotations.size === 0) return
+
+    skeleton.bones[0]?.updateWorldMatrix(true, true)
+
+    const desired_positions = new Map<string, Vector3>()
+    skeleton.bones.forEach((bone) => {
+      desired_positions.set(bone.uuid, bone.getWorldPosition(new Vector3()).clone())
+    })
+
+    const bone_set = new Set<Bone>(skeleton.bones)
+    const visit = (bone: Bone): void => {
+      const desired = desired_positions.get(bone.uuid)
+
+      if (desired !== undefined && bone.parent !== null) {
+        bone.parent.updateWorldMatrix(true, false)
+        bone.position.copy(bone.parent.worldToLocal(desired.clone()))
+      }
+
+      const authored_world_rotation = this._rest_bone_world_rotations.get(bone.uuid)
+      if (authored_world_rotation !== undefined) {
+        const parent_world_rotation = new Quaternion()
+        if (bone.parent !== null) bone.parent.getWorldQuaternion(parent_world_rotation)
+        else parent_world_rotation.identity()
+
+        bone.quaternion.copy(
+          parent_world_rotation.clone().invert().multiply(authored_world_rotation).normalize()
+        )
+      }
+
+      // Never carry accidental editing scale into skinning.
+      bone.scale.set(1, 1, 1)
+      bone.updateWorldMatrix(true, false)
+
+      bone.children.forEach((child) => {
+        if (this._is_bone(child) && bone_set.has(child)) visit(child)
+      })
+    }
+
+    const roots = skeleton.bones.filter((bone) =>
+      bone.parent === null || !this._is_bone(bone.parent) || !bone_set.has(bone.parent)
+    )
+    roots.forEach(visit)
+    roots.forEach((root) => root.updateWorldMatrix(true, true))
+  }
+
+  /**
    * Snapshot the world-space position and rotation of each direct bone child
    * at drag start.  Clears any previously stored transforms first.
    * When mirror mode is also active, pass the mirror bone as the second argument
