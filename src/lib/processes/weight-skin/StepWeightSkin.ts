@@ -99,6 +99,7 @@ export class StepWeightSkin extends EventTarget {
     // Keep the complete runtime hierarchy root. For Mobile Female this is a
     // non-Bone Object3D named root, followed by pelvis as the first deform Bone.
     this.binding_scene_root = this.skinning_armature.children[0]
+    this.skinning_armature.updateMatrixWorld(true)
     this.binding_skeleton = Generators.create_skeleton(this.binding_scene_root)
     this.binding_skeleton.name = 'Mesh Binding Skeleton'
 
