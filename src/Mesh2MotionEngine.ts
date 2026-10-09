@@ -711,7 +711,7 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · Source Axes v5.8.1'
+      autorig.textContent = 'АвтоРиг · BIND CHECK v5.9'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
