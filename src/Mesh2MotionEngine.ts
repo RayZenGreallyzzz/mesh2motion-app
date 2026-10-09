@@ -756,6 +756,28 @@ export class Mesh2MotionEngine {
     if (preview !== null) apply(preview)
   }
 
+  private show_bind_rest_diagnostic (): void {
+    const host = this.ui.dom_weight_skin_tools
+    if (host === null) return
+    let message = document.getElementById('bind-rest-diagnostic')
+    if (message === null) {
+      message = document.createElement('div')
+      message.id = 'bind-rest-diagnostic'
+      message.style.fontSize = '12px'
+      message.style.padding = '5px'
+      message.style.whiteSpace = 'pre-wrap'
+      host.appendChild(message)
+    }
+    const result = this.weight_skin_step.bind_rest_diagnostic()
+    const errorLabel = Number.isFinite(result.maxError)
+      ? result.maxError.toExponential(3)
+      : 'INVALID'
+    message.textContent = result.failedMeshes === 0
+      ? 'BIND REST OK · Δ ' + errorLabel + ' · ' + result.samples + ' vertices'
+      : 'BIND REST ERROR · Δ ' + errorLabel + ' · ' + result.failedMeshes + ' meshes'
+    message.style.color = result.failedMeshes === 0 ? '#b6ddc7' : '#ffb5a8'
+  }
+
   public refresh_manual_weight_editor (): void {
     const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
     if (select === null) return
@@ -1432,6 +1454,7 @@ export class Mesh2MotionEngine {
     // TODO: Always regenerate the weight painted mesh preview for now. This will change later
     // when we have are in the "Weight Painted" display mode
     this.weight_skin_step.calculate_weights_for_all_mesh_data(true)
+    this.show_bind_rest_diagnostic()
 
     // remember our skeleton position before we do the skinning process
     // that way if we revert to try again...we will have the original positions/rotations
