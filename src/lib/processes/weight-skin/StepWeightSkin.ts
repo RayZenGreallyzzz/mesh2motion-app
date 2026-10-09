@@ -33,6 +33,8 @@ export class StepWeightSkin extends EventTarget {
   private bind_rest_max_error = 0
   private bind_rest_sample_count = 0
   private bind_rest_failed_meshes = 0
+  private bind_world_max_error = 0
+  private bind_world_failed_meshes = 0
 
 
   constructor () {
@@ -43,6 +45,16 @@ export class StepWeightSkin extends EventTarget {
     this.weight_painted_mesh_preview.renderOrder = -1
   }
 
+  public bind_world_diagnostic (): { maxError: number, failedMeshes: number } {
+    return { maxError: this.bind_world_max_error, failedMeshes: this.bind_world_failed_meshes }
+  }
+
+  public check_bind_after_world_transform (): void {
+    this.bind_world_max_error = 0
+    this.bind_world_failed_meshes = 0
+    this.skinned_meshes.forEach((mesh) => this.check_bind_rest_pose(mesh, true))
+  }
+
   public bind_rest_diagnostic (): { maxError: number, samples: number, failedMeshes: number } {
     return {
       maxError: this.bind_rest_max_error,
@@ -51,7 +63,7 @@ export class StepWeightSkin extends EventTarget {
     }
   }
 
-  private check_bind_rest_pose (mesh: SkinnedMesh): void {
+  private check_bind_rest_pose (mesh: SkinnedMesh, afterWorld: boolean = false): void {
     const attr = mesh.geometry.getAttribute('position')
     if (attr === undefined || attr.count === 0) return
 
@@ -76,14 +88,19 @@ export class StepWeightSkin extends EventTarget {
       maxError = Math.max(maxError, delta)
     }
 
-    this.bind_rest_sample_count += samples
-    this.bind_rest_max_error = Math.max(this.bind_rest_max_error, maxError)
+    if (afterWorld) {
+      this.bind_world_max_error = Math.max(this.bind_world_max_error, maxError)
+      if (!Number.isFinite(maxError) || maxError > tolerance) this.bind_world_failed_meshes++
+    } else {
+      this.bind_rest_sample_count += samples
+      this.bind_rest_max_error = Math.max(this.bind_rest_max_error, maxError)
+      if (!Number.isFinite(maxError) || maxError > tolerance) this.bind_rest_failed_meshes++
+    }
     if (!Number.isFinite(maxError) || maxError > tolerance) {
-      this.bind_rest_failed_meshes++
-      console.error('Skin bind REST mismatch:', mesh.name,
+      console.error('Skin bind mismatch:', afterWorld ? 'WORLD' : 'REST', mesh.name,
         { maxError, tolerance, samples })
     } else {
-      console.info('Skin bind REST OK:', mesh.name, { maxError, samples })
+      console.info('Skin bind OK:', afterWorld ? 'WORLD' : 'REST', mesh.name, { maxError, samples })
     }
   }
 
@@ -210,6 +227,8 @@ export class StepWeightSkin extends EventTarget {
     this.bind_rest_max_error = 0
     this.bind_rest_sample_count = 0
     this.bind_rest_failed_meshes = 0
+    this.bind_world_max_error = 0
+    this.bind_world_failed_meshes = 0
 
     // https://github.com/Mesh2Motion/mesh2motion-app/issues/82
     // Properly dispose of all children in the weight painted mesh preview to prevent memory leaks
