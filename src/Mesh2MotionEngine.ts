@@ -736,7 +736,11 @@ export class Mesh2MotionEngine {
    */
   private apply_rig_world_transform_to_skin_outputs (): void {
     const group = this.rig_setup_group
-    if (group === null) return
+    if (group === null) {
+      this.weight_skin_step.check_bind_after_world_transform()
+      this.show_bind_rest_diagnostic()
+      return
+    }
 
     group.updateWorldMatrix(true, true)
     const position = new THREE.Vector3()
@@ -754,6 +758,8 @@ export class Mesh2MotionEngine {
     this.weight_skin_step.final_skinned_meshes().forEach(apply)
     const preview = this.weight_skin_step.weight_painted_mesh_group()
     if (preview !== null) apply(preview)
+    this.weight_skin_step.check_bind_after_world_transform()
+    this.show_bind_rest_diagnostic()
   }
 
   private show_bind_rest_diagnostic (): void {
@@ -772,10 +778,17 @@ export class Mesh2MotionEngine {
     const errorLabel = Number.isFinite(result.maxError)
       ? result.maxError.toExponential(3)
       : 'INVALID'
-    message.textContent = result.failedMeshes === 0
-      ? 'BIND REST OK · Δ ' + errorLabel + ' · ' + result.samples + ' vertices'
-      : 'BIND REST ERROR · Δ ' + errorLabel + ' · ' + result.failedMeshes + ' meshes'
-    message.style.color = result.failedMeshes === 0 ? '#b6ddc7' : '#ffb5a8'
+    const world = this.weight_skin_step.bind_world_diagnostic()
+    const worldLabel = Number.isFinite(world.maxError)
+      ? world.maxError.toExponential(3)
+      : 'INVALID'
+    message.textContent =
+      (result.failedMeshes === 0 ? 'BIND REST OK' : 'BIND REST ERROR') +
+      ' · Δ ' + errorLabel + ' · ' + result.samples + ' vertices' +
+      '\n' + (world.failedMeshes === 0 ? 'BIND WORLD OK' : 'BIND WORLD ERROR') +
+      ' · Δ ' + worldLabel
+    message.style.color = result.failedMeshes === 0 && world.failedMeshes === 0
+      ? '#b6ddc7' : '#ffb5a8'
   }
 
   public refresh_manual_weight_editor (): void {
