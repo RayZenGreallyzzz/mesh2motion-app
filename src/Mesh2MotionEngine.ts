@@ -711,11 +711,11 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · Bone Chain v5.8'
+      autorig.textContent = 'АвтоРиг · Source Axes v5.8.1'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
-        ? 'BONE CHAIN v5.8 · '
+        ? 'SOURCE AXES v5.8.1 · '
         : ''
       status.textContent = this.rig_setup_locked_state
         ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'
@@ -1444,12 +1444,15 @@ export class Mesh2MotionEngine {
   }
 
   public setup_weight_skinning_config (): void {
-    // Finalize the editable humanoid into a real bind/rest skeleton first.
-    // Joint placement only changes Bone positions; Three.js does not infer a
-    // parent Bone's orientation from where its child joint was moved. Rebuild
-    // those axes now so AutoRig and manual placement produce the same coherent
-    // rest pose before weights, bone inverses, and animation retargeting.
-    if (is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())) {
+    // v5.8.1 root-cause baseline:
+    // Mobile Female uses the stock Human animation library. Preserve the fitted
+    // JOINT POSITIONS, but restore the exact authored Human rest rotations before
+    // bind. The previous hybrid pipeline rewrote rest axes and then retargeted
+    // the same Human clips again, which produced stretched limbs/flat joints.
+    if (this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
+      this.edit_skeleton_step.independent_bone_movement
+        .restore_authored_orientations_preserve_joint_positions(this.edit_skeleton_step.skeleton())
+    } else if (is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())) {
       this.edit_skeleton_step.independent_bone_movement
         .rebuild_orientations_from_joint_positions(this.edit_skeleton_step.skeleton())
     }
