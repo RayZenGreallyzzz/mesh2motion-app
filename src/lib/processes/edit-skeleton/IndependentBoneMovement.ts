@@ -18,6 +18,7 @@ export class IndependentBoneMovement {
   private readonly _children_initial_world_rotations: Map<string, Quaternion> = new Map<string, Quaternion>()
   private readonly _rest_bone_world_positions: Map<string, Vector3> = new Map<string, Vector3>()
   private readonly _rest_bone_world_rotations: Map<string, Quaternion> = new Map<string, Quaternion>()
+  private readonly _rest_bone_local_rotations: Map<string, Quaternion> = new Map<string, Quaternion>()
 
   public is_enabled (): boolean {
     return this._enabled
@@ -34,6 +35,7 @@ export class IndependentBoneMovement {
   public set_rest_pose (skeleton: Skeleton): void {
     this._rest_bone_world_positions.clear()
     this._rest_bone_world_rotations.clear()
+    this._rest_bone_local_rotations.clear()
 
     skeleton.bones.forEach((bone) => {
       const world_pos = new Vector3()
@@ -42,6 +44,7 @@ export class IndependentBoneMovement {
       bone.getWorldQuaternion(world_rot)
       this._rest_bone_world_positions.set(bone.uuid, world_pos.clone())
       this._rest_bone_world_rotations.set(bone.uuid, world_rot.clone())
+      this._rest_bone_local_rotations.set(bone.uuid, bone.quaternion.clone())
     })
   }
 
@@ -205,47 +208,53 @@ export class IndependentBoneMovement {
    * (bone rotations) and prevents accumulated rest-axis/retarget corrections.
    */
   public restore_authored_orientations_preserve_joint_positions (skeleton: Skeleton): void {
-    if (skeleton.bones.length === 0 || this._rest_bone_world_rotations.size === 0) return
+    if (skeleton.bones.length === 0 || this._rest_bone_local_rotations.size === 0) return
 
     skeleton.bones[0]?.updateWorldMatrix(true, true)
 
-    const desired_positions = new Map<string, Vector3>()
+    const boneSet = new Set<Bone>(skeleton.bones)
+    const roots = skeleton.bones.filter((bone) =>
+      bone.parent === null || !this._is_bone(bone.parent) || !boneSet.has(bone.parent)
+    )
+    if (roots.length === 0) return
+
+    // The parent of the first Bone is the editable armature container. It may
+    // itself be inside Rig Setup Group. We intentionally preserve positions in
+    // ARMATURE space so any external world rotation/translation remains external.
+    const armature = roots[0].parent
+    if (armature === null) return
+    armature.updateWorldMatrix(true, true)
+
+    const desiredArmaturePositions = new Map<string, Vector3>()
     skeleton.bones.forEach((bone) => {
-      desired_positions.set(bone.uuid, bone.getWorldPosition(new Vector3()).clone())
+      const world = bone.getWorldPosition(new Vector3())
+      desiredArmaturePositions.set(bone.uuid, armature.worldToLocal(world.clone()))
     })
 
-    const bone_set = new Set<Bone>(skeleton.bones)
     const visit = (bone: Bone): void => {
-      const desired = desired_positions.get(bone.uuid)
-
-      if (desired !== undefined && bone.parent !== null) {
-        bone.parent.updateWorldMatrix(true, false)
-        bone.position.copy(bone.parent.worldToLocal(desired.clone()))
+      const authoredLocalRotation = this._rest_bone_local_rotations.get(bone.uuid)
+      if (authoredLocalRotation !== undefined) {
+        bone.quaternion.copy(authoredLocalRotation)
       }
-
-      const authored_world_rotation = this._rest_bone_world_rotations.get(bone.uuid)
-      if (authored_world_rotation !== undefined) {
-        const parent_world_rotation = new Quaternion()
-        if (bone.parent !== null) bone.parent.getWorldQuaternion(parent_world_rotation)
-        else parent_world_rotation.identity()
-
-        bone.quaternion.copy(
-          parent_world_rotation.clone().invert().multiply(authored_world_rotation).normalize()
-        )
-      }
-
-      // Never carry accidental editing scale into skinning.
       bone.scale.set(1, 1, 1)
+
+      const desiredInArmature = desiredArmaturePositions.get(bone.uuid)
+      if (desiredInArmature !== undefined && bone.parent !== null) {
+        // Convert the fitted joint target through the external armature/world
+        // transform, then back into the newly restored parent Bone frame.
+        armature.updateWorldMatrix(true, false)
+        const desiredWorld = armature.localToWorld(desiredInArmature.clone())
+        bone.parent.updateWorldMatrix(true, false)
+        bone.position.copy(bone.parent.worldToLocal(desiredWorld))
+      }
+
       bone.updateWorldMatrix(true, false)
 
       bone.children.forEach((child) => {
-        if (this._is_bone(child) && bone_set.has(child)) visit(child)
+        if (this._is_bone(child) && boneSet.has(child)) visit(child)
       })
     }
 
-    const roots = skeleton.bones.filter((bone) =>
-      bone.parent === null || !this._is_bone(bone.parent) || !bone_set.has(bone.parent)
-    )
     roots.forEach(visit)
     roots.forEach((root) => root.updateWorldMatrix(true, true))
   }
