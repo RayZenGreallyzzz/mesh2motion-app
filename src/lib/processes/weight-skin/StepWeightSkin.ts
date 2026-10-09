@@ -3,7 +3,7 @@ import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
 
 import { Generators } from '../../Generators.ts'
 
-import { Bone, type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute } from 'three'
+import { Bone, type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute, Vector3 } from 'three'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
@@ -30,6 +30,10 @@ export class StepWeightSkin extends EventTarget {
   private manual_weight_preview_bone_index: number | null = null
   private clothing_weight_guard_enabled: boolean = false
   private rigid_skin_test_enabled: boolean = false
+  private bind_rest_max_error = 0
+  private bind_rest_sample_count = 0
+  private bind_rest_failed_meshes = 0
+
 
   constructor () {
     super()
@@ -37,6 +41,50 @@ export class StepWeightSkin extends EventTarget {
 
     // helps skeleton mesh render on top of this
     this.weight_painted_mesh_preview.renderOrder = -1
+  }
+
+  public bind_rest_diagnostic (): { maxError: number, samples: number, failedMeshes: number } {
+    return {
+      maxError: this.bind_rest_max_error,
+      samples: this.bind_rest_sample_count,
+      failedMeshes: this.bind_rest_failed_meshes
+    }
+  }
+
+  private check_bind_rest_pose (mesh: SkinnedMesh): void {
+    const attr = mesh.geometry.getAttribute('position')
+    if (attr === undefined || attr.count === 0) return
+
+    // Three.js CPU skinning is the same linear-bind math used by the renderer.
+    // At the REST pose, applying the skinning matrices must produce the original
+    // vertex position. Otherwise it is impossible for an animation to be right.
+    mesh.updateMatrixWorld(true)
+    mesh.geometry.computeBoundingSphere()
+    const radius = mesh.geometry.boundingSphere?.radius ?? 1
+    const tolerance = Math.max(0.00001, radius * 0.0001)
+    const samples = Math.min(attr.count, 128)
+    const source = new Vector3()
+    const skinned = new Vector3()
+    let maxError = 0
+
+    for (let sample = 0; sample < samples; sample++) {
+      const vertex = samples === 1 ? 0 : Math.floor(sample * (attr.count - 1) / (samples - 1))
+      source.fromBufferAttribute(attr, vertex)
+      skinned.copy(source)
+      mesh.applyBoneTransform(vertex, skinned)
+      const delta = source.distanceTo(skinned)
+      maxError = Math.max(maxError, delta)
+    }
+
+    this.bind_rest_sample_count += samples
+    this.bind_rest_max_error = Math.max(this.bind_rest_max_error, maxError)
+    if (!Number.isFinite(maxError) || maxError > tolerance) {
+      this.bind_rest_failed_meshes++
+      console.error('Skin bind REST mismatch:', mesh.name,
+        { maxError, tolerance, samples })
+    } else {
+      console.info('Skin bind REST OK:', mesh.name, { maxError, samples })
+    }
   }
 
   public begin (): void { }
@@ -159,6 +207,9 @@ export class StepWeightSkin extends EventTarget {
     this.skinned_meshes = []
     this.all_mesh_materials = []
     this.all_mesh_geometry = []
+    this.bind_rest_max_error = 0
+    this.bind_rest_sample_count = 0
+    this.bind_rest_failed_meshes = 0
 
     // https://github.com/Mesh2Motion/mesh2motion-app/issues/82
     // Properly dispose of all children in the weight painted mesh preview to prevent memory leaks
@@ -203,7 +254,15 @@ export class StepWeightSkin extends EventTarget {
     } else if (idx === 0) {
       skinned_mesh.add(this.binding_skeleton.bones[0])
     }
+    // A root moved into its final SkinnedMesh parent has a NEW matrixWorld.
+    // Capture bone inverses from THIS final hierarchy, not from the detached
+    // armature clone. All material pieces subsequently share this same skeleton.
+    if (idx === 0) {
+      skinned_mesh.updateMatrixWorld(true)
+      this.binding_skeleton.calculateInverses()
+    }
     skinned_mesh.bind(this.binding_skeleton)
+    this.check_bind_rest_pose(skinned_mesh)
 
     return skinned_mesh
   }
