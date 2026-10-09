@@ -90,26 +90,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.8.1-Source-Axes-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.8.1-source-axes"
-          APK="artifacts/Rig-Animation-Studio-v5.8.1-Source-Axes-debug.apk"
+          TAG="rig-animation-studio-v5.9-bind-check"
+          APK="artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.8.1 Source Axes Baseline" \
-              --notes "Root-cause baseline: preserves fitted joint positions while restoring the original Human local bone quaternions before bind. Built-in Human clips play directly without retargeting. Includes strict solver-vs-bind bone index and transform sanity assertions."
+              --title "Rig Animation Studio v5.9 Bind Check" \
+              --notes "Bind diagnostic: refresh cloned skeleton world matrices before inverse calculation, recalculate inverses after final mesh parenting and verify rest-pose vertex displacement numerically before any animation. Shows BIND REST OK or ERROR and max error on tablet."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.8.1-Source-Axes-APK
-          path: artifacts/Rig-Animation-Studio-v5.8.1-Source-Axes-debug.apk
+          name: Rig-Animation-Studio-v5.9-Bind-Check-APK
+          path: artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk
           if-no-files-found: error
           retention-days: 14
