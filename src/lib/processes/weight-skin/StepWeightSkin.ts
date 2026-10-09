@@ -13,6 +13,7 @@ export class StepWeightSkin extends EventTarget {
   private bone_skinning_formula: SkinningAlgorithm | undefined
   private binding_skeleton: Skeleton | undefined
   private binding_scene_root: Object3D | undefined
+  private skinning_bone_names: string[] = []
   private skinned_meshes: SkinnedMesh[] = []
 
   // stores the geometry data for meshes we will skin
@@ -49,6 +50,12 @@ export class StepWeightSkin extends EventTarget {
     // v5.7 HARD SKIN proved the monster deformation survives even with one
     // 100% bone per vertex, so weight blending is not the root cause.
     this.rigid_skin_test_enabled = false
+
+    const solverBones: Bone[] = []
+    this.skinning_armature.children[0].traverse((object) => {
+      if (object instanceof Bone) solverBones.push(object)
+    })
+    this.skinning_bone_names = solverBones.map((bone) => bone.name)
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
   }
@@ -105,6 +112,38 @@ export class StepWeightSkin extends EventTarget {
         'Invalid humanoid Bone chain: ' + brokenBone.name +
         ' has non-Bone parent ' + (brokenBone.parent?.name ?? '(none)')
       )
+    }
+
+    const bindNames = this.binding_skeleton.bones.map((bone) => bone.name)
+    if (
+      bindNames.length !== this.skinning_bone_names.length ||
+      bindNames.some((name, index) => name !== this.skinning_bone_names[index])
+    ) {
+      throw new Error(
+        'Skinning bone index mismatch: solver=[' + this.skinning_bone_names.join(',') +
+        '] bind=[' + bindNames.join(',') + ']'
+      )
+    }
+
+    for (const bone of this.binding_skeleton.bones) {
+      const values = [
+        bone.position.x, bone.position.y, bone.position.z,
+        bone.quaternion.x, bone.quaternion.y, bone.quaternion.z, bone.quaternion.w,
+        bone.scale.x, bone.scale.y, bone.scale.z
+      ]
+      if (values.some((value) => !Number.isFinite(value))) {
+        throw new Error('Non-finite bind transform on bone: ' + bone.name)
+      }
+      if (
+        Math.abs(bone.scale.x - 1) > 0.001 ||
+        Math.abs(bone.scale.y - 1) > 0.001 ||
+        Math.abs(bone.scale.z - 1) > 0.001
+      ) {
+        throw new Error(
+          'Unexpected bind scale on bone ' + bone.name + ': ' +
+          bone.scale.x.toFixed(5) + ',' + bone.scale.y.toFixed(5) + ',' + bone.scale.z.toFixed(5)
+        )
+      }
     }
 
     this.binding_skeleton.calculateInverses()
