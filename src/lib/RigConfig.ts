@@ -36,7 +36,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.MobileFemale,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Humanoid v6.1 Rest Pose · Direct Clips',
+      rig_display_name: 'Humanoid v6.2 Joint Frames · Direct Clips',
       animation_files: [
         '../animations/human-base-animations.glb',
         '../animations/human-addon-animations.glb',

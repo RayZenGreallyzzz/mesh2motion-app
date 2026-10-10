@@ -1,0 +1,63 @@
+name: Rig Joint Frames Test APK
+
+on:
+  push:
+    branches:
+      - fix/mobile-rig-anatomical-frames
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - run: npm ci
+      - name: Check actual animation GLBs and existing regressions
+        run: npm test -- --run
+      - name: Prepare offline decoder and separate test app identity
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const file = 'capacitor.config.json'
+          const config = JSON.parse(fs.readFileSync(file, 'utf8'))
+          config.appId = 'com.rayzen.riganimationstudio.jointframes'
+          config.appName = 'Rig Studio v6.2 Test'
+          fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
+          NODE
+      - name: Install Android wrapper
+        run: npm install --no-save @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - run: npm run build
+      - run: npx cap add android
+      - run: npx cap sync android
+      - name: Build test APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Collect APK and source identity
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v6.2-Joint-Frames-test.apk
+          git rev-parse HEAD > artifacts/source-commit.txt
+          sha256sum artifacts/*.apk > artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Animation-Studio-v6.2-Joint-Frames-test
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
