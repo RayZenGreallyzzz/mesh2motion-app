@@ -299,7 +299,11 @@ export class StepAnimationsListing extends EventTarget {
     this.animation_mixer = new AnimationMixer(new Object3D())
 
     // Load animations using the new AnimationLoader
-    this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale, final_skinned_meshes[0])
+    // v6.0: Mobile Female keeps the original Human bone names and source rest
+    // axes. Re-running those compatible clips through SkeletonUtils.retargetClip
+    // was applying a second absolute-orientation conversion and produced extreme
+    // limb deformation. Load the cleaned library clips directly.
+    this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
       .then((loaded_clips: TransformedAnimationClipPair[]) => {
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()
@@ -417,20 +421,20 @@ export class StepAnimationsListing extends EventTarget {
    * @param skinned_mesh
    */
   private reset_root_motion_position (skinned_mesh: SkinnedMesh): void {
-    // Mobile Humanoid keeps root-motion as a non-deform Object3D. Never zero
-    // skeleton.bones[0] blindly: on the clean rig that bone is pelvis.
-    const motion_root = skinned_mesh.getObjectByName('root')
-    if (motion_root !== undefined) {
-      motion_root.position.set(0, 0, 0)
-      motion_root.updateMatrixWorld(true)
-      return
+    // v6.0: restore the COMPLETE bind pose before starting a different clip.
+    // Creating a new AnimationMixer does not restore bones that the previous
+    // clip touched, and zeroing only root.position is wrong once root is a Bone.
+    skinned_mesh.skeleton.pose()
+
+    // Legacy clean-rig builds used a non-Bone Object3D named root. Keep that
+    // compatibility path, but do not overwrite the position of the real root Bone.
+    const motionRoot = skinned_mesh.getObjectByName('root')
+    if (motionRoot !== undefined && !(motionRoot as any).isBone) {
+      motionRoot.position.set(0, 0, 0)
+      motionRoot.quaternion.identity()
     }
 
-    if (skinned_mesh.skeleton.bones.length > 0) {
-      const legacy_root = skinned_mesh.skeleton.bones[0]
-      legacy_root.position.set(0, 0, 0)
-      legacy_root.updateMatrixWorld(true)
-    }
+    skinned_mesh.updateMatrixWorld(true)
   }
 
   private play_animation (index: number = 0): void {
