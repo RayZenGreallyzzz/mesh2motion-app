@@ -8,6 +8,7 @@ import {
 import { AnimationUtility } from './AnimationUtility.ts'
 import { ArmExtensionControl } from './ArmExtensionControl.ts'
 import { AnimationLoader, type AnimationLoadProgress } from './AnimationLoader.ts'
+import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
 import { CustomAnimationImporter } from './CustomAnimationImporter.ts'
 import { type ModelVariationSwitcher } from './ModelVariationSwitcher.ts'
 
@@ -299,12 +300,22 @@ export class StepAnimationsListing extends EventTarget {
     this.animation_mixer = new AnimationMixer(new Object3D())
 
     // Load animations using the new AnimationLoader
-    // v6.0: Mobile Female keeps the original Human bone names and source rest
-    // axes. Re-running those compatible clips through SkeletonUtils.retargetClip
-    // was applying a second absolute-orientation conversion and produced extreme
-    // limb deformation. Load the cleaned library clips directly.
+    // v6.1: keep direct AnimationMixer playback for tablet performance, but
+    // convert Human absolute tracks once from source rest to user-edited bind.
+    // Without this, pelvis.position overwrites joint placement when playback
+    // begins even though the skin passes its identity bind-pose check.
     this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
-      .then((loaded_clips: TransformedAnimationClipPair[]) => {
+      .then(async (loaded_clips: TransformedAnimationClipPair[]) => {
+        if (this.skeleton_type === SkeletonType.MobileFemale) {
+          const target = this.skinned_meshes_to_animate[0]
+          if (target === undefined) throw new Error('Mobile Female target mesh missing for rest-pose correction')
+          await RestPoseAnimationBridge.apply_to_mobile_female(
+            loaded_clips,
+            target.skeleton,
+            this.skeleton_scale
+          )
+          console.info('Mobile Female animation tracks rebased to edited bind pose')
+        }
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()
       })
