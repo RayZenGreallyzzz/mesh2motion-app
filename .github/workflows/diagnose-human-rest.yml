@@ -1,0 +1,19 @@
+name: Diagnose Human Animation Rest
+
+on:
+  push:
+    branches:
+      - diagnostics/human-animation-rest-v61
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare GLB rest frames and first quaternion frames
+        run: node scripts/diagnose-human-library-rest.mjs
