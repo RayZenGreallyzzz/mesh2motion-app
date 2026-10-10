@@ -96,7 +96,13 @@ export class SurfaceGeodesicWeightCalculator {
   private readonly geometry: BufferGeometry
   private readonly propagationInfluenceCount = 6
   private readonly outputInfluenceCount = 4
-  private readonly seedsPerBone = 8
+  // v6.0: eight nearest seeds could all cluster on one side of a limb.
+  // Use a wider candidate pool, then choose spatially distributed seeds.
+  private readonly seedsPerBone = 12
+  private readonly seedCandidateMultiplier = 6
+  private readonly smoothingIterations = 3
+  private readonly smoothingAlpha = 0.42
+  private readonly boneNeighborhoodDepth = 2
 
   private nodePositions: Vector3[] = []
   private originalVertexToNode: number[] = []
@@ -104,6 +110,7 @@ export class SurfaceGeodesicWeightCalculator {
   private adjacency: Array<Array<{ node: number, length: number }>> = []
   private components: number[][] = []
   private boneSurfaceData: BoneSurfaceData[] = []
+  private boneNeighborhoods: Array<Set<number>> = []
   private skeletonHeight = 1
 
   constructor (bones: Bone[], geometry: BufferGeometry) {
@@ -116,6 +123,7 @@ export class SurfaceGeodesicWeightCalculator {
     skinWeights.length = 0
 
     this.buildBoneSurfaceData()
+    this.buildBoneNeighborhoods()
     this.buildSurfaceGraph()
     this.buildConnectedComponents()
 
@@ -128,6 +136,13 @@ export class SurfaceGeodesicWeightCalculator {
       this.solveComponent(component, resultBones, resultWeights)
     }
     console.timeEnd('surface_geodesic_skinning')
+
+    // v6.0 joint blend: Dijkstra gives good locality, but high-poly cylindrical
+    // limbs can still receive a razor-sharp boundary if the nearest seed set is
+    // uneven around the circumference. Smooth the already-local influences over
+    // the welded surface graph. Only bones within two hierarchy hops of the
+    // dominant bone may enter the blend, so hand weights cannot bleed into chest.
+    this.smoothNodeWeights(resultBones, resultWeights)
 
     for (let vertex = 0; vertex < vertexCount; vertex++) {
       const node = this.originalVertexToNode[vertex]
@@ -421,23 +436,159 @@ export class SurfaceGeodesicWeightCalculator {
     bone: BoneSurfaceData,
     count: number
   ): Array<{ node: number, distance: number }> {
-    const best: Array<{ node: number, distanceSq: number }> = []
+    // Keep a larger pool of the closest surface nodes first.
+    const candidateLimit = Math.max(count, count * this.seedCandidateMultiplier)
+    const nearest: Array<{ node: number, distanceSq: number }> = []
 
     for (const node of component) {
       const distanceSq = this.distanceSqToBone(this.nodePositions[node], bone)
 
-      if (best.length < count) {
-        best.push({ node, distanceSq })
-        best.sort((a, b) => a.distanceSq - b.distanceSq)
+      if (nearest.length < candidateLimit) {
+        nearest.push({ node, distanceSq })
+        nearest.sort((a, b) => a.distanceSq - b.distanceSq)
         continue
       }
 
-      if (distanceSq >= best[best.length - 1].distanceSq) continue
-      best[best.length - 1] = { node, distanceSq }
-      best.sort((a, b) => a.distanceSq - b.distanceSq)
+      if (distanceSq >= nearest[nearest.length - 1].distanceSq) continue
+      nearest[nearest.length - 1] = { node, distanceSq }
+      nearest.sort((a, b) => a.distanceSq - b.distanceSq)
     }
 
-    return best.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
+    if (nearest.length <= count) {
+      return nearest.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
+    }
+
+    // Then spread the actual seeds over that close-to-bone pool. This prevents
+    // all seeds from landing on one azimuth of a cylindrical arm/leg.
+    const selected: Array<{ node: number, distanceSq: number }> = [nearest[0]]
+    const remaining = nearest.slice(1)
+
+    while (selected.length < count && remaining.length > 0) {
+      let bestIndex = 0
+      let bestScore = -Infinity
+
+      for (let i = 0; i < remaining.length; i++) {
+        const candidate = remaining[i]
+        const position = this.nodePositions[candidate.node]
+        let minSpatialDistanceSq = Infinity
+
+        for (const picked of selected) {
+          minSpatialDistanceSq = Math.min(
+            minSpatialDistanceSq,
+            position.distanceToSquared(this.nodePositions[picked.node])
+          )
+        }
+
+        // Prefer spatial coverage while still penalising nodes that are farther
+        // from the bone segment than equally well-spread alternatives.
+        const score = minSpatialDistanceSq / Math.max(Math.sqrt(candidate.distanceSq), 1e-5)
+        if (score > bestScore) {
+          bestScore = score
+          bestIndex = i
+        }
+      }
+
+      selected.push(remaining.splice(bestIndex, 1)[0])
+    }
+
+    return selected.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
+  }
+
+  private buildBoneNeighborhoods (): void {
+    const indexByBone = new Map<Bone, number>()
+    this.bones.forEach((bone, index) => indexByBone.set(bone, index))
+
+    this.boneNeighborhoods = this.bones.map((bone, boneIndex) => {
+      const allowed = new Set<number>([boneIndex])
+      const visited = new Set<Bone>([bone])
+      let frontier: Bone[] = [bone]
+
+      for (let depth = 0; depth < this.boneNeighborhoodDepth; depth++) {
+        const next: Bone[] = []
+        for (const current of frontier) {
+          const relatives: Bone[] = []
+          if (current.parent?.type === 'Bone') relatives.push(current.parent as Bone)
+          for (const child of current.children) {
+            if (child.type === 'Bone') relatives.push(child as Bone)
+          }
+
+          for (const relative of relatives) {
+            if (visited.has(relative)) continue
+            visited.add(relative)
+            next.push(relative)
+            const index = indexByBone.get(relative)
+            if (index !== undefined) allowed.add(index)
+          }
+        }
+        frontier = next
+      }
+
+      return allowed
+    })
+  }
+
+  private smoothNodeWeights (resultBones: number[][], resultWeights: number[][]): void {
+    if (this.smoothingIterations <= 0 || this.smoothingAlpha <= 0) return
+
+    for (let iteration = 0; iteration < this.smoothingIterations; iteration++) {
+      const nextBones: number[][] = Array.from({ length: resultBones.length }, () => [])
+      const nextWeights: number[][] = Array.from({ length: resultWeights.length }, () => [])
+
+      for (let node = 0; node < resultBones.length; node++) {
+        const ownBones = resultBones[node]
+        const ownWeights = resultWeights[node]
+        if (ownBones.length === 0) continue
+
+        const dominantBone = ownBones[0]
+        const allowed = this.boneNeighborhoods[dominantBone] ?? new Set<number>(ownBones)
+        const accumulated = new Map<number, number>()
+
+        const add = (bone: number, value: number): void => {
+          if (!allowed.has(bone) || value <= 0) return
+          accumulated.set(bone, (accumulated.get(bone) ?? 0) + value)
+        }
+
+        const selfFactor = 1 - this.smoothingAlpha
+        for (let slot = 0; slot < ownBones.length; slot++) {
+          add(ownBones[slot], ownWeights[slot] * selfFactor)
+        }
+
+        const neighbors = this.adjacency[node]
+        if (neighbors.length > 0) {
+          const neighborFactor = this.smoothingAlpha / neighbors.length
+          for (const edge of neighbors) {
+            const neighborBones = resultBones[edge.node]
+            const neighborWeights = resultWeights[edge.node]
+            for (let slot = 0; slot < neighborBones.length; slot++) {
+              add(neighborBones[slot], neighborWeights[slot] * neighborFactor)
+            }
+          }
+        } else {
+          for (let slot = 0; slot < ownBones.length; slot++) {
+            add(ownBones[slot], ownWeights[slot] * this.smoothingAlpha)
+          }
+        }
+
+        const sorted = [...accumulated.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, this.outputInfluenceCount)
+        const sum = sorted.reduce((value, entry) => value + entry[1], 0)
+
+        if (sum <= 1e-8) {
+          nextBones[node] = [...ownBones]
+          nextWeights[node] = [...ownWeights]
+          continue
+        }
+
+        nextBones[node] = sorted.map(entry => entry[0])
+        nextWeights[node] = sorted.map(entry => entry[1] / sum)
+      }
+
+      for (let node = 0; node < resultBones.length; node++) {
+        resultBones[node] = nextBones[node]
+        resultWeights[node] = nextWeights[node]
+      }
+    }
   }
 
   private offerInfluence (
