@@ -1,0 +1,33 @@
+name: Mobile Female Bind-Space Check
+
+on:
+  pull_request:
+    branches:
+      - android-rig-animation-studio
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Check tests
+        run: npm test -- --run
+
+      - name: Check production bundle
+        run: npm run build
