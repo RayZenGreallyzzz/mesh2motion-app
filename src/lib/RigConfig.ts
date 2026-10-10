@@ -36,7 +36,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.MobileFemale,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Humanoid Bone Chain v5.8 · Surface Skin',
+      rig_display_name: 'Humanoid v6.0 Joint Blend · Direct Clips',
       animation_files: [
         '../animations/human-base-animations.glb',
         '../animations/human-addon-animations.glb',
