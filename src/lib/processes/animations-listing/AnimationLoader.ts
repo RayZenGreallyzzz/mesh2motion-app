@@ -6,6 +6,7 @@ import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
 import { type SkinnedMesh } from 'three'
+import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
 
 export interface AnimationLoadProgress {
   loaded: number
@@ -100,6 +101,10 @@ export class AnimationLoader extends EventTarget {
                   tags: []
                 }
               )
+              if (this.skeleton_type === SkeletonType.MobileFemale) {
+                const source_rest_pose = RestPoseAnimationBridge.capture_scene_rest_pose(gltf.scene)
+                for (const pair of processed_clips) pair.source_rest_pose = source_rest_pose
+              }
               loaded_clips.push(...processed_clips)
 
               completed_loads++
@@ -107,13 +112,10 @@ export class AnimationLoader extends EventTarget {
               // Emit progress update
               this.emit_enhanced_progress(file_path, 1, 1)
 
-              // Check if all animations are loaded. Retarget exactly once after
-              // all three human libraries are present so concurrent GLTF callbacks
-              // never mutate the same source/target skeleton at the same time.
+              // Return all three packs together; StepAnimationsListing converts
+              // their keys once before starting preview playback.
               if (completed_loads === total_loads) {
                 const finalize = async (): Promise<void> => {
-                  // Return the library immediately. Mobile Female retargeting is
-                  // performed lazily per selected clip in StepAnimationsListing.
                   const final_clips = loaded_clips
 
                   final_clips.sort((a, b) => {
