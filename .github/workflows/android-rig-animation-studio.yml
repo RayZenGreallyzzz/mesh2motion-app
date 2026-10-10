@@ -90,26 +90,26 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v6.0-Joint-Blend-debug.apk
 
       - name: Publish direct-download release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="rig-animation-studio-v5.9-bind-check"
-          APK="artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk"
+          TAG="rig-animation-studio-v6.0-joint-blend"
+          APK="artifacts/Rig-Animation-Studio-v6.0-Joint-Blend-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
           else
             gh release create "$TAG" "$APK" \
-              --title "Rig Animation Studio v5.9 Bind Check" \
-              --notes "Bind diagnostic: refresh cloned skeleton world matrices before inverse calculation, recalculate inverses after final mesh parenting and verify rest-pose vertex displacement numerically before any animation. Shows BIND REST OK or ERROR and max error on tablet."
+              --title "Rig Animation Studio v6.0 Joint Blend" \
+              --notes "v6.0 keeps the v5.9 bind diagnostics, plays compatible Human library clips directly on the continuous MobileFemale bone chain, restores the complete bind pose before each clip, distributes surface seeds around each limb and adds hierarchy-limited three-pass joint weight smoothing. Includes a regression test that requires a blended upperarm/forearm elbow ring."
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v5.9-Bind-Check-APK
-          path: artifacts/Rig-Animation-Studio-v5.9-Bind-Check-debug.apk
+          name: Rig-Animation-Studio-v6.0-Joint-Blend-APK
+          path: artifacts/Rig-Animation-Studio-v6.0-Joint-Blend-debug.apk
           if-no-files-found: error
           retention-days: 14
