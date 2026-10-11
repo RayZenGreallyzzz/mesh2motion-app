@@ -41,6 +41,8 @@ import { CameraShake } from './lib/CameraShake.ts'
 import { DOMUtilities } from './lib/DOMUtilities.ts'
 import { PlatformManager } from './lib/PlatformManager.ts'
 import { NetworkStatusManager } from './lib/NetworkStatusManager.ts'
+import { HumanoidSurfaceSampler } from './lib/solvers/HumanoidSurfaceSampler.ts'
+import { fit_humanoid_hand } from './lib/solvers/FitHumanoidHand.ts'
 
 export class Mesh2MotionEngine {
   public readonly camera = Generators.create_camera()
@@ -329,6 +331,7 @@ export class Mesh2MotionEngine {
     const width = maxX - minX
     const depth = maxZ - minZ
     if (!Number.isFinite(height) || height <= 0.0001 || width <= 0.0001) return
+    const surface = new HumanoidSurfaceSampler(model)
 
     const centerX = (minX + maxX) * 0.5
     const centerZ = (minZ + maxZ) * 0.5
@@ -427,14 +430,14 @@ export class Mesh2MotionEngine {
         }
       }
 
-      if (candidates.length < 4) return fallback
+      if (candidates.length < 4) return surface.depth_center(x, y, fallback)
       candidates.sort((a, b) => a - b)
 
       // Use robust inner front/back percentiles instead of raw extremes so hair,
       // capes and armor spikes do not drag a joint out of the body volume.
       const lo = candidates[Math.floor((candidates.length - 1) * 0.15)]
       const hi = candidates[Math.floor((candidates.length - 1) * 0.85)]
-      return (lo + hi) * 0.5
+      return surface.depth_center(x, y, (lo + hi) * 0.5)
     }
 
     const setWorld = (bone: Bone | undefined, x: number, y: number, z?: number): void => {
@@ -459,7 +462,7 @@ export class Mesh2MotionEngine {
       return distances[Math.min(distances.length - 1, Math.floor(distances.length * 0.72))]
     }
 
-    const shoulderHalf = Math.max(width * 0.08, sliceHalfWidth(0.79) * 0.95)
+    const shoulderHalf = Math.max(height * 0.078, sliceHalfWidth(0.79) * 0.95)
     const hipHalf = Math.max(width * 0.045, sliceHalfWidth(0.52) * 0.42)
 
     // Determine which world-X side the rig calls "left" from the current rig,
@@ -509,11 +512,11 @@ export class Mesh2MotionEngine {
       const hand = sideBone('hand', side)
       const sideEdge = sign > 0 ? maxX : minX
       const shoulderX = centerX + sign * shoulderHalf
-      const handX = centerX + (sideEdge - centerX) * 0.91
+      const handX = centerX + (sideEdge - centerX) * 0.82
       const elbowX = shoulderX + (handX - shoulderX) * 0.52
       const armY = yAt(0.785)
-      const elbowY = tPose ? armY : yAt(0.69)
-      const handY = tPose ? armY : yAt(0.60)
+      const elbowY = surface.arm_center_y(elbowX, tPose ? armY : yAt(0.69))
+      const handY = surface.arm_center_y(handX, tPose ? armY : yAt(0.60))
 
       const shoulderJointX = centerX + sign * shoulderHalf * 0.58
       const shoulderJointY = yAt(0.79)
@@ -525,6 +528,7 @@ export class Mesh2MotionEngine {
         depthCenterAt(elbowX, elbowY, preservedZ(fore ?? upper!), width * 0.035, height * 0.025))
       setWorld(hand, handX, handY,
         depthCenterAt(handX, handY, preservedZ(hand ?? fore!), width * 0.03, height * 0.025))
+      if (hand !== undefined && fore !== undefined) fit_humanoid_hand(hand, fore, surface.points, height)
     }
 
     // Legs.
@@ -711,11 +715,11 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · Rest Pose v6.1'
+      autorig.textContent = 'АвтоРиг · v6.3'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
-        ? 'REST POSE v6.1 · '
+        ? 'v6.3 · '
         : ''
       status.textContent = this.rig_setup_locked_state
         ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'

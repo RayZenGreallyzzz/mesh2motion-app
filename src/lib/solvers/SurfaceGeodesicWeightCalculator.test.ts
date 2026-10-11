@@ -4,6 +4,37 @@ import { Bone, CylinderGeometry } from 'three'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.ts'
 
 describe('SurfaceGeodesicWeightCalculator v6 joint blend', () => {
+  it('keeps the middle of a tapered forearm attached to the forearm on every side', () => {
+    const root = new Bone(); root.name = 'root'
+    const upper = new Bone(); upper.name = 'upperarm_l'; root.add(upper)
+    const fore = new Bone(); fore.name = 'lowerarm_l'; fore.position.y = 1; upper.add(fore)
+    const hand = new Bone(); hand.name = 'hand_l'; hand.position.y = 1; fore.add(hand)
+    const finger = new Bone(); finger.name = 'middle_01_l'; finger.position.y = 1; hand.add(finger)
+    root.updateWorldMatrix(true, true)
+    const geometry = new CylinderGeometry(1, 1, 3, 32, 96, true)
+    geometry.translate(0, 1.5, 0)
+    const positions = geometry.getAttribute('position')
+    for (let i = 0; i < positions.count; i++) {
+      const y = positions.getY(i)
+      const radius = 0.025 + 0.16 * Math.sin(Math.PI * y) ** 2
+      positions.setX(i, positions.getX(i) * radius)
+      positions.setZ(i, positions.getZ(i) * radius * 1.3)
+    }
+    const indices: number[] = []; const weights: number[] = []
+    new SurfaceGeodesicWeightCalculator([root, upper, fore, hand, finger], geometry).calculate(indices, weights)
+    let samples = 0; let stable = 0
+    for (let i = 0; i < positions.count; i++) {
+      if (positions.getY(i) < 1.35 || positions.getY(i) > 1.65) continue
+      let influence = 0
+      for (let j = 0; j < 4; j++) if (indices[i * 4 + j] === 2) influence += weights[i * 4 + j]
+      samples++
+      if (influence > 0.85) stable++
+      expect(weights.slice(i * 4, i * 4 + 4).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6)
+    }
+    expect(samples).toBeGreaterThan(200)
+    expect(stable / samples).toBeGreaterThan(0.95)
+  })
+
   it('creates a smooth upperarm/forearm transition around an elbow ring', () => {
     const root = new Bone()
     root.name = 'root'

@@ -1,4 +1,4 @@
-# Mobile humanoid joint-frame correction (v6.2 test)
+# Mobile humanoid animation and surface fitting (v6.3 test)
 
 Base: `android-rig-animation-studio`, commit `2bb1b8617bc79411cd65cc1d6f69018169c2168d` (v6.1).
 
@@ -30,11 +30,45 @@ Validation:
   viewport transforms, independent export/preview arrays, unchanged live rig.
 - Full suite and production bundle are required by the test APK workflow.
 
-The original user elf GLB was not attached to the shared conversation, so its
-skin weights and on-device appearance are not yet verified. These tests verify
-the animation-frame defect; they do not certify every imported model's weights.
+## Surface fitting follow-up
+
+The supplied A-pose elf model and screen recording reproduced two additional
+problems after the frame correction: vertex-density estimates placed the torso
+in rear hair and pulled the shoulders inward, while globally nearest surface
+seeds clustered near narrow limb ends. The untouched T-pose finger subtree also
+extended outside the repositioned hand.
+
+AutoRig now uses front/back surface intersections for joint depth and exact
+triangle sections for elbow/wrist height. Shoulder spacing uses body height as
+its lower bound. The hand subtree follows the visible hand direction and palm
+width. Mesh detection supports the source-module Mesh used by the importer.
+
+Skinning seeds cover four longitudinal bins and eight angular sectors for each
+bone segment. A narrower distance falloff keeps mid-limb vertices attached to
+their own bone; existing local surface smoothing still blends the joints.
+These calculations run during fitting/binding, with no added per-frame work.
+
+Validation on the supplied model (75,142 vertices, 121,972 triangles):
+
+- Browser import, floor alignment, AutoRig, binding and loading all 178 clips.
+- Bind-pose maximum vertex error: 5.52e-8; no failed meshes.
+- Visual inspection of Idle_A, Confused, Bow_Pull_Hold, Sword_Attack, Walk and
+  Consume_Item at a fixed point in each clip.
+- Mean forearm influence in the sampled mid-forearm region improved from 62.7%
+  to 97.3%; unwanted arm influence in the sampled chest fell from about 62% to
+  2.3%. These are regional diagnostics, not a whole-model accuracy score.
+- Regression cases cover a tapered forearm, smooth elbow blending, rear hair,
+  imported Mesh identity, A/T arm sections and hand direction/palm roll.
+
+The supplied model/video are kept outside the repository. Extreme joint bends
+may still need manual weight cleanup. Tablet performance and the installed APK
+still require an on-device check; browser QA is not a device benchmark.
 
 The test workflow uploads an APK artifact only. It uses a separate Android
-application id (`com.rayzen.riganimationstudio.jointframes`) so v6.1 stays
+application id (`com.rayzen.riganimationstudio.surfacefit`) so older versions stay
 installed. It does not commit generated code, merge branches, deploy a website,
 or overwrite a release. The existing main Android release workflow is unchanged.
+
+To apply the fix, import the original model again, select Humanoid v6.3, run
+AutoRig and bind again before opening animations. Previously exported weights
+are not recalculated merely by installing the APK.

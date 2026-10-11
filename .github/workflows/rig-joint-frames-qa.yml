@@ -1,4 +1,4 @@
-name: Rig Joint Frames Test APK
+name: Rig Animation v6.3 Test APK
 
 on:
   push:
@@ -37,8 +37,8 @@ jobs:
           import fs from 'node:fs'
           const file = 'capacitor.config.json'
           const config = JSON.parse(fs.readFileSync(file, 'utf8'))
-          config.appId = 'com.rayzen.riganimationstudio.jointframes'
-          config.appName = 'Rig Studio v6.2 Test'
+          config.appId = 'com.rayzen.riganimationstudio.surfacefit'
+          config.appName = 'Rig Studio v6.3 Test'
           fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
           NODE
       - name: Install Android wrapper
@@ -52,12 +52,12 @@ jobs:
       - name: Collect APK and source identity
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v6.2-Joint-Frames-test.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v6.3-Surface-Fit-test.apk
           git rev-parse HEAD > artifacts/source-commit.txt
           sha256sum artifacts/*.apk > artifacts/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v6.2-Joint-Frames-test
+          name: Rig-Animation-Studio-v6.3-Surface-Fit-test
           path: artifacts/*
           if-no-files-found: error
           retention-days: 14
