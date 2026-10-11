@@ -1,3 +1,4 @@
+import '../lib/AndroidUI'
 import { Mesh2MotionEngine } from '../Mesh2MotionEngine.ts'
 import { type Group, type Scene, Vector3 } from 'three'
 import { StepLoadSourceSkeleton } from './steps/StepLoadSourceSkeleton.ts'

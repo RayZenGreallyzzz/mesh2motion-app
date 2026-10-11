@@ -27,6 +27,8 @@ There are instructions built into the web application, but this is the general f
 5. Select which animations you want to use, then export (currently only GLB/GLTF supported format)
 
 ## Building and running locally
+Android APK build and usage instructions (Russian): [docs/android-ru.md](docs/android-ru.md).
+
 The main dependency you need is Node.js. I am using 24, but other versions probably work fine too. Open you command line tool to the directory this readme is in. Run ths following commands to start the web server.
 
     npm install

@@ -12,6 +12,7 @@ import { Utility } from '../../Utilities.ts'
 import { ModelCleanupUtility } from './ModelCleanupUtility.ts'
 import { ModelAnalysisReport, type ModelImportAnalysis, type SceneSnapshot } from './ModelAnalysisReport.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
+import { clone as clone_skeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -292,7 +293,7 @@ export class StepLoadModel extends EventTarget {
     if (this.preserve_skinned_mesh) {
       this.original_model_data = loaded_scene
     } else {
-      this.original_model_data = loaded_scene.clone()
+      this.original_model_data = clone_skeleton(loaded_scene) as Scene
       this.original_model_data.name = 'Cloned Scene'
     }
 

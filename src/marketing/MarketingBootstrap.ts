@@ -1,3 +1,4 @@
+import '../lib/AndroidUI'
 import { Vector3, type SkinnedMesh } from 'three'
 import { ProcessStep } from '../lib/enums/ProcessStep'
 import { SkeletonType } from '../lib/enums/SkeletonType'

@@ -1,4 +1,5 @@
 import { Mesh2MotionEngine } from './Mesh2MotionEngine'
+import './lib/AndroidUI'
 
 export class CustomModelUploadBootstrap {
   private readonly mesh2motion_engine: Mesh2MotionEngine

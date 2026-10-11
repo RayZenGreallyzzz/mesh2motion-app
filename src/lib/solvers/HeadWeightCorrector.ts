@@ -105,12 +105,17 @@ export class HeadWeightCorrector {
     arm_bone_indices: number[]
   ): number {
     const vertex_count = this.geometry.attributes.position.array.length / 3
+    // A low user plane must never pull waist/clothing vertices onto the head.
+    // The head joint is the anatomical lower limit, in the same world space as
+    // the baked model vertices. The user can still move the plane higher.
+    const head_position = this.bones_master_data[head_bone_index].getWorldPosition(new Vector3())
+    const minimum_head_y = Math.max(this.preview_plane_height, head_position.y)
     let corrected_count = 0
     for (let i = 0; i < vertex_count; i++) {
       const vertex_position = new Vector3().fromBufferAttribute(this.geometry.attributes.position, i)
 
       // Skip vertices below the height threshold
-      if (vertex_position.y <= this.preview_plane_height) { continue }
+      if (vertex_position.y <= minimum_head_y) { continue }
 
       const offset = i * 4 // each vertex has 4 slots for skinning weights and indices
 

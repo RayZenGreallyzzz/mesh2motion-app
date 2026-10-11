@@ -284,6 +284,7 @@ export class RetargetAnimationListing extends EventTarget {
     // configure export animations button
     this.export_button = document.getElementById('export-retargeting-button') as HTMLButtonElement
     this.export_button?.addEventListener('click', () => {
+      if (this.export_button) this.export_button.disabled = true
       // send in all the selected animation clips for export
       this.step_export_retargeted_animations.set_animation_clips_to_export(
         this.animation_clips_loaded.map(clip => clip.display_animation_clip),
@@ -292,10 +293,15 @@ export class RetargetAnimationListing extends EventTarget {
 
       // configure the export out step with retargeting info
       this.step_export_retargeted_animations.export('retargeted_animations', this.download_settings)
+        .then(() => {
+          if (window.Mesh2MotionNative) new ModalDialog('Готово', 'Файл сохранён в выбранную папку.').show()
+        })
         .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
           const error_message = error instanceof Error ? error.message : 'Unknown export error'
           new ModalDialog('Retarget export failed', error_message).show()
         })
+        .finally(() => { if (this.export_button) this.export_button.disabled = false })
     })
 
     // event listener for animation view mode tabs (Library vs Selected)
