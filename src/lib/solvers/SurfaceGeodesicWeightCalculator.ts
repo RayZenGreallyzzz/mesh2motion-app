@@ -96,10 +96,8 @@ export class SurfaceGeodesicWeightCalculator {
   private readonly geometry: BufferGeometry
   private readonly propagationInfluenceCount = 6
   private readonly outputInfluenceCount = 4
-  // v6.0: eight nearest seeds could all cluster on one side of a limb.
-  // Use a wider candidate pool, then choose spatially distributed seeds.
-  private readonly seedsPerBone = 12
-  private readonly seedCandidateMultiplier = 6
+  // Cover both the length and circumference of each bone segment.
+  private readonly seedsPerBone = 32
   private readonly smoothingIterations = 3
   private readonly smoothingAlpha = 0.42
   private readonly boneNeighborhoodDepth = 2
@@ -334,10 +332,10 @@ export class SurfaceGeodesicWeightCalculator {
     }
 
     const sigma = Math.max(
-      this.skeletonHeight * 0.035,
-      metrics.span * 0.03,
-      metrics.averageEdgeLength * 5,
-      0.005
+      this.skeletonHeight * 0.01,
+      metrics.span * 0.01,
+      metrics.averageEdgeLength * 2,
+      0.001
     )
 
     for (const node of component) {
@@ -436,62 +434,51 @@ export class SurfaceGeodesicWeightCalculator {
     bone: BoneSurfaceData,
     count: number
   ): Array<{ node: number, distance: number }> {
-    // Keep a larger pool of the closest surface nodes first.
-    const candidateLimit = Math.max(count, count * this.seedCandidateMultiplier)
-    const nearest: Array<{ node: number, distanceSq: number }> = []
+    // A global nearest-N pool concentrates all seeds at the thinnest ring of a
+    // tapered limb. Choose the nearest surface point in each longitudinal and
+    // angular cell so a dense wrist cannot leave the forearm unseeded.
+    const binsPerSegment = 4
+    const sectors = Math.max(4, Math.ceil(count / binsPerSegment))
+    const bucketCount = bone.segments.length * binsPerSegment * sectors
+    const buckets: Array<{ node: number, distanceSq: number } | undefined> =
+      Array.from({ length: bucketCount }, () => undefined)
+    const radialBases = bone.segments.map(([a, b]) => {
+      const axis = b.clone().sub(a).normalize()
+      if (axis.lengthSq() < 1e-8) axis.set(0, 1, 0)
+      const u = new Vector3().crossVectors(axis, Math.abs(axis.y) < 0.9 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0)).normalize()
+      return [u, new Vector3().crossVectors(axis, u)] as const
+    })
 
     for (const node of component) {
-      const distanceSq = this.distanceSqToBone(this.nodePositions[node], bone)
-
-      if (nearest.length < candidateLimit) {
-        nearest.push({ node, distanceSq })
-        nearest.sort((a, b) => a.distanceSq - b.distanceSq)
-        continue
-      }
-
-      if (distanceSq >= nearest[nearest.length - 1].distanceSq) continue
-      nearest[nearest.length - 1] = { node, distanceSq }
-      nearest.sort((a, b) => a.distanceSq - b.distanceSq)
-    }
-
-    if (nearest.length <= count) {
-      return nearest.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
-    }
-
-    // Then spread the actual seeds over that close-to-bone pool. This prevents
-    // all seeds from landing on one azimuth of a cylindrical arm/leg.
-    const selected: Array<{ node: number, distanceSq: number }> = [nearest[0]]
-    const remaining = nearest.slice(1)
-
-    while (selected.length < count && remaining.length > 0) {
-      let bestIndex = 0
-      let bestScore = -Infinity
-
-      for (let i = 0; i < remaining.length; i++) {
-        const candidate = remaining[i]
-        const position = this.nodePositions[candidate.node]
-        let minSpatialDistanceSq = Infinity
-
-        for (const picked of selected) {
-          minSpatialDistanceSq = Math.min(
-            minSpatialDistanceSq,
-            position.distanceToSquared(this.nodePositions[picked.node])
-          )
-        }
-
-        // Prefer spatial coverage while still penalising nodes that are farther
-        // from the bone segment than equally well-spread alternatives.
-        const score = minSpatialDistanceSq / Math.max(Math.sqrt(candidate.distanceSq), 1e-5)
-        if (score > bestScore) {
-          bestScore = score
-          bestIndex = i
+      const point = this.nodePositions[node]
+      let distanceSq = Infinity
+      let bucket = 0
+      for (let segment = 0; segment < bone.segments.length; segment++) {
+        const [a, b] = bone.segments[segment]
+        const dx = b.x - a.x; const dy = b.y - a.y; const dz = b.z - a.z
+        const lengthSq = dx * dx + dy * dy + dz * dz
+        const t = lengthSq > 1e-12
+          ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy + (point.z - a.z) * dz) / lengthSq))
+          : 0
+        const px = point.x - a.x - t * dx
+        const py = point.y - a.y - t * dy
+        const pz = point.z - a.z - t * dz
+        const candidateDistance = px * px + py * py + pz * pz
+        if (candidateDistance < distanceSq) {
+          distanceSq = candidateDistance
+          const [u, v] = radialBases[segment]
+          const angle = Math.atan2(px * v.x + py * v.y + pz * v.z, px * u.x + py * u.y + pz * u.z) + Math.PI
+          const sector = Math.min(sectors - 1, Math.floor(angle / (2 * Math.PI) * sectors))
+          bucket = (segment * binsPerSegment + Math.min(binsPerSegment - 1, Math.floor(t * binsPerSegment))) * sectors + sector
         }
       }
-
-      selected.push(remaining.splice(bestIndex, 1)[0])
+      const nearest = buckets[bucket]
+      if (nearest === undefined || distanceSq < nearest.distanceSq) {
+        buckets[bucket] = { node, distanceSq }
+      }
     }
 
-    return selected.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
+    return buckets.flatMap(seed => seed === undefined ? [] : [{ node: seed.node, distance: Math.sqrt(seed.distanceSq) }])
   }
 
   private buildBoneNeighborhoods (): void {

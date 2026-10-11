@@ -300,21 +300,19 @@ export class StepAnimationsListing extends EventTarget {
     this.animation_mixer = new AnimationMixer(new Object3D())
 
     // Load animations using the new AnimationLoader
-    // v6.1: keep direct AnimationMixer playback for tablet performance, but
-    // convert Human absolute tracks once from source rest to user-edited bind.
-    // Without this, pelvis.position overwrites joint placement when playback
-    // begins even though the skin passes its identity bind-pose check.
+    // Convert each pack's keys into the fitted joint frames once, retaining
+    // direct AnimationMixer playback and the original keyframe sampling.
     this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
-      .then(async (loaded_clips: TransformedAnimationClipPair[]) => {
+      .then((loaded_clips: TransformedAnimationClipPair[]) => {
         if (this.skeleton_type === SkeletonType.MobileFemale) {
           const target = this.skinned_meshes_to_animate[0]
           if (target === undefined) throw new Error('Mobile Female target mesh missing for rest-pose correction')
-          await RestPoseAnimationBridge.apply_to_mobile_female(
+          RestPoseAnimationBridge.apply_to_mobile_female(
             loaded_clips,
             target.skeleton,
             this.skeleton_scale
           )
-          console.info('Mobile Female animation tracks rebased to edited bind pose')
+          console.info('Mobile Female animations converted from each pack into fitted joint frames')
         }
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()

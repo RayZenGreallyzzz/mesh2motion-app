@@ -1,4 +1,5 @@
 import { type AnimationClip } from 'three'
+import { type AnimationRestTransform } from '../RestPoseAnimationBridge.ts'
 
 export type AnimationSourceType = 'default-library' | 'custom-import'
 
@@ -26,4 +27,7 @@ export interface TransformedAnimationClipPair {
    * Extendable metadata for this animation clip.
    */
   metadata: AnimationClipMetadata
+
+  /** Bind transforms from the GLB that authored these keys (shared per pack). */
+  source_rest_pose?: ReadonlyMap<string, AnimationRestTransform>
 }
