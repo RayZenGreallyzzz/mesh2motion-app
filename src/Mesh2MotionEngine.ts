@@ -1098,6 +1098,28 @@ export class Mesh2MotionEngine {
   public process_step_changed (process_step: ProcessStep): ProcessStep {
     const previous_step = this.process_step
 
+    // Never animate a rig whose bind matrices already move the mesh in REST.
+    // The diagnostic used to be log-only, allowing a badly fitted skeleton
+    // to enter the animation/export stage and appear catastrophically broken.
+    if (process_step === ProcessStep.AnimationsListing) {
+      this.weight_skin_step.check_bind_after_world_transform()
+      const rest = this.weight_skin_step.bind_rest_diagnostic()
+      const world = this.weight_skin_step.bind_world_diagnostic()
+      if (this.weight_skin_step.final_skinned_meshes().length === 0 ||
+          rest.samples === 0 || rest.failedMeshes !== 0 || world.failedMeshes !== 0 ||
+          !Number.isFinite(rest.maxError) || !Number.isFinite(world.maxError)) {
+        new ModalDialog(
+          'Rig Animation Studio: привязка скелета не прошла проверку',
+          'Обнаружена ошибка BIND REST/WORLD. Анимация остановлена, чтобы не растягивать модель. ' +
+          'Вернитесь к установке скелета и проверьте масштаб, положение костей и исходную позу. ' +
+          'REST Δ=' + rest.maxError.toExponential(3) +
+          ', WORLD Δ=' + world.maxError.toExponential(3)
+        ).show()
+        this.show_bind_rest_diagnostic()
+        return previous_step
+      }
+    }
+
     if (previous_step === ProcessStep.EditSkeleton &&
         process_step !== ProcessStep.EditSkeleton &&
         !this.rig_setup_locked_state) {
