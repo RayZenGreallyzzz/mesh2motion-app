@@ -61,9 +61,18 @@ jobs:
               names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v6.4 TEST'))
           print('Distinct Android test applicationId:', new_id)
           PY
+      - uses: gradle/actions/setup-gradle@v4
       - name: Compile APK
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon --refresh-dependencies; then
+              exit 0
+            fi
+            echo "Gradle dependency retrieval failed on attempt $attempt; retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
       - name: Upload TEST APK only (never overwrite v6.1 release)
         uses: actions/upload-artifact@v4
         with:
