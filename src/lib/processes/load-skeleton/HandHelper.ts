@@ -1,90 +1,58 @@
 import { type Object3D } from 'three'
 import { HandSkeletonType } from '../../enums/SkeletonType'
 
+/**
+ * Prunes actual digit chains before skinning. The palm and wrist remain
+ * untouched. The user choice controls deforming bones, not merely visibility.
+ */
 export class HandHelper {
-  public modify_hand_skeleton (armature: Object3D, hand_type: HandSkeletonType): void {
-    const bones_to_remove: Object3D[] = []
-
-    armature.traverse((child: Object3D) => {
-      if (child.type === 'Bone') {
-        const bone = child
-        const bone_name: string = (bone.name ?? '').toLowerCase()
-
-        // bone is not part of hand, we can just skip it
-        // we also always keep the palm of the hand
-        if (!this.is_hand_bone(bone_name) || this.is_palm_bone(bone_name)) {
-          return
-        }
-
-        // remove bones on mesh based on hand type selected on UI
-        switch (hand_type) {
-          case HandSkeletonType.ThumbAndIndex:
-            // Remove all finger bones except thumb and index finger
-            if (!this.is_thumb_bone(bone_name) &&
-                !this.is_middle_finger_bone(bone_name)) {
-              bones_to_remove.push(bone)
-            }
-
-            // also remove tip bones since we want something simplified
-            if (this.is_end_tip_bone(bone_name)) {
-              bones_to_remove.push(bone)
-            }
-            break
-
-          case HandSkeletonType.SimplifiedHand:
-            // Remove all finger/feet tip bones (bones ending with 'tip')
-            if (this.is_end_tip_bone(bone_name)) {
-              bones_to_remove.push(bone)
-            }
-            break
-
-          case HandSkeletonType.SingleBone:
-            // Remove all non-middle finger bones, keeping one line of bones
-            if (!this.is_middle_finger_bone(bone_name)) {
-              bones_to_remove.push(bone)
-              break
-            }
-
-            // remove all tip bones
-            if (this.is_end_tip_bone(bone_name) || bone_name.includes('03') || bone_name.includes('04') || bone_name.includes('02')) {
-              bones_to_remove.push(bone)
-            }
-
-            break
-        }
+  public modify_hand_skeleton (armature: Object3D, mode: HandSkeletonType): void {
+    const allowed = this.digits_for_mode(mode)
+    const to_remove: Object3D[] = []
+    armature.traverse(bone => {
+      if (bone.type !== 'Bone') return
+      const name = bone.name.toLowerCase()
+      const digit = this.digit_of(name)
+      if (digit === null) return // includes wrists, palms, toe bones, etc.
+      const leaf = /(?:leaf|tip|end)$/i.test(name) ||
+        /(?:leaf|tip|end)[_:.\\-]/i.test(name)
+      if (!allowed.has(digit) || (leaf && mode !== HandSkeletonType.AllFingers)) {
+        to_remove.push(bone)
       }
     })
 
-    // Remove the identified bones
-    bones_to_remove.forEach(bone => {
-      if (bone.parent != null) {
-        bone.parent.remove(bone)
+    // Removing only the highest rejected nodes prevents detached descendants.
+    const removed = new Set(to_remove)
+    for (const bone of to_remove) {
+      let ancestor = bone.parent
+      let ancestor_removed = false
+      while (ancestor !== null) {
+        if (removed.has(ancestor)) { ancestor_removed = true; break }
+        ancestor = ancestor.parent
       }
-    })
+      if (!ancestor_removed) bone.removeFromParent()
+    }
+    armature.updateWorldMatrix(true, true)
   }
 
-  private is_hand_bone (bone_name: string): boolean {
-    const hand_patterns = ['hand', 'finger', 'thumb', 'index', 'middle', 'ring', 'pinky']
-    return hand_patterns.some(pattern => bone_name.includes(pattern))
+  private digits_for_mode (mode: HandSkeletonType): ReadonlySet<string> {
+    switch (mode) {
+      case HandSkeletonType.SingleBone: return new Set()
+      case HandSkeletonType.OneFinger: return new Set(['middle'])
+      case HandSkeletonType.TwoFingers:
+      case HandSkeletonType.ThumbAndIndex: return new Set(['thumb', 'index'])
+      case HandSkeletonType.ThreeFingers: return new Set(['thumb', 'index', 'middle'])
+      case HandSkeletonType.FiveFingers:
+      case HandSkeletonType.SimplifiedHand:
+      case HandSkeletonType.AllFingers:
+      default: return new Set(['thumb', 'index', 'middle', 'ring', 'pinky'])
+    }
   }
 
-  private is_palm_bone (bone_name: string): boolean {
-    const hand_patterns = ['hand']
-    return hand_patterns.some(pattern => bone_name.includes(pattern))
-  }
-
-  private is_thumb_bone (bone_name: string): boolean {
-    return bone_name.includes('thumb')
-  }
-
-  private is_middle_finger_bone (bone_name: string): boolean {
-    return bone_name.includes('middle')
-  }
-
-  // "tip" bones are the last bone at the end of the fingers and feet
-  // they have the word 'tip' in the bone name
-  private is_end_tip_bone (bone_name: string): boolean {
-    // Look for bones that are finger tips - usually end with 'tip', 'end', or numbers like '3'
-    return bone_name.toLowerCase().includes('leaf')
+  private digit_of (name: string): string | null {
+    for (const digit of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
+      if (name.includes(digit)) return digit
+    }
+    return null
   }
 }
