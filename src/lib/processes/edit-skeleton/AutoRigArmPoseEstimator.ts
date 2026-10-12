@@ -62,3 +62,68 @@ export function estimate_arm_pose (
     tPose
   }
 }
+
+
+/**
+ * Find the wrist at the narrow forearm->palm transition, not at the fingers.
+ *
+ * Distances use the character's half-width (from centre to the farthest side).
+ * Unlike the previous 91% reach constant, the 70-84% cross-sections can locate
+ * the wrist BEFORE an outstretched palm/fingers. Limit samples to the arm's
+ * expected Y line so a wide skirt or hip fur cannot be mistaken for a wrist.
+ *
+ * When the geometry does not have a reliable constriction, return a
+ * conservative 78% instead of placing the hand joint at the fingertips.
+ */
+export function estimate_wrist_reach (
+  points: readonly Vector3[],
+  centerX: number,
+  width: number,
+  minY: number,
+  height: number,
+  sideSign: number,
+  shoulderY: number,
+  handY: number
+): number {
+  const fallback = 0.78
+  if (width <= 0 || height <= 0 || !Number.isFinite(shoulderY) ||
+      !Number.isFinite(handY)) return fallback
+
+  const halfWidth = width * 0.5
+  const candidates: Array<{ reach: number, thickness: number }> = []
+  const levels = [0.70, 0.74, 0.78, 0.82, 0.85]
+  const allowanceY = height * 0.085
+
+  for (const reach of levels) {
+    const depths: number[] = []
+    for (const point of points) {
+      const projected = (point.x - centerX) * sideSign / halfWidth
+      if (Math.abs(projected - reach) > 0.02) continue
+      const pathT = Math.max(0, Math.min(1, (reach - 0.25) / 0.75))
+      const expectedY = shoulderY + (handY - shoulderY) * pathT
+      if (Math.abs(point.y - expectedY) > allowanceY) continue
+      if (point.y <= minY + height * 0.54) continue
+      depths.push(point.z)
+    }
+    if (depths.length < 10) continue
+    depths.sort((a, b) => a - b)
+    const lo = depths[Math.floor((depths.length - 1) * 0.15)]
+    const hi = depths[Math.floor((depths.length - 1) * 0.85)]
+    candidates.push({ reach, thickness: hi - lo })
+  }
+
+  // Uniform-thickness arms don't contain a trustworthy wrist landmark.
+  if (candidates.length < 3) return fallback
+  const thickest = Math.max(...candidates.map(c => c.thickness))
+  const thinnest = Math.min(...candidates.map(c => c.thickness))
+  if (thickest <= 1e-7 || thickest - thinnest < thickest * 0.12) {
+    return fallback
+  }
+  // Penalize extreme positions slightly: a fingertip or the middle of the
+  // forearm can be narrow too. Prefer the distal forearm near 76-80% reach.
+  candidates.sort((a, b) =>
+    (a.thickness / thickest + Math.abs(a.reach - 0.77) * 0.8) -
+    (b.thickness / thickest + Math.abs(b.reach - 0.77) * 0.8)
+  )
+  return Math.min(0.85, Math.max(0.70, candidates[0].reach))
+}
