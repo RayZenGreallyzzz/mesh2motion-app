@@ -21,48 +21,88 @@ export interface AnimationRestTransform {
  * playback still uses the lightweight AnimationMixer, with no per-frame bake.
  */
 export class RestPoseAnimationBridge {
-  private static source_rest_pose_promise: Promise<Map<string, AnimationRestTransform>> | null = null
+  // Each creature has its own source reference rig, including animals and
+  // non-humanoid topologies. Do not reuse the Human rest pose for a fish/fox!
+  private static readonly source_rest_pose_cache =
+    new Map<string, Promise<Map<string, AnimationRestTransform>>>()
 
+  public static async apply_to_skeleton_type (
+    animation_pairs: TransformedAnimationClipPair[],
+    target_skeleton: Skeleton,
+    skeleton_type: SkeletonType,
+    skeleton_scale: number = 1
+  ): Promise<void> {
+    // Target rest is authoritative regardless of manual or automatic fitting.
+    const source_rest_pose = await this.load_source_rest_pose(skeleton_type)
+    const target_rest_pose = this.capture_rest_pose(target_skeleton)
+
+    const common = [...source_rest_pose.keys()]
+      .filter(name => target_rest_pose.has(name))
+    if (common.length === 0) {
+      throw new Error(
+        'Animation source and target rigs share no bone names for ' + skeleton_type
+      )
+    }
+
+    for (const pair of animation_pairs) {
+      // Run this once per clip pair. Both original and display tracks must be
+      // rebased to avoid subsequent mirror/speed changes recreating bad poses.
+      this.rebase_clip_to_rest_pose(
+        pair.original_animation_clip, source_rest_pose,
+        target_rest_pose, skeleton_scale
+      )
+      this.rebase_clip_to_rest_pose(
+        pair.display_animation_clip, source_rest_pose,
+        target_rest_pose, skeleton_scale
+      )
+    }
+  }
+
+  // Keep the existing Mobile Female API for backwards compatibility.
   public static async apply_to_mobile_female (
     animation_pairs: TransformedAnimationClipPair[],
     target_skeleton: Skeleton,
     skeleton_scale: number = 1
   ): Promise<void> {
-    const source_rest_pose = await this.load_human_source_rest_pose()
-    const target_rest_pose = this.capture_rest_pose(target_skeleton)
-
-    // AnimationLoader has already scaled POSITION keys by skeleton_scale.
-    // Scale the source rest translation too, otherwise pelvis gets a false
-    // offset even when the source and target skeletons agree.
-    for (const pair of animation_pairs) {
-      this.rebase_clip_to_rest_pose(pair.original_animation_clip, source_rest_pose, target_rest_pose, skeleton_scale)
-      this.rebase_clip_to_rest_pose(pair.display_animation_clip, source_rest_pose, target_rest_pose, skeleton_scale)
-    }
+    await this.apply_to_skeleton_type(
+      animation_pairs, target_skeleton, SkeletonType.MobileFemale, skeleton_scale
+    )
   }
 
-  private static async load_human_source_rest_pose (): Promise<Map<string, AnimationRestTransform>> {
-    if (this.source_rest_pose_promise !== null) return await this.source_rest_pose_promise
-
-    this.source_rest_pose_promise = (async () => {
-      const rig_file = RigConfig.rig_file_for(SkeletonType.Human)
-      if (rig_file === undefined) throw new Error('Human rig file is not configured')
-
-      const gltf = await new GLTFLoader().loadAsync(rig_file)
-      const result = new Map<string, AnimationRestTransform>()
-      gltf.scene.traverse((object) => {
-        if (object.type !== 'Bone') return
-        const bone = object as Bone
-        result.set(bone.name, {
-          quaternion: bone.quaternion.clone(),
-          position: bone.position.clone()
+  private static async load_source_rest_pose (
+    skeleton_type: SkeletonType
+  ): Promise<Map<string, AnimationRestTransform>> {
+    const rig_file = RigConfig.rig_file_for(skeleton_type)
+    if (rig_file === undefined) {
+      throw new Error('No animation reference rig configured for ' + skeleton_type)
+    }
+    let loading = this.source_rest_pose_cache.get(rig_file)
+    if (loading === undefined) {
+      loading = (async () => {
+        const gltf = await new GLTFLoader().loadAsync(rig_file)
+        const poses = new Map<string, AnimationRestTransform>()
+        gltf.scene.traverse(object => {
+          if (object.type !== 'Bone') return
+          const bone = object as Bone
+          poses.set(bone.name, {
+            quaternion: bone.quaternion.clone(),
+            position: bone.position.clone()
+          })
         })
-      })
-
-      if (result.size === 0) throw new Error('Human source rig contains no bones')
-      return result
-    })()
-
-    return await this.source_rest_pose_promise
+        if (poses.size === 0) {
+          throw new Error('Reference rig contains no bones: ' + rig_file)
+        }
+        return poses
+      })()
+      this.source_rest_pose_cache.set(rig_file, loading)
+    }
+    try {
+      return await loading
+    } catch (error) {
+      // A missing/offline rig should not poison all future imports.
+      this.source_rest_pose_cache.delete(rig_file)
+      throw error
+    }
   }
 
   private static capture_rest_pose (skeleton: Skeleton): Map<string, AnimationRestTransform> {
