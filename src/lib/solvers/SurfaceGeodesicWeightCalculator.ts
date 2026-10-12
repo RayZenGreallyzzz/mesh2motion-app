@@ -400,38 +400,63 @@ export class SurfaceGeodesicWeightCalculator {
   private selectCandidateBones (component: number[], componentSpan: number): BoneSurfaceData[] {
     if (this.boneSurfaceData.length === 0) return []
 
+    // A single global minimum is not enough: a cape touching the neck can
+    // make the head bone nearest to *the whole garment*, dropping the spine
+    // and hip influences required down its length. Sample the entire surface
+    // component spatially and union locally relevant bone candidates.
     const sampleStride = Math.max(1, Math.ceil(component.length / 1800))
-    const estimates = this.boneSurfaceData.map(bone => {
-      let minDistanceSq = Infinity
+    const samples: number[] = []
+    const first = component[0]
+    samples.push(first)
+    const targetCount = Math.min(16, Math.max(4, Math.ceil(componentSpan / Math.max(this.skeletonHeight * 0.14, 0.01))))
+
+    for (let count = 1; count < targetCount; count++) {
+      let farthest = -1
+      let maxDist = 0
       for (let i = 0; i < component.length; i += sampleStride) {
-        minDistanceSq = Math.min(minDistanceSq, this.distanceSqToBone(this.nodePositions[component[i]], bone))
+        const node = component[i]
+        let nearestSample = Infinity
+        for (const sample of samples) {
+          nearestSample = Math.min(
+            nearestSample,
+            this.nodePositions[node].distanceToSquared(this.nodePositions[sample])
+          )
+        }
+        if (nearestSample > maxDist) {
+          maxDist = nearestSample
+          farthest = node
+        }
       }
-      // Always include the final sampled node so tiny end regions are not missed.
-      minDistanceSq = Math.min(
-        minDistanceSq,
-        this.distanceSqToBone(this.nodePositions[component[component.length - 1]], bone)
-      )
-      return { bone, distance: Math.sqrt(minDistanceSq) }
-    }).sort((a, b) => a.distance - b.distance)
-
-    const bestDistance = estimates[0].distance
-    const allowance = Math.max(
-      this.skeletonHeight * 0.018,
-      Math.min(this.skeletonHeight * 0.065, componentSpan * 0.09)
-    )
-
-    const selected = estimates
-      .filter(entry => entry.distance <= bestDistance + allowance)
-      .map(entry => entry.bone)
-
-    // A very small rigid accessory may legitimately belong to only one bone.
-    // For larger connected surfaces keep at least the two closest candidates so
-    // joints can still form a smooth transition.
-    if (selected.length < 2 && componentSpan > this.skeletonHeight * 0.08 && estimates.length > 1) {
-      selected.push(estimates[1].bone)
+      if (farthest < 0 || maxDist < 1e-12) break
+      samples.push(farthest)
     }
 
-    return selected
+    const selected = new Map<number, BoneSurfaceData>()
+    const localAllowance = Math.max(
+      this.skeletonHeight * 0.025,
+      Math.min(this.skeletonHeight * 0.075, componentSpan * 0.065)
+    )
+    for (const sample of samples) {
+      const point = this.nodePositions[sample]
+      const local = this.boneSurfaceData
+        .map(bone => ({ bone, distance: Math.sqrt(this.distanceSqToBone(point, bone)) }))
+        .sort((a, b) => a.distance - b.distance)
+      const nearest = local[0].distance
+      // Keep at least the nearest two only on broad components. Tiny rigid
+      // accessories stay single-bone where possible.
+      const minimum = componentSpan > this.skeletonHeight * 0.08 ? 2 : 1
+      let accepted = 0
+      for (const candidate of local) {
+        if (accepted >= minimum &&
+            candidate.distance > nearest + localAllowance) break
+        selected.set(candidate.bone.boneIndex, candidate.bone)
+        accepted++
+        if (accepted >= 4) break
+      }
+    }
+    // Limit mobile cost on massive/highly segmented imported clothing meshes.
+    // We prefer bones selected at multiple independent surface samples.
+    return Array.from(selected.values()).slice(0, 32)
   }
 
   private findBoneSeeds (
