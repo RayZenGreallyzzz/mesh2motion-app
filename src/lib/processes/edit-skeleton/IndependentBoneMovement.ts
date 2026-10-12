@@ -62,7 +62,10 @@ export class IndependentBoneMovement {
    * before Bind, so AutoRig and manual placement share the exact same canonical
    * rest-pose finalization.
    */
-  public rebuild_orientations_from_joint_positions (skeleton: Skeleton): void {
+  public rebuild_orientations_from_joint_positions (
+    skeleton: Skeleton,
+    include_bone: (bone: Bone) => boolean = () => true
+  ): void {
     if (skeleton.bones.length === 0 || this._rest_bone_world_positions.size === 0) {
       return
     }
@@ -88,13 +91,18 @@ export class IndependentBoneMovement {
       }
 
       const rest_world_rotation = this._rest_bone_world_rotations.get(bone.uuid)
-      let target_world_rotation = rest_world_rotation?.clone()
+      // Do not overwrite manually authored orientations on unrelated bones.
+      // In particular, leave the spine, hips, neck, head and finger rolls as
+      // the user placed them. Only fit the requested limb-frame axes.
+      let target_world_rotation = include_bone(bone)
+        ? rest_world_rotation?.clone()
+        : undefined
 
       // The non-deforming root is a coordinate-system carrier. Keep its authored
       // orientation stable; otherwise moving the pelvis would rotate the entire rig.
       const is_root = bone.name.toLowerCase() === 'root'
 
-      if (!is_root && rest_world_rotation !== undefined) {
+      if (!is_root && rest_world_rotation !== undefined && target_world_rotation !== undefined) {
         const primary_child = this._primary_child_from_rest_axis(bone)
 
         if (primary_child !== null) {
@@ -153,6 +161,22 @@ export class IndependentBoneMovement {
 
     roots.forEach(visit)
     roots.forEach((root) => root.updateWorldMatrix(true, true))
+  }
+
+  /**
+   * Re-align arm axes only when the user has NOT manually rotated that bone.
+   * This leaves deliberate hand-tuned twists intact, yet gives AutoRig or
+   * translated manual joints a correct anatomical rest frame.
+   * Joint world positions must stay exactly unchanged.
+   */
+  public finalize_unrotated_arm_frames (skeleton: Skeleton): void {
+    this.rebuild_orientations_from_joint_positions(skeleton, (bone) => {
+      const name = bone.name.toLowerCase().replace(/[^a-z]/g, '')
+      const armJoint = /(shoulder|clavicle|upperarm|forearm|lowerarm|leftarm|rightarm)/.test(name)
+      if (!armJoint) return false
+      const original = this._rest_bone_local_rotations.get(bone.uuid)
+      return original !== undefined && bone.quaternion.angleTo(original) < 0.002
+    })
   }
 
   /**
