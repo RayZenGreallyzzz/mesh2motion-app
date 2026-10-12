@@ -17,5 +17,7 @@ export function effective_hand_skeleton_type (
   type: SkeletonType | null | undefined,
   selected: HandSkeletonType
 ): HandSkeletonType {
-  return type === SkeletonType.MobileFemale ? HandSkeletonType.SimplifiedHand : selected
+  // Mobile Female must respect the explicit hand choice. The previous
+  // unconditional simplified-hand override ignored the user's selection.
+  return selected
 }
