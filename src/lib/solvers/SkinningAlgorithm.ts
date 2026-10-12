@@ -8,10 +8,6 @@ import { Utility } from '../Utilities.js'
 import { SkeletonType } from '../enums/SkeletonType.js'
 import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
 import { HeadWeightCorrector } from './HeadWeightCorrector.js'
-import { ArmWeightCorrector } from './ArmWeightCorrector.js'
-import { WeightCalculator } from './WeightCalculator.js'
-import { ExtremityWeightCorrector } from './ExtremityWeightCorrector.js'
-import { WeightSmoother } from './WeightSmoother.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 
@@ -61,7 +57,10 @@ export default class SkinningAlgorithm {
     const skin_indices: number[] = []
     const skin_weights: number[] = []
 
-    if (is_humanoid_skeleton_type(this.skeleton_type)) {
+    // Surface Fit is topological, not humanoid-specific. Use the same
+    // geodesic path for quadrupeds, birds, dragons, insects, snakes and fish.
+    // The anatomy-dependent head override below is still humanoid only.
+    {
       const surface_calculator = new SurfaceGeodesicWeightCalculator(this.bones_master_data, this.geometry)
       surface_calculator.calculate(skin_indices, skin_weights)
 
@@ -71,7 +70,7 @@ export default class SkinningAlgorithm {
       // Keep the optional head divider as a user-requested override. The old arm
       // plane correction is deliberately not applied: surface propagation already
       // prevents arm influences from teleporting across empty space into the torso.
-      if (this.use_head_weight_correction) {
+      if (is_humanoid_skeleton_type(this.skeleton_type) && this.use_head_weight_correction) {
         const head_weight_corrector = new HeadWeightCorrector(
           this.geometry,
           this.bones_master_data,
@@ -84,41 +83,5 @@ export default class SkinningAlgorithm {
       return [skin_indices, skin_weights]
     }
 
-    // Legacy non-humanoid pipeline.
-    const weight_calculator = new WeightCalculator(this.bones_master_data, this.geometry, this.skeleton_type)
-    weight_calculator.initialize_caches()
-
-    console.time('calculate_closest_bone_weights')
-    weight_calculator.calculate_median_bone_weights(skin_indices, skin_weights)
-
-    const extremity_corrector = new ExtremityWeightCorrector(this.geometry, this.bones_master_data)
-    extremity_corrector.apply_extremity_weight_correction(skin_indices, skin_weights)
-
-    if (this.use_arm_plane_correction) {
-      const arm_weight_corrector = new ArmWeightCorrector(
-        this.geometry,
-        this.bones_master_data,
-        this.arm_plane_offset
-      )
-      arm_weight_corrector.apply_arm_weight_correction(skin_indices, skin_weights)
-    }
-
-    const weight_smoother = new WeightSmoother(this.geometry, this.bones_master_data)
-    weight_smoother.smooth_bone_weight_boundaries(skin_indices, skin_weights)
-    console.timeEnd('calculate_closest_bone_weights')
-
-    const weight_normalizer = new WeightNormalizer(this.geometry)
-    weight_normalizer.normalize_weights(skin_weights)
-
-    if (this.use_head_weight_correction) {
-      const head_weight_corrector = new HeadWeightCorrector(
-        this.geometry,
-        this.bones_master_data,
-        this.preview_plane_height
-      )
-      head_weight_corrector.apply_head_weight_correction(skin_indices, skin_weights)
-    }
-
-    return [skin_indices, skin_weights]
   }
 }
