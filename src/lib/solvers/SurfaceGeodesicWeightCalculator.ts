@@ -196,13 +196,16 @@ export class SurfaceGeodesicWeightCalculator {
     })
 
     if (bonePositions.length > 1) {
-      let minY = Infinity
-      let maxY = -Infinity
+      // Historically this used only Y range, which can be almost zero for
+      // horizontal snakes, fish, wings and long tails. The cutoff/smoothing
+      // scale must cover the full arbitrary 3D skeleton.
+      const min = new Vector3(Infinity, Infinity, Infinity)
+      const max = new Vector3(-Infinity, -Infinity, -Infinity)
       for (const point of bonePositions) {
-        minY = Math.min(minY, point.y)
-        maxY = Math.max(maxY, point.y)
+        min.min(point)
+        max.max(point)
       }
-      this.skeletonHeight = Math.max(0.001, maxY - minY)
+      this.skeletonHeight = Math.max(0.001, min.distanceTo(max))
     }
   }
 
