@@ -20,7 +20,9 @@ export class WeightCalculator {
 
   private cached_median_child_bone_positions: Vector3[] = []
   private readonly bone_object_to_index = new Map<Bone, number>()
-  private distance_to_bottom_of_position_tracking_bone: number = 0
+  // World-space Y coordinate of the underside of the pelvis, not a distance.
+  // Null means there was no reliable pelvis/leg landmark.
+  private pelvis_bottom_y: number | null = null
 
   // each index will be a bone index. the value will be a list of vertex indices that belong to that bone
   private readonly bones_vertex_segmentation: number[][] = []
@@ -52,7 +54,11 @@ export class WeightCalculator {
       }
     })
 
-    this.distance_to_bottom_of_position_tracking_bone = this.calculate_distance_to_bottom_of_position_tracking_bone()
+    // This rule only applies to upright human rigs. Other rigs may track their
+    // root motion from a hip/head bone but have completely different anatomy.
+    this.pelvis_bottom_y = this.skeleton_type === SkeletonType.Human
+      ? this.calculate_pelvis_bottom_y()
+      : null
   }
 
   public get_cached_median_child_bone_positions (): Vector3[] {
@@ -68,7 +74,7 @@ export class WeightCalculator {
 
     for (let i = 0; i < vertex_count; i++) {
       const vertex_position: Vector3 = new Vector3().fromBufferAttribute(this.geometry.attributes.position, i)
-      let closest_bone_distance: number = 1000 // arbitrary large number to start with
+      let closest_bone_distance: number = Infinity
       let closest_bone_index: number = 0
 
       this.bones.forEach((bone, idx) => {
@@ -82,10 +88,12 @@ export class WeightCalculator {
         // This will help with hips when left/right legs could be closer than knee bones
         if (this.skeleton_type === SkeletonType.Human &&
           (bone.name.includes('hips') || bone.name.includes('pelvis'))) {
-          // if the intersection point is lower than the vertex position, that means the vertex is below
-          // the hips area, and is part of the left or right leg...ignore that result
-          if (this.distance_to_bottom_of_position_tracking_bone !== null && this.distance_to_bottom_of_position_tracking_bone < vertex_position.y) {
-            return// this vertex is below our crotch area, so it cannot be part of our hips
+          // Both operands are *Y coordinates*, in the same geometry/bone space.
+          // Vertices lower than the crotch should follow legs rather than pelvis.
+          // An earlier version compared a distance to vertex.y (and reversed the
+          // comparison), incorrectly rejecting pelvis for upper-body vertices.
+          if (this.pelvis_bottom_y !== null && vertex_position.y < this.pelvis_bottom_y) {
+            return
           }
         }
 
@@ -105,57 +113,50 @@ export class WeightCalculator {
     }
   }
 
-  // every vertex checks to see if it is below the hips area,
-  // so do this calculation once and cache it for the lookup later
-  private calculate_distance_to_bottom_of_position_tracking_bone (): number {
+  /**
+   * Find the Y coordinate below which the pelvis must not influence vertices.
+   * Raycasting the model can identify the crotch on closed meshes, but open or
+   * separate clothing meshes often have no hit. Use the thigh joints as a
+   * stable anatomical fallback. Never compare a scalar distance to vertex.y.
+   */
+  private calculate_pelvis_bottom_y (): number | null {
+    const tracking_name = RigConfig.by_skeleton_type(SkeletonType.Human)?.position_tracking_bone_name ?? 'pelvis'
+    const pelvis = this.bones.find(b => b.name.toLowerCase().includes(tracking_name.toLowerCase()))
+    if (pelvis === undefined) return null
 
-    const position_tracking_bone_name: string = RigConfig.by_skeleton_type(this.skeleton_type as SkeletonType)?.position_tracking_bone_name || 'UNKNOWN POSITION BONE'
+    const thigh_joints = this.bones
+      .filter(b => /(?:upper.?leg|up.?leg|thigh)/i.test(b.name))
+      .map(b => Utility.world_position_from_object(b).y)
+      .filter(y => Number.isFinite(y))
 
-    let position_tracking_bone_object: Bone | undefined = this.bones.find(b => {
-      const name = b.name.toLowerCase()
-      return name.includes(position_tracking_bone_name.toLowerCase())
-    })
+    // A top-of-leg joint is a consistent boundary even with no watertight mesh.
+    const thigh_y = thigh_joints.length > 0
+      ? thigh_joints.reduce((a, b) => a + b, 0) / thigh_joints.length
+      : null
 
-    if (position_tracking_bone_object === undefined) { 
-        throw new Error('Position tracking bone not found')
+    const pelvis_index = this.bones.indexOf(pelvis)
+    const pelvis_center = this.cached_median_child_bone_positions[pelvis_index]
+    const ray_hit = this.cast_intersection_ray_down_from_bone(pelvis)
+    const hit_y = ray_hit !== null && ray_hit.y <= pelvis_center.y ? ray_hit.y : null
+
+    // If raycasting hits a garment or a leg far below the actual crotch,
+    // avoid extending the pelvis territory all the way down that surface.
+    if (thigh_y !== null && hit_y !== null) {
+      return Math.max(thigh_y, hit_y)
     }
-
-    const intesection_point: Vector3 | null = this.cast_intersection_ray_down_from_bone(position_tracking_bone_object)
-
-    // get the distance from the bone point to the intersection point
-    const bone_index = this.bones.findIndex(b => b === position_tracking_bone_object)
-    const bone_position: Vector3 = this.cached_median_child_bone_positions[bone_index]
-
-    let distance_to_bottom: number = intesection_point?.distanceTo(bone_position) ?? 0
-    distance_to_bottom *= 1.1 // buffer zone to make sure to include vertices at intersection
-
-    return distance_to_bottom
+    return thigh_y ?? hit_y
   }
 
   private cast_intersection_ray_down_from_bone (bone: Bone): Vector3 | null {
-    const raycaster = new Raycaster()
+    const index = this.bones.indexOf(bone)
+    const origin = this.cached_median_child_bone_positions[index]
+    const raycaster = new Raycaster(origin, new Vector3(0, -1, 0))
+    const material = new MeshBasicMaterial({ side: DoubleSide })
+    const mesh = new Mesh(this.geometry, material)
+    mesh.updateMatrixWorld(true)
 
-    // Set the ray's origin to the bone's world position
-    const bone_index = this.bones.findIndex(b => b === bone)
-    const bone_position = this.cached_median_child_bone_positions[bone_index]
-
-    // Direction is straight down to find the pevlis "gap"
-    raycaster.set(bone_position, new Vector3(0, -1, 0))
-
-    // Create a temporary mesh from this.geometry for raycasting
-    const temp_mesh = new Mesh(this.geometry, new MeshBasicMaterial())
-    temp_mesh.material.side = DoubleSide // DoubleSide is a THREE.js constant
-
-    // Perform the intersection test
-    const recursive_check_child_objects: boolean = false
-    const intersections = raycaster.intersectObject(temp_mesh, recursive_check_child_objects)
-
-    if (intersections.length > 0) {
-      // Return the position of the first intersection
-      return intersections[0].point
-    }
-
-    // Return null if no intersection is found
-    return null
+    const intersections = raycaster.intersectObject(mesh, false)
+    material.dispose()
+    return intersections.length > 0 ? intersections[0].point.clone() : null
   }
 }

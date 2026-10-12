@@ -1,2 +1,8 @@
 **/node_modules/**
 dist/**
+
+# Generated Android build output and bundled Vite assets
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/

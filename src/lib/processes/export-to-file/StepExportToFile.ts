@@ -204,12 +204,69 @@ export class StepExportToFile extends EventTarget {
   }
 
   private save_file (blob: Blob, filename: string): void {
+    const android = (window as Window & {
+      Mesh2MotionAndroid?: {
+        beginSave: (name: string, mimeType: string) => boolean
+        appendChunk: (chunk: string) => boolean
+        finishSave: () => void
+        cancelSave: () => void
+      }
+    }).Mesh2MotionAndroid
+
+    if (android !== undefined) {
+      void this.save_file_on_android(blob, filename, android)
+      return
+    }
+
     if (this.ui.dom_export_button_hidden_link != null) {
-      this.ui.dom_export_button_hidden_link.href = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(blob)
+      this.ui.dom_export_button_hidden_link.href = url
       this.ui.dom_export_button_hidden_link.download = filename
       this.ui.dom_export_button_hidden_link.click()
+      // Release large exported models after the browser has started saving.
+      window.setTimeout(() => { URL.revokeObjectURL(url) }, 60_000)
     } else {
       console.log('ERROR: dom_export_button_hidden_link is null')
+    }
+  }
+
+  private async save_file_on_android (
+    blob: Blob,
+    filename: string,
+    android: {
+      beginSave: (name: string, mimeType: string) => boolean
+      appendChunk: (chunk: string) => boolean
+      finishSave: () => void
+      cancelSave: () => void
+    }
+  ): Promise<void> {
+    if (!android.beginSave(filename, blob.type || 'application/octet-stream')) {
+      window.alert('An export is already being saved. Finish saving it first.')
+      return
+    }
+
+    try {
+      // Avoid a single giant base64 string for large animated models.
+      const reader = blob.stream().getReader()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        for (let offset = 0; offset < value.length; offset += 24 * 1024) {
+          const part = value.subarray(offset, offset + 24 * 1024)
+          let binary = ''
+          for (let i = 0; i < part.length; i++) {
+            binary += String.fromCharCode(part[i])
+          }
+          if (!android.appendChunk(btoa(binary))) {
+            throw new Error('Android could not write the export data')
+          }
+        }
+      }
+      android.finishSave()
+    } catch (error) {
+      android.cancelSave()
+      console.error('Failed to save an Android export:', error)
+      window.alert('Could not prepare the file for saving on Android.')
     }
   }
 
