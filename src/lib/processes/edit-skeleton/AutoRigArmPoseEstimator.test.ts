@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
-import { estimate_arm_pose } from './AutoRigArmPoseEstimator'
+import { estimate_arm_pose, estimate_wrist_reach } from './AutoRigArmPoseEstimator'
 
 function silhouette (innerY: number, handY: number): Vector3[] {
   const points: Vector3[] = [
@@ -40,5 +40,30 @@ describe('AutoRig arm pose with ears and hip-level clothing', () => {
   it('keeps the original fallback available when arm geometry is absent', () => {
     const result = estimate_arm_pose([new Vector3(0, 0, 0)], 0, 1.426, -0.953, 1.901)
     expect(result).toBeNull()
+  })
+})
+
+describe('AutoRig wrist placement', () => {
+  it('locates wrist constriction before the wide palm and outstretched fingertips', () => {
+    const points: Vector3[] = []
+    const width = 1.425
+    for (const reach of [0.70, 0.74, 0.78, 0.82, 0.85, 0.96, 1]) {
+      const size = reach === 0.74 ? 0.030 : reach >= 0.96 ? 0.075 : 0.110
+      for (let i = 0; i < 48; i++) {
+        points.push(new Vector3(
+          reach * width * 0.5,
+          0.42 + (i % 3 - 1) * 0.008,
+          (i / 47 - 0.5) * size
+        ))
+      }
+    }
+    const reach = estimate_wrist_reach(points, 0, width, -0.953, 1.901, 1, 0.434, 0.417)
+    expect(reach).toBeCloseTo(0.74, 2)
+    expect(reach).toBeLessThan(0.86) // previous AutoRig was 0.91, almost at the fingertips
+  })
+
+  it('uses safe wrist reach without enough geometry data', () => {
+    const r = estimate_wrist_reach([], 0, 1.425, -0.953, 1.901, 1, 0.434, 0.417)
+    expect(r).toBe(0.78)
   })
 })
