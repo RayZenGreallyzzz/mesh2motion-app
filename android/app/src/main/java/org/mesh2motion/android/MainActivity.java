@@ -69,6 +69,19 @@ public final class MainActivity extends Activity {
                     WebView view, WebResourceRequest request) {
                 return loader.shouldInterceptRequest(request.getUrl());
             }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri url = request.getUrl();
+                if ("appassets.androidplatform.net".equals(url.getHost())) return false;
+                // Avoid exposing the Android JS bridge to untrusted websites.
+                if ("https".equals(url.getScheme()) || "http".equals(url.getScheme())) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, url));
+                    } catch (Exception ignored) {}
+                }
+                return true;
+            }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
@@ -82,7 +95,7 @@ public final class MainActivity extends Activity {
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
                 String[] types = params.getAcceptTypes();
-                if (types != null && types.length > 0 && !types[0].isEmpty()) {
+                if (types != null && types.length > 0 && types[0].contains("/")) {
                     intent.putExtra(Intent.EXTRA_MIME_TYPES, types);
                 }
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
