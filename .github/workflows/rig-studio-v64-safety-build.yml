@@ -41,6 +41,28 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+      - name: Keep original Rig Animation Studio installed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle = Path('android/app/build.gradle')
+          text = gradle.read_text()
+          app_id = 'com.rayzen.riganimationstudio'
+          new_id = app_id + '.v64test'
+          updated, count = re.subn(
+              r'(applicationId\\s+[\\x22\\x27])' + re.escape(app_id) + r'([\\x22\\x27])',
+              lambda m: m.group(1) + new_id + m.group(2),
+              text,
+          )
+          if count != 1:
+              raise RuntimeError(f'Expected one applicationId={app_id}, got {count}; refusing to overwrite installed v6.3')
+          gradle.write_text(updated)
+          names = Path('android/app/src/main/res/values/strings.xml')
+          if names.exists():
+              names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v6.4 TEST'))
+          print('Distinct Android test applicationId:', new_id)
+          PY
       - name: Compile APK
         working-directory: android
         run: ./gradlew assembleDebug
