@@ -1,4 +1,4 @@
-import { Box3, type BufferGeometry, Group, Matrix4, MathUtils, type Object3DEventMap, type Object3D, Scene, Mesh, MeshPhongMaterial, type Material, type SkinnedMesh } from 'three'
+import { Box3, type BufferGeometry, Float32BufferAttribute, Vector3, Group, Matrix4, MathUtils, type Object3DEventMap, type Object3D, Scene, Mesh, MeshPhongMaterial, type Material, type SkinnedMesh } from 'three'
 import { FrontSide } from 'three/src/constants.js'
 
 /**
@@ -234,6 +234,23 @@ export class ModelCleanupUtility {
       // so each mesh needs its own copy before we bake anything into it
       const baked_geometry: BufferGeometry = mesh.geometry.clone()
       baked_geometry.name = mesh.geometry.name
+      const has_deformation = mesh.type === 'SkinnedMesh' || mesh.morphTargetInfluences?.some(value => value !== 0)
+      if (has_deformation) {
+        // Raw POSITION is the old bind shape, not necessarily the visible model.
+        // Sample all parts before clearing any bone transforms, otherwise clothes
+        // with a different bind matrix jump when the old skeleton is discarded.
+        const positions = new Float32Array(mesh.geometry.attributes.position.count * 3)
+        const vertex = new Vector3()
+        for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+          mesh.getVertexPosition(i, vertex).toArray(positions, i * 3)
+        }
+        baked_geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
+        baked_geometry.computeVertexNormals()
+      }
+      baked_geometry.deleteAttribute('skinIndex')
+      baked_geometry.deleteAttribute('skinWeight')
+      baked_geometry.morphAttributes = {}
+      mesh.morphTargetInfluences = undefined
       baked_geometry.applyMatrix4(world_matrix)
 
       // a mirrored transform reverses triangle winding, which renders the mesh

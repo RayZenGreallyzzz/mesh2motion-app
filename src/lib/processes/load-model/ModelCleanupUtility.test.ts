@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Box3, type BufferGeometry, BoxGeometry, Group, Mesh, MeshStandardMaterial, PlaneGeometry, Scene, Vector3 } from 'three'
+import { Bone, Box3, type BufferGeometry, BoxGeometry, Float32BufferAttribute, Uint16BufferAttribute, Skeleton, SkinnedMesh, Group, Mesh, MeshStandardMaterial, PlaneGeometry, Scene, Vector3 } from 'three'
 import { ModelCleanupUtility } from './ModelCleanupUtility'
 
 function make_mesh (name: string, geometry: BufferGeometry = new BoxGeometry(1, 1, 1)): Mesh {
@@ -16,6 +16,39 @@ function mesh_bounds (mesh: Mesh): Box3 {
 }
 
 describe('ModelCleanupUtility.bake_transforms_into_geometry', () => {
+  it('preserves the visible pose of body and separate clothes before removing their old rig', () => {
+    const scene = new Scene()
+    const bone = new Bone()
+    scene.add(bone)
+    const skeleton = new Skeleton([bone])
+    const parts: SkinnedMesh[] = []
+    for (const name of ['body', 'shorts']) {
+      const geometry = new BoxGeometry(0.4, 0.4, 0.4)
+      const count = geometry.attributes.position.count
+      geometry.setAttribute('skinIndex', new Uint16BufferAttribute(new Uint16Array(count * 4), 4))
+      geometry.setAttribute('skinWeight', new Float32BufferAttribute(Array.from({ length: count * 4 }, (_, i) => i % 4 === 0 ? 1 : 0), 4))
+      const mesh = new SkinnedMesh(geometry, new MeshStandardMaterial())
+      mesh.name = name
+      scene.add(mesh)
+      mesh.bind(skeleton)
+      parts.push(mesh)
+    }
+    bone.position.set(0.3, 1.2, 0)
+    bone.rotation.z = 0.3
+    scene.updateMatrixWorld(true)
+    const before = parts.map(mesh => Array.from({ length: mesh.geometry.attributes.position.count }, (_, i) =>
+      mesh.getVertexPosition(i, new Vector3()).applyMatrix4(mesh.matrixWorld)))
+    ModelCleanupUtility.bake_transforms_into_geometry(scene)
+    const cleaned = ModelCleanupUtility.strip_out_all_unecessary_model_data(scene, 'character', false)
+    cleaned.children.forEach((object, part) => {
+      const mesh = object as Mesh
+      before[part].forEach((position, i) => {
+        expect(new Vector3().fromBufferAttribute(mesh.geometry.attributes.position, i).distanceTo(position)).toBeLessThan(1e-6)
+      })
+      expect(mesh.geometry.getAttribute('skinIndex')).toBeUndefined()
+    })
+  })
+
   it('keeps a mesh where it was, but with an identity transform', () => {
     const scene = new Scene()
     const mesh = make_mesh('head')

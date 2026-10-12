@@ -1,3 +1,4 @@
+import { save_file } from '../../lib/SaveFile'
 import { Scene, type AnimationClip, type Object3D, type SkinnedMesh } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXExporter } from '@comfyorg/fbx-exporter-three'
@@ -140,8 +141,7 @@ export class StepExportRetargetedAnimations extends EventTarget {
           // Handle the result of the export
           if (result instanceof ArrayBuffer) {
             const cleaned_result = GlbSkinCleanupService.remove_skin_skeleton_properties(result)
-            this.save_array_buffer(cleaned_result, `${file_name}.glb`)
-            resolve() // Resolve the promise when the export is complete
+            save_file(new Blob([cleaned_result], { type: 'model/gltf-binary' }), `${file_name}.glb`).then(resolve, reject)
           } else {
             console.log('ERROR: result is not an instance of ArrayBuffer')
             reject(new Error('Export result is not an ArrayBuffer'))
@@ -174,30 +174,11 @@ export class StepExportRetargetedAnimations extends EventTarget {
         embedTextures: true
       })
 
-      this.save_uint8_array(result, `${file_name}.fbx`)
+      await save_file(new Blob([new Uint8Array(result)], { type: 'application/octet-stream' }), `${file_name}.fbx`)
     } finally {
       texture_compatibility_session.restore()
       exported_scene.animations = []
     }
   }
 
-  private save_file (blob: Blob, filename: string): void {
-    const export_button_hidden_link: HTMLAnchorElement | null = document.querySelector('#download-hidden-link')
-    if (export_button_hidden_link != null) {
-      export_button_hidden_link.href = URL.createObjectURL(blob)
-      export_button_hidden_link.download = filename
-      export_button_hidden_link.click()
-    } else {
-      console.log('ERROR: dom_export_button_hidden_link is null')
-    }
-  }
-
-  // used for GLB to turn content into a byte array for saving
-  private save_array_buffer (buffer: ArrayBuffer, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
-  }
-
-  private save_uint8_array (buffer: Uint8Array, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
-  }
 }

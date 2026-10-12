@@ -288,6 +288,8 @@ export class EventListeners {
     })
 
     this.bootstrap.ui.dom_export_button?.addEventListener('click', () => {
+      const button = this.bootstrap.ui.dom_export_button
+      if (button) button.disabled = true
       const all_clips = this.bootstrap.animations_listing_step.animation_clips()
       const export_selections = this.bootstrap.animations_listing_step.get_animation_export_selections()
 
@@ -298,12 +300,15 @@ export class EventListeners {
         this.bootstrap.download_settings
       )
         .then(() => {
-          new DownloadSuccessDialog().show()
+          if (window.Mesh2MotionNative) new ModalDialog('Готово', 'Файл сохранён в выбранную папку.').show()
+          else new DownloadSuccessDialog().show()
         })
         .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
           const error_message = error instanceof Error ? error.message : 'Failed to export file.'
           new ModalDialog('Export failed', error_message).show()
         })
+        .finally(() => { if (button) button.disabled = false })
     })
 
     // going back to edit skeleton step after skinning

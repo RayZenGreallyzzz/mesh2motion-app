@@ -1,0 +1,40 @@
+#mobile-panel-toggle { display: none; }
+.android-help { max-width: 280px; margin-bottom: 12px; }
+.android-help summary { cursor: pointer; padding: 10px 0; }
+.android-help p { line-height: 1.45; }
+
+@media (max-width: 700px) {
+  :root { --mobile-panel-height: 40dvh; }
+  body nav { overflow-x: auto; white-space: nowrap; }
+  body nav a, body nav span { padding: 0 8px; font-size: 12px; flex-shrink: 0; }
+  body #logo-branding, body #top-nav-links-mount { display: none; }
+  body #tool-panel {
+    top: auto; bottom: 0; left: 0; right: 0;
+    height: var(--mobile-panel-height); width: 100%;
+    padding: 14px 16px 24px; border-top: 1px solid var(--bg-tertiary);
+    border-left: 0; z-index: 30; overscroll-behavior: contain;
+  }
+  body #tool-selection-group { width: 100%; }
+  #mobile-panel-toggle {
+    display: block; position: fixed; right: 8px;
+    bottom: calc(var(--mobile-panel-height) + 8px); z-index: 40;
+    min-height: 44px; padding: 10px 14px;
+  }
+  body.mobile-panel-hidden #tool-panel { display: none !important; }
+  .mobile-panel-hidden #mobile-panel-toggle { bottom: 12px; }
+  button, .button, select { min-height: 44px; }
+  input[type='range'] { min-height: 36px; }
+  body #header-ui { top: 48px; bottom: auto; gap: 4px; }
+  body #selected-bone-overlay { right: 0; bottom: calc(var(--mobile-panel-height) + 64px); }
+  body.mobile-panel-hidden #selected-bone-overlay { bottom: 68px; }
+  body #animation-player { bottom: calc(var(--mobile-panel-height) + 8px); left: 8px; width: 150px; transform: none; z-index: 35; }
+  body.mobile-panel-hidden #animation-player { bottom: 8px; }
+  body #props-dock { bottom: calc(var(--mobile-panel-height) + 70px); top: auto; right: 8px; z-index: 36; }
+  body #build-version { display: none; }
+  .android-help { max-width: none; }
+}
+
+@media (pointer: coarse) and (min-width: 701px) {
+  body #tool-panel { max-height: calc(100dvh - var(--navigation-height)); padding-bottom: 24px; }
+  button, .button, select { min-height: 42px; }
+}

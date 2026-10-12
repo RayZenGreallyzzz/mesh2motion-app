@@ -19,8 +19,7 @@ export class WeightCalculator {
   private readonly skeleton_type: SkeletonType | null
 
   private cached_median_child_bone_positions: Vector3[] = []
-  private readonly bone_object_to_index = new Map<Bone, number>()
-  private distance_to_bottom_of_position_tracking_bone: number = 0
+  private pelvis_floor_y: number | null = null
 
   // each index will be a bone index. the value will be a list of vertex indices that belong to that bone
   private readonly bones_vertex_segmentation: number[][] = []
@@ -41,7 +40,7 @@ export class WeightCalculator {
    */
   public initialize_caches (): void {
     this.cached_median_child_bone_positions = this.bones.map(b => Utility.bone_midpoint_to_child(b))
-    this.bones.forEach((b, idx) => this.bone_object_to_index.set(b, idx))
+    this.skipped_bone_indices.clear()
 
     // The root bone is only for global transform changes, and leaf/orientation
     // bones exist only to orient their parent — neither should be assigned any
@@ -52,7 +51,9 @@ export class WeightCalculator {
       }
     })
 
-    this.distance_to_bottom_of_position_tracking_bone = this.calculate_distance_to_bottom_of_position_tracking_bone()
+    this.pelvis_floor_y = this.skeleton_type === SkeletonType.Human
+      ? this.calculate_pelvis_floor_y()
+      : null
   }
 
   public get_cached_median_child_bone_positions (): Vector3[] {
@@ -68,8 +69,8 @@ export class WeightCalculator {
 
     for (let i = 0; i < vertex_count; i++) {
       const vertex_position: Vector3 = new Vector3().fromBufferAttribute(this.geometry.attributes.position, i)
-      let closest_bone_distance: number = 1000 // arbitrary large number to start with
-      let closest_bone_index: number = 0
+      let closest_bone_distance: number = Infinity
+      let closest_bone_index: number = -1
 
       this.bones.forEach((bone, idx) => {
         // Skip the root bone (global transform only) and leaf/orientation bones.
@@ -84,7 +85,7 @@ export class WeightCalculator {
           (bone.name.includes('hips') || bone.name.includes('pelvis'))) {
           // if the intersection point is lower than the vertex position, that means the vertex is below
           // the hips area, and is part of the left or right leg...ignore that result
-          if (this.distance_to_bottom_of_position_tracking_bone !== null && this.distance_to_bottom_of_position_tracking_bone < vertex_position.y) {
+          if (this.pelvis_floor_y !== null && vertex_position.y < this.pelvis_floor_y) {
             return// this vertex is below our crotch area, so it cannot be part of our hips
           }
         }
@@ -96,6 +97,9 @@ export class WeightCalculator {
         }
       })
 
+      if (closest_bone_index === -1) {
+        throw new Error('No deforming bone is available for this model. Check the skeleton and model coordinates.')
+      }
       this.bones_vertex_segmentation[closest_bone_index] ??= [] // Initialize the array if it doesn't exist
       this.bones_vertex_segmentation[closest_bone_index].push(i)
 
@@ -107,17 +111,17 @@ export class WeightCalculator {
 
   // every vertex checks to see if it is below the hips area,
   // so do this calculation once and cache it for the lookup later
-  private calculate_distance_to_bottom_of_position_tracking_bone (): number {
+  private calculate_pelvis_floor_y (): number | null {
 
     const position_tracking_bone_name: string = RigConfig.by_skeleton_type(this.skeleton_type as SkeletonType)?.position_tracking_bone_name || 'UNKNOWN POSITION BONE'
 
-    let position_tracking_bone_object: Bone | undefined = this.bones.find(b => {
+    const position_tracking_bone_object: Bone | undefined = this.bones.find(b => {
       const name = b.name.toLowerCase()
       return name.includes(position_tracking_bone_name.toLowerCase())
     })
 
     if (position_tracking_bone_object === undefined) { 
-        throw new Error('Position tracking bone not found')
+        return null
     }
 
     const intesection_point: Vector3 | null = this.cast_intersection_ray_down_from_bone(position_tracking_bone_object)
@@ -126,10 +130,12 @@ export class WeightCalculator {
     const bone_index = this.bones.findIndex(b => b === position_tracking_bone_object)
     const bone_position: Vector3 = this.cached_median_child_bone_positions[bone_index]
 
-    let distance_to_bottom: number = intesection_point?.distanceTo(bone_position) ?? 0
-    distance_to_bottom *= 1.1 // buffer zone to make sure to include vertices at intersection
-
-    return distance_to_bottom
+    // Compare heights with heights, not a ray length with an absolute Y coordinate.
+    // Separate clothing meshes may not intersect this ray at all. In that case do
+    // not exclude the pelvis: a missing intersection is not a floor at Y = 0.
+    if (intesection_point === null) return null
+    const margin = intesection_point.distanceTo(bone_position) * 0.1
+    return intesection_point.y - margin
   }
 
   private cast_intersection_ray_down_from_bone (bone: Bone): Vector3 | null {
@@ -149,6 +155,7 @@ export class WeightCalculator {
     // Perform the intersection test
     const recursive_check_child_objects: boolean = false
     const intersections = raycaster.intersectObject(temp_mesh, recursive_check_child_objects)
+    temp_mesh.material.dispose()
 
     if (intersections.length > 0) {
       // Return the position of the first intersection
