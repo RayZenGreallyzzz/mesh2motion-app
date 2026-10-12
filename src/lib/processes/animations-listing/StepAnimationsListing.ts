@@ -9,6 +9,7 @@ import { AnimationUtility } from './AnimationUtility.ts'
 import { ArmExtensionControl } from './ArmExtensionControl.ts'
 import { AnimationLoader, type AnimationLoadProgress } from './AnimationLoader.ts'
 import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
+import { RigRestPoseSnapshot } from './RigRestPoseSnapshot.ts'
 import { CustomAnimationImporter } from './CustomAnimationImporter.ts'
 import { type ModelVariationSwitcher } from './ModelVariationSwitcher.ts'
 
@@ -28,6 +29,7 @@ export class StepAnimationsListing extends EventTarget {
   private readonly animation_player: AnimationPlayer
   private animation_clips_loaded: TransformedAnimationClipPair[] = []
   private readonly animation_loader: AnimationLoader = new AnimationLoader()
+  private readonly rest_pose_snapshots: RigRestPoseSnapshot = new RigRestPoseSnapshot()
 
   private animation_mixer: AnimationMixer = new AnimationMixer(new Object3D())
   private skinned_meshes_to_animate: SkinnedMesh[] = []
@@ -257,6 +259,12 @@ export class StepAnimationsListing extends EventTarget {
     }
 
     this.skinned_meshes_to_animate = new_skinned_meshes
+    const registered = new Set<object>()
+    for (const mesh of new_skinned_meshes) {
+      if (registered.has(mesh.skeleton)) continue
+      registered.add(mesh.skeleton)
+      this.rest_pose_snapshots.remember(mesh.skeleton)
+    }
     this.props_manager.attach_to_skinned_meshes(new_skinned_meshes)
 
     // Retargeted clips are target-skeleton specific. Never reuse a baked clip
@@ -286,6 +294,14 @@ export class StepAnimationsListing extends EventTarget {
 
   public load_and_apply_default_animation_to_skinned_mesh (final_skinned_meshes: SkinnedMesh[]): void {
     this.skinned_meshes_to_animate = final_skinned_meshes
+    // Record the actual edited bind pose before the first animation. Both
+    // AutoRig and manual joints go through the same snapshot/restore path.
+    const registered = new Set<object>()
+    for (const mesh of final_skinned_meshes) {
+      if (registered.has(mesh.skeleton)) continue
+      registered.add(mesh.skeleton)
+      this.rest_pose_snapshots.remember(mesh.skeleton)
+    }
     this.props_manager.attach_to_skinned_meshes(final_skinned_meshes)
 
     // Set the animations file path on the loader
@@ -432,19 +448,13 @@ export class StepAnimationsListing extends EventTarget {
    * @param skinned_mesh
    */
   private reset_root_motion_position (skinned_mesh: SkinnedMesh): void {
-    // v6.0: restore the COMPLETE bind pose before starting a different clip.
-    // Creating a new AnimationMixer does not restore bones that the previous
-    // clip touched, and zeroing only root.position is wrong once root is a Bone.
-    skinned_mesh.skeleton.pose()
-
-    // Legacy clean-rig builds used a non-Bone Object3D named root. Keep that
-    // compatibility path, but do not overwrite the position of the real root Bone.
-    const motionRoot = skinned_mesh.getObjectByName('root')
-    if (motionRoot !== undefined && !(motionRoot as any).isBone) {
-      motionRoot.position.set(0, 0, 0)
-      motionRoot.quaternion.identity()
+    // Never call Skeleton.pose() during clip switching: it reconstructs local
+    // transforms from inverses and can lose user-edited joints or non-Bone
+    // parent offsets. Restore exactly the pose captured at Bind instead.
+    if (!this.rest_pose_snapshots.restore(skinned_mesh.skeleton)) {
+      console.error('No saved rig rest pose; refusing unsafe Skeleton.pose() reset.')
+      return
     }
-
     skinned_mesh.updateMatrixWorld(true)
   }
 
