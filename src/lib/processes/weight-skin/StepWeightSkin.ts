@@ -468,10 +468,8 @@ export class StepWeightSkin extends EventTarget {
     const find = (vertex: number): number => componentByVertex[vertex]
 
     const totals = new Map<number, Map<string, number>>()
-    const counts = new Map<number, number>()
     for (let vertex = 0; vertex < vertexCount; vertex++) {
       const component = find(vertex)
-      counts.set(component, (counts.get(component) ?? 0) + 1)
       let familyMap = totals.get(component)
       if (familyMap === undefined) { familyMap = new Map<string, number>(); totals.set(component, familyMap) }
       const offset = vertex * 4
