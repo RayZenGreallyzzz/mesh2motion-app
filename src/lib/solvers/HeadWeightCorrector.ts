@@ -1,4 +1,5 @@
 import { Vector3, type Bone, type BufferGeometry } from 'three'
+import { Utility } from '../Utilities.js'
 /**
  * HeadWeightCorrector
  * Handles post-processing correction of vertex weights for "chibi" style characters
@@ -104,13 +105,26 @@ export class HeadWeightCorrector {
     head_bone_index: number,
     arm_bone_indices: number[]
   ): number {
-    const vertex_count = this.geometry.attributes.position.array.length / 3
+    const vertex_count = this.geometry.getAttribute('position').count
+    const headPosition = Utility.world_position_from_object(this.bones_master_data[head_bone_index])
+    const armPositions = arm_bone_indices.map(index =>
+      Utility.world_position_from_object(this.bones_master_data[index])
+    )
     let corrected_count = 0
     for (let i = 0; i < vertex_count; i++) {
       const vertex_position = new Vector3().fromBufferAttribute(this.geometry.attributes.position, i)
 
       // Skip vertices below the height threshold
       if (vertex_position.y <= this.preview_plane_height) { continue }
+
+      // Raised arms, gloves and capes are often above the horizontal line.
+      // Only correct arm weights when the vertex is closer to the head itself.
+      const headDistance = vertex_position.distanceToSquared(headPosition)
+      let armDistance = Infinity
+      for (const armPosition of armPositions) {
+        armDistance = Math.min(armDistance, vertex_position.distanceToSquared(armPosition))
+      }
+      if (headDistance >= armDistance) continue
 
       const offset = i * 4 // each vertex has 4 slots for skinning weights and indices
 
