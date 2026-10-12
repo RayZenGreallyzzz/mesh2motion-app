@@ -16,6 +16,10 @@ export enum SkeletonType {
 
 // Hand skeleton variation types for human skeleton
 export enum HandSkeletonType {
+  OneFinger = 'one-finger',
+  TwoFingers = 'two-fingers',
+  ThreeFingers = 'three-fingers',
+  FiveFingers = 'five-fingers',
   AllFingers = 'all-fingers',
   ThumbAndIndex = 'thumb-and-index',
   SimplifiedHand = 'simplified-hand',
