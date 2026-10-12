@@ -15,6 +15,7 @@ import { StepLoadModel } from './lib/processes/load-model/StepLoadModel.ts'
 import { StepLoadSkeleton } from './lib/processes/load-skeleton/StepLoadSkeleton.ts'
 import { StepEditSkeleton } from './lib/processes/edit-skeleton/StepEditSkeleton.ts'
 import { MeshDragBonePlacement } from './lib/processes/edit-skeleton/MeshDragBonePlacement.ts'
+import { estimate_arm_pose } from './lib/processes/edit-skeleton/AutoRigArmPoseEstimator.ts'
 import { StepAnimationsListing } from './lib/processes/animations-listing/StepAnimationsListing.ts'
 import { ArmExtensionControl } from './lib/processes/animations-listing/ArmExtensionControl.ts'
 import { DownloadSettings } from './lib/processes/export-to-file/DownloadSettings.ts'
@@ -470,16 +471,23 @@ export class Mesh2MotionEngine {
     const rX = rUpper?.getWorldPosition(new THREE.Vector3()).x ?? -1
     const leftSign = lX >= rX ? 1 : -1
 
-    // Detect a T-pose from far-lateral geometry around shoulder height.
-    const shoulderY = yAt(0.79)
+    // v6.4: locate real arm heights from the lateral mesh before falling
+    // back to Y=79%. Giant cat ears and hair otherwise move the assumed
+    // shoulder slice ABOVE a real T-pose and create false A-pose rigs.
+    const armEstimate = estimate_arm_pose(points, centerX, width, minY, height)
+    const shoulderY = armEstimate?.shoulderY ?? yAt(0.79)
     const sideReach = width * 0.5
     let shoulderFarPoints = 0
-    for (const p of points) {
-      if (Math.abs(p.y - shoulderY) < height * 0.035 && Math.abs(p.x - centerX) > sideReach * 0.62) {
-        shoulderFarPoints++
+    if (armEstimate === null) {
+      for (const p of points) {
+        if (Math.abs(p.y - shoulderY) < height * 0.035 &&
+            Math.abs(p.x - centerX) > sideReach * 0.62) {
+          shoulderFarPoints++
+        }
       }
     }
-    const tPose = shoulderFarPoints > Math.max(8, points.length * 0.002)
+    const tPose = armEstimate?.tPose ??
+      (shoulderFarPoints > Math.max(8, points.length * 0.002))
 
     this.edit_skeleton_step.store_bone_state_for_undo()
 
@@ -511,12 +519,14 @@ export class Mesh2MotionEngine {
       const shoulderX = centerX + sign * shoulderHalf
       const handX = centerX + (sideEdge - centerX) * 0.91
       const elbowX = shoulderX + (handX - shoulderX) * 0.52
-      const armY = yAt(0.785)
-      const elbowY = tPose ? armY : yAt(0.69)
-      const handY = tPose ? armY : yAt(0.60)
+      const armY = armEstimate?.shoulderY ?? yAt(0.785)
+      const handY = armEstimate?.handY ?? (tPose ? armY : yAt(0.60))
+      const elbowY = armEstimate !== null
+        ? (armY + handY) * 0.5
+        : (tPose ? armY : yAt(0.69))
 
       const shoulderJointX = centerX + sign * shoulderHalf * 0.58
-      const shoulderJointY = yAt(0.79)
+      const shoulderJointY = shoulderY
       setWorld(shoulder, shoulderJointX, shoulderJointY,
         depthCenterAt(shoulderJointX, shoulderJointY, centerZ, width * 0.055, height * 0.03))
       setWorld(upper, shoulderX, armY,
