@@ -1,5 +1,6 @@
 import { UI } from '../../UI.ts'
 import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
+import { welded_surface_components } from '../../solvers/WeldedSurfaceComponents.ts'
 
 import { Generators } from '../../Generators.ts'
 
@@ -456,28 +457,15 @@ export class StepWeightSkin extends EventTarget {
 
   private apply_clothing_component_guard (geometry: BufferGeometry, skin_indices: number[], skin_weights: number[]): void {
     if (!this.clothing_weight_guard_enabled || this.binding_skeleton === undefined) return
-    const positions = geometry.getAttribute('position')
-    const index = geometry.index
-    const vertexCount = positions?.count ?? 0
-    // Without an index we cannot reliably separate cape/skirt/accessory islands.
-    // Be conservative and leave browser skinning untouched.
-    if (vertexCount < 24 || index === null) return
+    const vertexCount = geometry.getAttribute('position')?.count ?? 0
+    if (vertexCount < 24) return
 
-    const parent = new Int32Array(vertexCount)
-    for (let i = 0; i < vertexCount; i++) parent[i] = i
-    const find = (value: number): number => {
-      let x = value
-      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x] }
-      return x
-    }
-    const union = (a: number, b: number): void => {
-      const ra = find(a); const rb = find(b)
-      if (ra !== rb) parent[rb] = ra
-    }
-    for (let i = 0; i + 2 < index.count; i += 3) {
-      const a = index.getX(i); const b = index.getX(i + 1); const c = index.getX(i + 2)
-      union(a, b); union(b, c)
-    }
+    // Meshy characters can have thousands of UV/index islands, although the
+    // body, clothing and hair are one contiguous 3D surface. The original guard
+    // treated these texture islands as separate garments and stripped weights
+    // at their seams. Weld by 3D positions before applying any guard.
+    const { componentByVertex, componentSizes: counts } = welded_surface_components(geometry)
+    const find = (vertex: number): number => componentByVertex[vertex]
 
     const totals = new Map<number, Map<string, number>>()
     const counts = new Map<number, number>()
@@ -498,6 +486,10 @@ export class StepWeightSkin extends EventTarget {
     const allowed = new Map<number, Set<string>>()
     for (const [component, familyMap] of totals) {
       if ((counts.get(component) ?? 0) < 24) continue
+      // A region containing most of the character is not an isolated piece
+      // of clothing. Filtering it to 2-3 bone families destroys arms, legs and
+      // head weights. On the supplied Neon Alleycat it covers >99% of vertices.
+      if ((counts.get(component) ?? 0) > vertexCount * 0.5) continue
       const sorted = [...familyMap.entries()].sort((a, b) => b[1] - a[1])
       const total = sorted.reduce((sum, entry) => sum + entry[1], 0)
       if (total <= 0 || sorted.length < 2) continue
