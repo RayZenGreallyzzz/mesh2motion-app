@@ -322,16 +322,19 @@ export class StepAnimationsListing extends EventTarget {
     // begins even though the skin passes its identity bind-pose check.
     this.animation_loader.load_animations(this.skeleton_type, this.skeleton_scale)
       .then(async (loaded_clips: TransformedAnimationClipPair[]) => {
-        if (this.skeleton_type === SkeletonType.MobileFemale) {
-          const target = this.skinned_meshes_to_animate[0]
-          if (target === undefined) throw new Error('Mobile Female target mesh missing for rest-pose correction')
-          await RestPoseAnimationBridge.apply_to_mobile_female(
-            loaded_clips,
-            target.skeleton,
-            this.skeleton_scale
-          )
-          console.info('Mobile Female animation tracks rebased to edited bind pose')
-        }
+        // Apply the same bind-space reconciliation to every creature rig,
+        // whether the joints were fitted manually or by AutoRig. Each
+        // skeleton type uses its OWN reference rig; Human offsets are never
+        // applied to a fox/dragon/spider/other species.
+        const target = this.skinned_meshes_to_animate[0]
+        if (target === undefined) throw new Error('Target skeleton missing for rest-pose conversion')
+        await RestPoseAnimationBridge.apply_to_skeleton_type(
+          loaded_clips,
+          target.skeleton,
+          this.skeleton_type,
+          this.skeleton_scale
+        )
+        console.info('Stock animation tracks rebased to edited bind pose:', this.skeleton_type)
         this.animation_clips_loaded = loaded_clips
         this.onAllAnimationsLoaded()
       })
