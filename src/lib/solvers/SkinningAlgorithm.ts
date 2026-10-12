@@ -12,6 +12,7 @@ import { WeightCalculator } from './WeightCalculator.js'
 import { ExtremityWeightCorrector } from './ExtremityWeightCorrector.js'
 import { WeightSmoother } from './WeightSmoother.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
+import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 
 /**
  * SkinningAlgorithm
@@ -64,6 +65,27 @@ export default class SkinningAlgorithm {
   public calculate_indexes_and_weights (): number[][] {
     const skin_indices: number[] = []
     const skin_weights: number[] = []
+
+    // Species-independent Surface Fit. Unlike the old midpoint solver, this
+    // follows actual mesh connectivity, including wings, tails, multiple legs,
+    // tentacles and disconnected clothing/accessories.
+    if (this.geometry.getAttribute('position')?.count > 0 && this.bones_master_data.length > 0) {
+      const surface = new SurfaceGeodesicWeightCalculator(this.bones_master_data, this.geometry)
+      surface.calculate(skin_indices, skin_weights)
+      const normalizer = new WeightNormalizer(this.geometry)
+      normalizer.normalize_weights(skin_weights)
+
+      // The optional human head divider is a manual override, never applied to
+      // fish, birds, quadrupeds or other nonhuman anatomy.
+      if (this.skeleton_type === SkeletonType.Human && this.use_head_weight_correction) {
+        new HeadWeightCorrector(
+          this.geometry, this.bones_master_data, this.preview_plane_height
+        ).apply_head_weight_correction(skin_indices, skin_weights)
+        normalizer.normalize_weights(skin_weights)
+      }
+
+      return [skin_indices, skin_weights]
+    }
 
     // Step 1: Calculate initial bone-to-vertex weight assignments
     const weight_calculator = new WeightCalculator(this.bones_master_data, this.geometry, this.skeleton_type)
