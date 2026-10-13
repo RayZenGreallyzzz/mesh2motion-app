@@ -289,11 +289,6 @@ export class EventListeners {
     })
 
     this.bootstrap.ui.dom_bind_pose_button?.addEventListener('click', () => {
-      // Before creating bind inverses, align ONLY unrotated arm/forearm axes
-      // to their fitted bone segments. Works for AutoRig and manual placement.
-      // Leave user-adjusted joint world positions and manual bone twists alone.
-      this.bootstrap.edit_skeleton_step.independent_bone_movement
-        .finalize_unrotated_arm_frames(this.bootstrap.edit_skeleton_step.skeleton())
       this.bootstrap.setup_weight_skinning_config()
       this.bootstrap.process_step_changed(ProcessStep.BindPose)
     })

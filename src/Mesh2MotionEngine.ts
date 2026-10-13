@@ -15,7 +15,7 @@ import { StepLoadModel } from './lib/processes/load-model/StepLoadModel.ts'
 import { StepLoadSkeleton } from './lib/processes/load-skeleton/StepLoadSkeleton.ts'
 import { StepEditSkeleton } from './lib/processes/edit-skeleton/StepEditSkeleton.ts'
 import { MeshDragBonePlacement } from './lib/processes/edit-skeleton/MeshDragBonePlacement.ts'
-import { estimate_arm_pose, estimate_wrist_reach } from './lib/processes/edit-skeleton/AutoRigArmPoseEstimator.ts'
+import { estimate_arm_pose } from './lib/processes/edit-skeleton/AutoRigArmPoseEstimator.ts'
 import { StepAnimationsListing } from './lib/processes/animations-listing/StepAnimationsListing.ts'
 import { ArmExtensionControl } from './lib/processes/animations-listing/ArmExtensionControl.ts'
 import { DownloadSettings } from './lib/processes/export-to-file/DownloadSettings.ts'
@@ -517,14 +517,7 @@ export class Mesh2MotionEngine {
       const hand = sideBone('hand', side)
       const sideEdge = sign > 0 ? maxX : minX
       const shoulderX = centerX + sign * shoulderHalf
-      // The outermost vertices usually belong to fingers, claws or gloves.
-      // Place the HAND bone at the wrist/forearm transition instead of
-      // nearly at the fingertips (the previous 0.91 factor).
-      const wristReach = estimate_wrist_reach(
-        points, centerX, width, minY, height, sign, shoulderY,
-        armEstimate?.handY ?? (tPose ? shoulderY : yAt(0.60))
-      )
-      const handX = centerX + (sideEdge - centerX) * wristReach
+      const handX = centerX + (sideEdge - centerX) * 0.91
       const elbowX = shoulderX + (handX - shoulderX) * 0.52
       const armY = armEstimate?.shoulderY ?? yAt(0.785)
       const handY = armEstimate?.handY ?? (tPose ? armY : yAt(0.60))
