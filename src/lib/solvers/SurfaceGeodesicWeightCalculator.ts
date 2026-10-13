@@ -96,10 +96,8 @@ export class SurfaceGeodesicWeightCalculator {
   private readonly geometry: BufferGeometry
   private readonly propagationInfluenceCount = 6
   private readonly outputInfluenceCount = 4
-  // v6.0: eight nearest seeds could all cluster on one side of a limb.
-  // Use a wider candidate pool, then choose spatially distributed seeds.
-  private readonly seedsPerBone = 12
-  private readonly seedCandidateMultiplier = 6
+  // Cover both the length and circumference of tapered limbs and clothing.
+  private readonly seedsPerBone = 32
   private readonly smoothingIterations = 3
   private readonly smoothingAlpha = 0.42
   private readonly boneNeighborhoodDepth = 2
@@ -400,63 +398,51 @@ export class SurfaceGeodesicWeightCalculator {
   private selectCandidateBones (component: number[], componentSpan: number): BoneSurfaceData[] {
     if (this.boneSurfaceData.length === 0) return []
 
-    // A single global minimum is not enough: a cape touching the neck can
-    // make the head bone nearest to *the whole garment*, dropping the spine
-    // and hip influences required down its length. Sample the entire surface
-    // component spatially and union locally relevant bone candidates.
-    const sampleStride = Math.max(1, Math.ceil(component.length / 1800))
-    const samples: number[] = []
-    const first = component[0]
-    samples.push(first)
-    const targetCount = Math.min(16, Math.max(4, Math.ceil(componentSpan / Math.max(this.skeletonHeight * 0.14, 0.01))))
-
-    for (let count = 1; count < targetCount; count++) {
-      let farthest = -1
-      let maxDist = 0
-      for (let i = 0; i < component.length; i += sampleStride) {
-        const node = component[i]
-        let nearestSample = Infinity
-        for (const sample of samples) {
-          nearestSample = Math.min(
-            nearestSample,
-            this.nodePositions[node].distanceToSquared(this.nodePositions[sample])
-          )
-        }
-        if (nearestSample > maxDist) {
-          maxDist = nearestSample
-          farthest = node
-        }
-      }
-      if (farthest < 0 || maxDist < 1e-12) break
-      samples.push(farthest)
-    }
-
-    const selected = new Map<number, BoneSurfaceData>()
-    const localAllowance = Math.max(
+    // Every part of a connected surface needs local bone coverage. A handful
+    // of farthest-point samples only visits the extremities of a full body:
+    // fingers can fill those samples while upper arms receive no candidates.
+    // Keep the local nearest-four rule, but visit every welded node. This also
+    // works for long tails, wings and rigs with more than 32 deform bones.
+    const selected = new Set<number>()
+    const local_allowance = Math.max(
       this.skeletonHeight * 0.025,
       Math.min(this.skeletonHeight * 0.075, componentSpan * 0.065)
     )
-    for (const sample of samples) {
-      const point = this.nodePositions[sample]
-      const local = this.boneSurfaceData
-        .map(bone => ({ bone, distance: Math.sqrt(this.distanceSqToBone(point, bone)) }))
-        .sort((a, b) => a.distance - b.distance)
-      const nearest = local[0].distance
-      // Keep at least the nearest two only on broad components. Tiny rigid
-      // accessories stay single-bone where possible.
-      const minimum = componentSpan > this.skeletonHeight * 0.08 ? 2 : 1
-      let accepted = 0
-      for (const candidate of local) {
-        if (accepted >= minimum &&
-            candidate.distance > nearest + localAllowance) break
-        selected.set(candidate.bone.boneIndex, candidate.bone)
-        accepted++
-        if (accepted >= 4) break
+    const minimum = componentSpan > this.skeletonHeight * 0.08 ? 2 : 1
+    const nearest_bones: BoneSurfaceData[] = []
+    const nearest_distances: number[] = []
+
+    for (const node of component) {
+      nearest_bones.length = 0
+      nearest_distances.length = 0
+      const point = this.nodePositions[node]
+
+      // Reuse four slots instead of allocating/sorting the entire rig at each
+      // vertex. Distances stay squared until the local cutoff is calculated.
+      for (const bone of this.boneSurfaceData) {
+        const distance_sq = this.distanceSqToBone(point, bone)
+        let slot = nearest_distances.length
+        while (slot > 0 && distance_sq < nearest_distances[slot - 1]) slot--
+        if (slot >= 4) continue
+        nearest_bones.splice(slot, 0, bone)
+        nearest_distances.splice(slot, 0, distance_sq)
+        if (nearest_bones.length > 4) {
+          nearest_bones.pop()
+          nearest_distances.pop()
+        }
       }
+
+      const cutoff_sq = (Math.sqrt(nearest_distances[0]) + local_allowance) ** 2
+      for (let slot = 0; slot < nearest_bones.length; slot++) {
+        if (slot >= minimum && nearest_distances[slot] > cutoff_sq) break
+        selected.add(nearest_bones[slot].boneIndex)
+      }
+      if (selected.size === this.boneSurfaceData.length) break
     }
-    // Limit mobile cost on massive/highly segmented imported clothing meshes.
-    // We prefer bones selected at multiple independent surface samples.
-    return Array.from(selected.values()).slice(0, 32)
+
+    // The propagation pass already caps influences per node. A component-wide
+    // cap discards valid limb bones solely because of traversal order.
+    return this.boneSurfaceData.filter(bone => selected.has(bone.boneIndex))
   }
 
   private findBoneSeeds (
@@ -464,62 +450,51 @@ export class SurfaceGeodesicWeightCalculator {
     bone: BoneSurfaceData,
     count: number
   ): Array<{ node: number, distance: number }> {
-    // Keep a larger pool of the closest surface nodes first.
-    const candidateLimit = Math.max(count, count * this.seedCandidateMultiplier)
-    const nearest: Array<{ node: number, distanceSq: number }> = []
+    // A global nearest-N pool concentrates all seeds at the thinnest ring of a
+    // tapered limb. Choose the nearest surface point in each longitudinal and
+    // angular cell so a dense wrist cannot leave the forearm unseeded.
+    const bins_per_segment = 4
+    const sectors = Math.max(4, Math.ceil(count / bins_per_segment))
+    const bucket_count = bone.segments.length * bins_per_segment * sectors
+    const buckets: Array<{ node: number, distance_sq: number } | undefined> =
+      Array.from({ length: bucket_count }, () => undefined)
+    const radial_bases = bone.segments.map(([a, b]) => {
+      const axis = b.clone().sub(a).normalize()
+      if (axis.lengthSq() < 1e-8) axis.set(0, 1, 0)
+      const u = new Vector3().crossVectors(axis, Math.abs(axis.y) < 0.9 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0)).normalize()
+      return [u, new Vector3().crossVectors(axis, u)] as const
+    })
 
     for (const node of component) {
-      const distanceSq = this.distanceSqToBone(this.nodePositions[node], bone)
-
-      if (nearest.length < candidateLimit) {
-        nearest.push({ node, distanceSq })
-        nearest.sort((a, b) => a.distanceSq - b.distanceSq)
-        continue
-      }
-
-      if (distanceSq >= nearest[nearest.length - 1].distanceSq) continue
-      nearest[nearest.length - 1] = { node, distanceSq }
-      nearest.sort((a, b) => a.distanceSq - b.distanceSq)
-    }
-
-    if (nearest.length <= count) {
-      return nearest.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
-    }
-
-    // Then spread the actual seeds over that close-to-bone pool. This prevents
-    // all seeds from landing on one azimuth of a cylindrical arm/leg.
-    const selected: Array<{ node: number, distanceSq: number }> = [nearest[0]]
-    const remaining = nearest.slice(1)
-
-    while (selected.length < count && remaining.length > 0) {
-      let bestIndex = 0
-      let bestScore = -Infinity
-
-      for (let i = 0; i < remaining.length; i++) {
-        const candidate = remaining[i]
-        const position = this.nodePositions[candidate.node]
-        let minSpatialDistanceSq = Infinity
-
-        for (const picked of selected) {
-          minSpatialDistanceSq = Math.min(
-            minSpatialDistanceSq,
-            position.distanceToSquared(this.nodePositions[picked.node])
-          )
-        }
-
-        // Prefer spatial coverage while still penalising nodes that are farther
-        // from the bone segment than equally well-spread alternatives.
-        const score = minSpatialDistanceSq / Math.max(Math.sqrt(candidate.distanceSq), 1e-5)
-        if (score > bestScore) {
-          bestScore = score
-          bestIndex = i
+      const point = this.nodePositions[node]
+      let distance_sq = Infinity
+      let bucket = 0
+      for (let segment = 0; segment < bone.segments.length; segment++) {
+        const [a, b] = bone.segments[segment]
+        const dx = b.x - a.x; const dy = b.y - a.y; const dz = b.z - a.z
+        const length_sq = dx * dx + dy * dy + dz * dz
+        const t = length_sq > 1e-12
+          ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy + (point.z - a.z) * dz) / length_sq))
+          : 0
+        const px = point.x - a.x - t * dx
+        const py = point.y - a.y - t * dy
+        const pz = point.z - a.z - t * dz
+        const candidate_distance = px * px + py * py + pz * pz
+        if (candidate_distance < distance_sq) {
+          distance_sq = candidate_distance
+          const [u, v] = radial_bases[segment]
+          const angle = Math.atan2(px * v.x + py * v.y + pz * v.z, px * u.x + py * u.y + pz * u.z) + Math.PI
+          const sector = Math.min(sectors - 1, Math.floor(angle / (2 * Math.PI) * sectors))
+          bucket = (segment * bins_per_segment + Math.min(bins_per_segment - 1, Math.floor(t * bins_per_segment))) * sectors + sector
         }
       }
-
-      selected.push(remaining.splice(bestIndex, 1)[0])
+      const nearest = buckets[bucket]
+      if (nearest === undefined || distance_sq < nearest.distance_sq) {
+        buckets[bucket] = { node, distance_sq }
+      }
     }
 
-    return selected.map(seed => ({ node: seed.node, distance: Math.sqrt(seed.distanceSq) }))
+    return buckets.flatMap(seed => seed === undefined ? [] : [{ node: seed.node, distance: Math.sqrt(seed.distance_sq) }])
   }
 
   private buildBoneNeighborhoods (): void {
@@ -568,7 +543,13 @@ export class SurfaceGeodesicWeightCalculator {
         if (ownBones.length === 0) continue
 
         const dominantBone = ownBones[0]
-        const allowed = this.boneNeighborhoods[dominantBone] ?? new Set<number>(ownBones)
+        // Keep influences already established by surface propagation. The
+        // hierarchy restriction only controls NEW influences from neighbors;
+        // dropping existing weights at a dominant-bone boundary creates tears.
+        const allowed = new Set([
+          ...ownBones,
+          ...(this.boneNeighborhoods[dominantBone] ?? [])
+        ])
         const accumulated = new Map<number, number>()
 
         const add = (bone: number, value: number): void => {
@@ -685,12 +666,17 @@ export class SurfaceGeodesicWeightCalculator {
   }
 
   private pointSegmentDistanceSq (point: Vector3, start: Vector3, end: Vector3): number {
-    const segment = new Vector3().subVectors(end, start)
-    const lengthSq = segment.lengthSq()
-    if (lengthSq <= 1e-12) return point.distanceToSquared(start)
-
-    const t = Math.max(0, Math.min(1, new Vector3().subVectors(point, start).dot(segment) / lengthSq))
-    const closest = start.clone().addScaledVector(segment, t)
-    return point.distanceToSquared(closest)
+    // This runs for every node/bone pair; avoid temporary Vector3 allocations.
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const dz = end.z - start.z
+    const px = point.x - start.x
+    const py = point.y - start.y
+    const pz = point.z - start.z
+    const length_sq = dx * dx + dy * dy + dz * dz
+    const t = length_sq <= 1e-12
+      ? 0
+      : Math.max(0, Math.min(1, (px * dx + py * dy + pz * dz) / length_sq))
+    return (px - dx * t) ** 2 + (py - dy * t) ** 2 + (pz - dz * t) ** 2
   }
 }
