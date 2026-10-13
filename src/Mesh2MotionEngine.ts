@@ -15,6 +15,7 @@ import { StepLoadModel } from './lib/processes/load-model/StepLoadModel.ts'
 import { StepLoadSkeleton } from './lib/processes/load-skeleton/StepLoadSkeleton.ts'
 import { StepEditSkeleton } from './lib/processes/edit-skeleton/StepEditSkeleton.ts'
 import { MeshDragBonePlacement } from './lib/processes/edit-skeleton/MeshDragBonePlacement.ts'
+import { estimate_arm_pose } from './lib/processes/edit-skeleton/AutoRigArmPoseEstimator.ts'
 import { StepAnimationsListing } from './lib/processes/animations-listing/StepAnimationsListing.ts'
 import { ArmExtensionControl } from './lib/processes/animations-listing/ArmExtensionControl.ts'
 import { DownloadSettings } from './lib/processes/export-to-file/DownloadSettings.ts'
@@ -470,16 +471,23 @@ export class Mesh2MotionEngine {
     const rX = rUpper?.getWorldPosition(new THREE.Vector3()).x ?? -1
     const leftSign = lX >= rX ? 1 : -1
 
-    // Detect a T-pose from far-lateral geometry around shoulder height.
-    const shoulderY = yAt(0.79)
+    // v6.4: locate real arm heights from the lateral mesh before falling
+    // back to Y=79%. Giant cat ears and hair otherwise move the assumed
+    // shoulder slice ABOVE a real T-pose and create false A-pose rigs.
+    const armEstimate = estimate_arm_pose(points, centerX, width, minY, height)
+    const shoulderY = armEstimate?.shoulderY ?? yAt(0.79)
     const sideReach = width * 0.5
     let shoulderFarPoints = 0
-    for (const p of points) {
-      if (Math.abs(p.y - shoulderY) < height * 0.035 && Math.abs(p.x - centerX) > sideReach * 0.62) {
-        shoulderFarPoints++
+    if (armEstimate === null) {
+      for (const p of points) {
+        if (Math.abs(p.y - shoulderY) < height * 0.035 &&
+            Math.abs(p.x - centerX) > sideReach * 0.62) {
+          shoulderFarPoints++
+        }
       }
     }
-    const tPose = shoulderFarPoints > Math.max(8, points.length * 0.002)
+    const tPose = armEstimate?.tPose ??
+      (shoulderFarPoints > Math.max(8, points.length * 0.002))
 
     this.edit_skeleton_step.store_bone_state_for_undo()
 
@@ -511,12 +519,14 @@ export class Mesh2MotionEngine {
       const shoulderX = centerX + sign * shoulderHalf
       const handX = centerX + (sideEdge - centerX) * 0.91
       const elbowX = shoulderX + (handX - shoulderX) * 0.52
-      const armY = yAt(0.785)
-      const elbowY = tPose ? armY : yAt(0.69)
-      const handY = tPose ? armY : yAt(0.60)
+      const armY = armEstimate?.shoulderY ?? yAt(0.785)
+      const handY = armEstimate?.handY ?? (tPose ? armY : yAt(0.60))
+      const elbowY = armEstimate !== null
+        ? (armY + handY) * 0.5
+        : (tPose ? armY : yAt(0.69))
 
       const shoulderJointX = centerX + sign * shoulderHalf * 0.58
-      const shoulderJointY = yAt(0.79)
+      const shoulderJointY = shoulderY
       setWorld(shoulder, shoulderJointX, shoulderJointY,
         depthCenterAt(shoulderJointX, shoulderJointY, centerZ, width * 0.055, height * 0.03))
       setWorld(upper, shoulderX, armY,
@@ -1097,6 +1107,28 @@ export class Mesh2MotionEngine {
 
   public process_step_changed (process_step: ProcessStep): ProcessStep {
     const previous_step = this.process_step
+
+    // Never animate a rig whose bind matrices already move the mesh in REST.
+    // The diagnostic used to be log-only, allowing a badly fitted skeleton
+    // to enter the animation/export stage and appear catastrophically broken.
+    if (process_step === ProcessStep.AnimationsListing) {
+      this.weight_skin_step.check_bind_after_world_transform()
+      const rest = this.weight_skin_step.bind_rest_diagnostic()
+      const world = this.weight_skin_step.bind_world_diagnostic()
+      if (this.weight_skin_step.final_skinned_meshes().length === 0 ||
+          rest.samples === 0 || rest.failedMeshes !== 0 || world.failedMeshes !== 0 ||
+          !Number.isFinite(rest.maxError) || !Number.isFinite(world.maxError)) {
+        new ModalDialog(
+          'Rig Animation Studio: привязка скелета не прошла проверку',
+          'Обнаружена ошибка BIND REST/WORLD. Анимация остановлена, чтобы не растягивать модель. ' +
+          'Вернитесь к установке скелета и проверьте масштаб, положение костей и исходную позу. ' +
+          'REST Δ=' + rest.maxError.toExponential(3) +
+          ', WORLD Δ=' + world.maxError.toExponential(3)
+        ).show()
+        this.show_bind_rest_diagnostic()
+        return previous_step
+      }
+    }
 
     if (previous_step === ProcessStep.EditSkeleton &&
         process_step !== ProcessStep.EditSkeleton &&
