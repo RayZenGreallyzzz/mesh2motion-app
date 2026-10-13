@@ -9,6 +9,7 @@ import { AnimationUtility } from './AnimationUtility.ts'
 import { ArmExtensionControl } from './ArmExtensionControl.ts'
 import { AnimationLoader, type AnimationLoadProgress } from './AnimationLoader.ts'
 import { RestPoseAnimationBridge } from './RestPoseAnimationBridge.ts'
+import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
 import { RigRestPoseSnapshot } from './RigRestPoseSnapshot.ts'
 import { CustomAnimationImporter } from './CustomAnimationImporter.ts'
 import { type ModelVariationSwitcher } from './ModelVariationSwitcher.ts'
@@ -28,6 +29,8 @@ export class StepAnimationsListing extends EventTarget {
   private readonly ui: UI
   private readonly animation_player: AnimationPlayer
   private animation_clips_loaded: TransformedAnimationClipPair[] = []
+  private warp_revision = 0
+  private readonly clip_warp_revisions = new WeakMap<TransformedAnimationClipPair, number>()
   private readonly animation_loader: AnimationLoader = new AnimationLoader()
   private readonly rest_pose_snapshots: RigRestPoseSnapshot = new RigRestPoseSnapshot()
 
@@ -177,6 +180,7 @@ export class StepAnimationsListing extends EventTarget {
    * Returns a list of all of the currently-displayed animation clips.
    */
   public animation_clips (): AnimationClip[] {
+    this.animation_clips_loaded.forEach(pair => this.ensure_warped_animation(pair))
     return this.animation_clips_loaded.map(clip => clip.display_animation_clip)
   }
 
@@ -266,6 +270,7 @@ export class StepAnimationsListing extends EventTarget {
       this.rest_pose_snapshots.remember(mesh.skeleton)
     }
     this.props_manager.attach_to_skinned_meshes(new_skinned_meshes)
+    this.rebuild_warped_animations()
 
     // Retargeted clips are target-skeleton specific. Never reuse a baked clip
     // after swapping to a different model/variation.
@@ -349,6 +354,7 @@ export class StepAnimationsListing extends EventTarget {
   private onAllAnimationsLoaded (): void {
     this.is_loading_default_animations = false
     this.custom_animation_importer.set_enabled(true)
+    this.rebuild_warped_animations()
     // sort all animation names alphabetically
     this.animation_clips_loaded.sort((a: TransformedAnimationClipPair, b: TransformedAnimationClipPair) => {
       if (a.display_animation_clip.name < b.display_animation_clip.name) { return -1 }
@@ -423,26 +429,34 @@ export class StepAnimationsListing extends EventTarget {
    * Rebuilds all of the warped animations by applying the specified warps.
    */
   private rebuild_warped_animations (): void {
-    // Any mirror/arm-extension change invalidates baked mobile retarget clips.
+    // A drag must not clone/warp all 178 clips on every input event. Rebuild
+    // the visible clip on playback; resolve the remaining clips before export.
+    this.warp_revision++
+  }
 
-    // Reset all of the warped clips to the corresponding original clip.
-    this.animation_clips_loaded.forEach((warped_clip: TransformedAnimationClipPair) => {
-      warped_clip.display_animation_clip = AnimationUtility.deep_clone_animation_clip(warped_clip.original_animation_clip)
-    })
+  private ensure_warped_animation (pair: TransformedAnimationClipPair): void {
+    if (this.clip_warp_revisions.get(pair) === this.warp_revision) return
+    pair.display_animation_clip = AnimationUtility.deep_clone_animation_clip(pair.original_animation_clip)
+    const pairs = [pair]
 
     if (this.mirror_animations_enabled) {
-      AnimationUtility.apply_animation_mirroring(this.animation_clips_loaded)
+      AnimationUtility.apply_animation_mirroring(pairs)
     }
 
     /// Apply the arm extension warp:
-    AnimationUtility.apply_arm_extension_warp(this.animation_clips_loaded, this.arm_extension_control.value())
+    AnimationUtility.apply_arm_extension_warp(pairs, this.arm_extension_control.value())
 
     /// Raise/lower the hips to match the proportions of the active model variation:
     AnimationUtility.apply_position_tracking_bone_scale(
-      this.animation_clips_loaded,
+      pairs,
       RigConfig.by_skeleton_type(this.skeleton_type)?.position_tracking_bone_name,
       this.model_variation_pelvis_position_scale
     )
+    const skeleton = this.skinned_meshes_to_animate[0]?.skeleton
+    if (skeleton !== undefined) {
+      JointVolumeSupport.updateClip(pair.display_animation_clip, skeleton)
+    }
+    this.clip_warp_revisions.set(pair, this.warp_revision)
   }
 
   /**
@@ -462,6 +476,9 @@ export class StepAnimationsListing extends EventTarget {
   }
 
   private play_animation (index: number = 0): void {
+    const pair = this.animation_clips_loaded[index]
+    if (pair === undefined) return
+    this.ensure_warped_animation(pair)
     this.current_playing_index = index
 
     // v5.8 performance core: library clips already match the Human bone names.

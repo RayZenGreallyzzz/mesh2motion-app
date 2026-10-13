@@ -94,9 +94,9 @@
 
   #tool-panel {
     top: 64px !important;
-    right: 10px !important;
+    right: calc(24px + env(safe-area-inset-right, 0px)) !important;
     bottom: 10px !important;
-    width: min(320px, 30vw) !important;
+    width: min(320px, max(240px, 30vw), calc(100vw - 48px - env(safe-area-inset-right, 0px))) !important;
     height: auto !important;
     max-height: calc(100dvh - 74px) !important;
     padding: 0.72rem !important;
@@ -112,6 +112,37 @@
 
   #tool-selection-group {
     margin-bottom: 1rem !important;
+  }
+
+  #animations-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  #animations-items .anim-item,
+  #animations-items .anim-custom-item,
+  #animations-items .anim-row-checkbox,
+  #animations-items .anim-preview,
+  #animations-items .anim-preview-placeholder {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .animation-filter-row {
+    flex-wrap: wrap;
+    gap: 0.5rem !important;
+  }
+
+  .animation-filter-row > span {
+    min-width: 100%;
+  }
+
+  #animation-filter {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
   }
 
   #load-model-tools,
@@ -173,6 +204,6 @@
 
 @media (orientation: landscape) and (pointer: coarse) {
   #tool-panel {
-    width: min(310px, 28vw) !important;
+    width: min(310px, max(240px, 28vw), calc(100vw - 48px - env(safe-area-inset-right, 0px))) !important;
   }
 }

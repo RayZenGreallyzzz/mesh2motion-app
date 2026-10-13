@@ -143,8 +143,8 @@ export class DOMUtilities {
   static populate_arm_extension_controls (mount: HTMLElement): void {
     mount.innerHTML = `
       <div id="arm-extension-options">
-        <div style="display: flex; flex-direction: row; align-items: center; gap: 1rem; justify-content: center;">
-          <label style="display: inline-flex">Expand / Contract Arms</label>
+        <div class="arm-extension-heading">
+          <label for="extend-arm-range-input">Expand / Contract Arms</label>
 
           <img src="/images/icons/help.svg" alt="Help" width="20" height="20"
             data-tippy-content="Fine-tune arm spread across all animations for heavier or skinnier characters." />
@@ -155,13 +155,12 @@ export class DOMUtilities {
           </button>
         </div>
 
-        <div style="display: flex; flex-direction: row; gap: 1rem; justify-content: flex-start; align-items: center;">
+        <div class="arm-extension-value">
           <input type="number" id="extend-arm-numeric-input" name="arm-extend-input"
-            value="0" step="1" />
+            aria-label="Arm spread percentage" value="0" step="1" />
           <span class="suffix-unit">%</span>
-          <input id="extend-arm-range-input" style="flex-grow: 1" type="range"
-            min="-120" max="20" value="0" />
         </div>
+        <input id="extend-arm-range-input" type="range" min="-120" max="20" value="0" />
 
         <hr />
       </div>
