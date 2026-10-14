@@ -31,6 +31,7 @@ try {
       ArmExtensionControl.getInstance().initialize(value => { window.testArmValue = value })
     })
     const slider = page.locator('#extend-arm-range-input')
+    await page.evaluate(() => document.fonts.ready)
     await slider.scrollIntoViewIfNeeded()
     const bounds = await slider.boundingBox()
     const panel = await page.locator('#tool-panel').boundingBox()
@@ -55,13 +56,17 @@ try {
     await page.locator('#extend-arm-numeric-input').fill('7')
     await page.locator('#extend-arm-numeric-input').blur()
     for (const target of [-50, 7, -120, 20, -50, 7]) {
+      await slider.scrollIntoViewIfNeeded()
+      const live_bounds = await slider.boundingBox()
       const current = Number(await slider.inputValue())
       const point = value => ({
-        x: bounds.x + 8 + (bounds.width - 16) * (value + 120) / 140,
-        y: bounds.y + bounds.height / 2
+        x: live_bounds.x + 8 + (live_bounds.width - 16) * (value + 120) / 140,
+        y: live_bounds.y + live_bounds.height / 2
       })
       const start = point(current)
       const end = point(target)
+      assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id, start),
+        'extend-arm-range-input', 'Thumb is obscured by another element')
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...start, id: 1 }] })
       for (let step = 1; step <= 8; step++) {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
@@ -69,6 +74,7 @@ try {
         }] })
       }
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
       const actual = Number(await slider.inputValue())
       assert(Math.abs(actual - target) <= 2, `${width}x${height}: repeated touch drag to ${target} gave ${actual}`)
       assert.equal(Number(await page.locator('#extend-arm-numeric-input').inputValue()), actual)

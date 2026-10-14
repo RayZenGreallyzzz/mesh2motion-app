@@ -561,7 +561,7 @@ option {
     min-width: 0;
     height: 44px;
     margin: 0;
-    touch-action: pan-y;
+    touch-action: none;
 }
 
 
