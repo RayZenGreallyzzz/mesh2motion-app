@@ -34,6 +34,18 @@ try {
     await slider.scrollIntoViewIfNeeded()
     const bounds = await slider.boundingBox()
     const panel = await page.locator('#tool-panel').boundingBox()
+    await page.screenshot({ path: `artifacts/panel-${width}x${height}-before.png` })
+    console.log('Panel bounds', width, height, JSON.stringify(await page.evaluate(() => {
+      let element = document.getElementById('extend-arm-range-input')
+      const result = []
+      while (element !== null && element !== document.body) {
+        const style = getComputedStyle(element)
+        result.push({ id: element.id, bounds: element.getBoundingClientRect().toJSON(), width: style.width,
+          minWidth: style.minWidth, display: style.display, flex: style.flex, padding: style.padding })
+        element = element.parentElement
+      }
+      return result
+    })))
     assert(bounds.x >= panel.x + 8, 'Slider starts outside the panel')
     assert(bounds.x + bounds.width <= panel.x + panel.width - 8, 'Slider is clipped by the panel')
     assert(panel.x + panel.width <= width - 23, 'Panel has no safe inset from the screen edge')
