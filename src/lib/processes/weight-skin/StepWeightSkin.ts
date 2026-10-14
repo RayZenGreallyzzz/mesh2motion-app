@@ -1,6 +1,8 @@
 import { UI } from '../../UI.ts'
 import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
 import { welded_surface_components } from '../../solvers/WeldedSurfaceComponents.ts'
+import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
+import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 
 import { Generators } from '../../Generators.ts'
 
@@ -15,6 +17,7 @@ export class StepWeightSkin extends EventTarget {
   private binding_skeleton: Skeleton | undefined
   private binding_scene_root: Object3D | undefined
   private skinning_bone_names: string[] = []
+  private joint_volume_enabled = false
   private skinned_meshes: SkinnedMesh[] = []
 
   // stores the geometry data for meshes we will skin
@@ -108,6 +111,7 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
+    this.joint_volume_enabled = is_humanoid_skeleton_type(skeleton_type)
     // v5.8: bind the exact Bone hierarchy the user edited. No second rig rebuild,
     // no rest-axis rewrite, and no non-Bone object inside the skeleton chain.
     this.skinning_armature = editable_armature.clone(true)
@@ -213,6 +217,9 @@ export class StepWeightSkin extends EventTarget {
       }
     }
 
+    if (this.joint_volume_enabled) {
+      this.binding_skeleton = JointVolumeSupport.addToSkeleton(this.binding_skeleton)
+    }
     this.binding_skeleton.calculateInverses()
   }
 
@@ -562,6 +569,9 @@ export class StepWeightSkin extends EventTarget {
       // Manual paint stays available for normal builds, but v5.5 deliberately
       // collapses the final result to one bone per vertex AFTER every adjustment.
       this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)
+      if (this.joint_volume_enabled && !this.rigid_skin_test_enabled && this.binding_skeleton !== undefined) {
+        JointVolumeSupport.applyWeights(geometry_data, this.binding_skeleton, final_skin_indices, final_skin_weights)
+      }
       this.apply_rigid_skin_test(final_skin_indices, final_skin_weights)
 
       geometry_data.setAttribute('skinIndex', new Uint16BufferAttribute(final_skin_indices, 4))

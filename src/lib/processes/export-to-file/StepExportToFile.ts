@@ -11,6 +11,7 @@ import { AnimationUtility } from '../animations-listing/AnimationUtility.ts'
 import { type AnimationExportSelection } from '../animations-listing/interfaces/AnimationExportSelection.ts'
 import { FbxTextureCompatibilityService } from './FbxTextureCompatibilityService.ts'
 import { PropsExportFilter } from '../animations-listing/props/PropsExportFilter.ts'
+import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
 
 // Note: EventTarget is a built-in interface and do not need to import it
 export class StepExportToFile extends EventTarget {
@@ -56,6 +57,9 @@ export class StepExportToFile extends EventTarget {
 
     const export_clips = this.animation_clips_to_export.map((clip) => {
       const cloned_clip = clip.clone()
+      // Recreate supports from the final (possibly mirrored) limb tracks using
+      // this rig's actual bind axes before export renames any bones.
+      if (skinned_meshes[0] !== undefined) JointVolumeSupport.updateClip(cloned_clip, skinned_meshes[0].skeleton)
       // Make action names consistent by replacing any whitespace with underscores
       cloned_clip.name = cloned_clip.name.replace(/\s+/g, '_')
       return cloned_clip

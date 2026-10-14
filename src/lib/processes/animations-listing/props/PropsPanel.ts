@@ -45,7 +45,8 @@ export class PropsPanel extends EventTarget {
     const dock = this.ui.dom_props_dock
     if (tool_panel !== null && dock !== null) {
       new ResizeObserver(() => {
-        dock.style.right = `calc(${tool_panel.offsetWidth}px + 0.5rem)`
+        const panel_right = parseFloat(getComputedStyle(tool_panel).right) || 0
+        dock.style.right = `calc(${tool_panel.offsetWidth + panel_right}px + 0.5rem)`
       }).observe(tool_panel)
     }
 

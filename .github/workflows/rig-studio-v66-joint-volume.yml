@@ -1,0 +1,100 @@
+name: Rig Animation Studio v6.6 Joint Volume TEST APK
+
+on:
+  push:
+    branches:
+      - codex/rig-studio-joint-volume
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - name: Install web dependencies
+        run: npm ci
+      - name: Run full regression tests
+        run: npm test -- --run
+      - name: Build web assets
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          npm run build
+      - name: Install browser test tools
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Check touch panel and repeated arm slider drags
+        run: node scripts/check-rig-studio-touch-panel.mjs
+      - name: Upload touch panel checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Studio-v6.6-panel-checks
+          path: artifacts/panel-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Capacitor install
+        run: npm install --no-save @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - name: Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Keep original Rig Animation Studio installed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle = Path('android/app/build.gradle')
+          text = gradle.read_text()
+          app_id = 'com.rayzen.riganimationstudio'
+          new_id = app_id + '.v66test'
+          old = 'applicationId "' + app_id + '"'
+          count = text.count(old)
+          if count != 1:
+              raise RuntimeError(f'Expected one applicationId={app_id}, got {count}; refusing to overwrite installed Rig Studio')
+          updated = text.replace(old, 'applicationId "' + new_id + '"')
+          gradle.write_text(updated)
+          names = Path('android/app/src/main/res/values/strings.xml')
+          if names.exists():
+              names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v6.6 TEST'))
+          print('Distinct Android test applicationId:', new_id)
+          PY
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile APK
+        working-directory: android
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon --refresh-dependencies; then
+              exit 0
+            fi
+            echo "Gradle dependency retrieval failed on attempt $attempt; retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - name: Name test APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v6.6-Joint-Volume-test.apk
+      - name: Upload TEST APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Animation-Studio-v6.6-Joint-Volume-test-APK
+          path: artifacts/Rig-Animation-Studio-v6.6-Joint-Volume-test.apk
+          if-no-files-found: error
+          retention-days: 14

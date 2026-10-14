@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Bone, BufferGeometry, CylinderGeometry } from 'three'
+import { Bone, BufferGeometry, CatmullRomCurve3, CylinderGeometry, TubeGeometry, Vector3 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.ts'
@@ -84,6 +84,52 @@ describe('SurfaceGeodesicWeightCalculator v6 joint blend', () => {
 })
 
 describe('SurfaceGeodesicWeightCalculator component coverage', () => {
+  it('does not anchor one leg to the other on a connected trouser surface', () => {
+    const pelvis = new Bone()
+    pelvis.name = 'pelvis'
+    pelvis.position.y = 1
+    const bones = [pelvis]
+    for (const side of [-1, 1]) {
+      const thigh = new Bone()
+      thigh.name = side < 0 ? 'thigh_r' : 'thigh_l'
+      thigh.position.set(side * 0.14, 0, 0)
+      pelvis.add(thigh)
+      const calf = new Bone()
+      calf.name = side < 0 ? 'calf_r' : 'calf_l'
+      calf.position.y = -0.5
+      thigh.add(calf)
+      const foot = new Bone()
+      foot.name = side < 0 ? 'foot_r' : 'foot_l'
+      foot.position.y = -0.5
+      calf.add(foot)
+      bones.push(thigh, calf, foot)
+    }
+    pelvis.updateWorldMatrix(true, true)
+    const curve = new CatmullRomCurve3([
+      new Vector3(-0.14, 0, 0), new Vector3(-0.14, 0.5, 0),
+      new Vector3(-0.14, 1, 0), new Vector3(0, 1.08, 0),
+      new Vector3(0.14, 1, 0), new Vector3(0.14, 0.5, 0), new Vector3(0.14, 0, 0)
+    ])
+    const geometry = new TubeGeometry(curve, 160, 0.09, 16, false)
+    const indices: number[] = []
+    const weights: number[] = []
+    new SurfaceGeodesicWeightCalculator(bones, geometry).calculate(indices, weights)
+    const positions = geometry.getAttribute('position')
+    let samples = 0
+    let wrong_total = 0
+    for (let vertex = 0; vertex < positions.count; vertex++) {
+      const y = positions.getY(vertex)
+      if (y < 0.15 || y > 0.4) continue
+      const wrong_side = positions.getX(vertex) < 0 ? '_l' : '_r'
+      for (let slot = 0; slot < 4; slot++) {
+        if (bones[indices[vertex * 4 + slot]].name.endsWith(wrong_side)) wrong_total += weights[vertex * 4 + slot]
+      }
+      samples++
+    }
+    expect(samples).toBeGreaterThan(100)
+    expect(wrong_total / samples).toBeLessThan(0.01)
+  })
+
   it.each([24, 40])('weights every segment of a connected %i-bone limb', (segment_count) => {
     // Generic names and a horizontal chain cover tails/wings too. Twenty-four
     // segments catch sparse sampling; forty also catch the old 32-bone cap.

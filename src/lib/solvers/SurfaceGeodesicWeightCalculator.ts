@@ -108,7 +108,9 @@ export class SurfaceGeodesicWeightCalculator {
   private adjacency: Array<Array<{ node: number, length: number }>> = []
   private components: number[][] = []
   private boneSurfaceData: BoneSurfaceData[] = []
+  private boneSurfaceByIndex = new Map<number, BoneSurfaceData>()
   private boneNeighborhoods: Array<Set<number>> = []
+  private nearestSurfaceBones: number[] = []
   private skeletonHeight = 1
 
   constructor (bones: Bone[], geometry: BufferGeometry) {
@@ -121,8 +123,10 @@ export class SurfaceGeodesicWeightCalculator {
     skinWeights.length = 0
 
     this.buildBoneSurfaceData()
+    this.boneSurfaceByIndex = new Map(this.boneSurfaceData.map(bone => [bone.boneIndex, bone]))
     this.buildBoneNeighborhoods()
     this.buildSurfaceGraph()
+    this.nearestSurfaceBones = this.nodePositions.map(point => this.closestBoneToPoint(point))
     this.buildConnectedComponents()
 
     const vertexCount = this.geometry.getAttribute('position').count
@@ -177,7 +181,7 @@ export class SurfaceGeodesicWeightCalculator {
       const name = bone.name.toLowerCase()
       if (name === 'root' || name.endsWith(':root') || Utility.is_leaf_bone(bone)) return
 
-      const childBones = bone.children.filter(child => child.type === 'Bone') as Bone[]
+      const childBones = bone.children.filter(child => child.type === 'Bone' && this.bones.includes(child as Bone)) as Bone[]
       const segments: Array<[Vector3, Vector3]> = []
 
       if (childBones.length > 0) {
@@ -348,9 +352,19 @@ export class SurfaceGeodesicWeightCalculator {
 
       const minDistance = distances[0]
       const weighted: Array<{ bone: number, weight: number }> = []
+      const point = this.nodePositions[node]
+      const local_distances = bones.map(index => Math.sqrt(this.distanceSqToBone(
+        point, this.boneSurfaceByIndex.get(index)!
+      )))
+      const local_min = Math.min(...local_distances)
 
       for (let slot = 0; slot < bones.length; slot++) {
-        const relativeDistance = Math.max(0, distances[slot] - minDistance)
+        // Surface paths keep disconnected/occluded regions separate. A local
+        // distance penalty also prevents the broad falloff from sharing a
+        // thick trouser leg with the opposite thigh. It is continuous through
+        // the joint/equidistance plane, unlike dropping weights by bone family.
+        const relativeDistance = Math.max(0, distances[slot] - minDistance) +
+          2 * Math.max(0, local_distances[slot] - local_min)
         const weight = Math.exp(-relativeDistance / sigma)
         if (slot === 0 || weight >= 0.02) weighted.push({ bone: bones[slot], weight })
       }
@@ -467,6 +481,14 @@ export class SurfaceGeodesicWeightCalculator {
 
     for (const node of component) {
       const point = this.nodePositions[node]
+      // A connected character is not a seed region for every bone. In
+      // particular, angular buckets can plant RIGHT calf seeds on the LEFT
+      // leg, bypassing the surface path around the crotch. Only seed the
+      // nearest segment; propagation handles the rest of the surface and
+      // keeps smooth transitions at real joints. Even seeding a sibling via
+      // the shared pelvis would reintroduce opposite-thigh anchors.
+      const nearest_index = this.nearestSurfaceBones[node]
+      if (nearest_index !== bone.boneIndex) continue
       let distance_sq = Infinity
       let bucket = 0
       for (let segment = 0; segment < bone.segments.length; segment++) {

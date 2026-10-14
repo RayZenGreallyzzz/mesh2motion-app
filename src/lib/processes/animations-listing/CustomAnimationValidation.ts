@@ -1,6 +1,7 @@
 import { type AnimationClip, type SkinnedMesh } from 'three'
 import { IncompatibleSkeletonError, LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
 import { ModalDialog } from '../../ModalDialog.ts'
+import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
 
 export default class CustomAnimationValidation {
   /**
@@ -18,9 +19,11 @@ export default class CustomAnimationValidation {
 
     // Get target bone names from skeleton
     const target_bone_names = new Set<string>()
+    const generated_bone_names = new Set<string>()
     skinned_meshes.forEach((skinned_mesh) => {
       skinned_mesh.skeleton.bones.forEach((bone) => {
         target_bone_names.add(bone.name.toLowerCase())
+        if (JointVolumeSupport.isSupportBone(bone)) generated_bone_names.add(bone.name.toLowerCase())
       })
     })
 
@@ -32,7 +35,8 @@ export default class CustomAnimationValidation {
     }
 
     // Check bone name mismatch
-    const missing_from_animation = Array.from(target_bone_names).filter(bone => !animation_bone_names.has(bone)).sort()
+    const missing_from_animation = Array.from(target_bone_names)
+      .filter(bone => !animation_bone_names.has(bone) && !generated_bone_names.has(bone)).sort()
     const extra_in_animation = Array.from(animation_bone_names).filter(bone => !target_bone_names.has(bone)).sort()
 
     if (missing_from_animation.length > 0 || extra_in_animation.length > 0) {
