@@ -505,6 +505,8 @@ option {
 
 #tool-panel {
     position: fixed;
+    /* Keep panel controls above the viewport's camera helper hitbox. */
+    z-index: 5;
     height: fit-content;
 
     background: var(--bg-tertiary);
