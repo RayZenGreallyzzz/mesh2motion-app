@@ -83,14 +83,17 @@ export class JointVolumeSupport {
         const total = parent_weight + child_weight
         // Do not pull torso, adjacent limbs or manually rigid-painted vertices
         // into the joint. Only redistribute an already dominant adjacent pair.
-        if (total < 0.75) continue
+        if (total <= 0.5) continue
         point.fromBufferAttribute(positions, vertex).sub(joint)
         const axial = point.dot(axis)
         const radial = Math.sqrt(Math.max(0, point.lengthSq() - axial * axial))
         const falloff = this.fade(Math.abs(axial) / (length * 0.35)) *
           this.fade(Math.max(0, radial / length - 0.45) / 0.3)
         const fraction = child_weight / total
-        const amount = 4 * fraction * (1 - fraction) * falloff
+        // Fade confidence continuously: a hard 75% cutoff would give two
+        // neighboring vertices very different support at a deep bend.
+        const confidence = 1 - this.fade((total - 0.5) / 0.35)
+        const amount = 4 * fraction * (1 - fraction) * falloff * confidence
         if (amount < 0.001) continue
         const entries = [
           ...Array.from({ length: 4 }, (_, slot) => ({

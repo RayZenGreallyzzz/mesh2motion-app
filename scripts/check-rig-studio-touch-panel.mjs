@@ -50,7 +50,11 @@ try {
     assert(bounds.x + bounds.width <= panel.x + panel.width - 8, 'Slider is clipped by the panel')
     assert(panel.x + panel.width <= width - 23, 'Panel has no safe inset from the screen edge')
     const cdp = await context.newCDPSession(page)
-    for (const target of [7, -50, 20, -120, 7]) {
+    // Begin at the reported 7% and make deliberate drags larger than the
+    // browser's touch-slop threshold, returning to 7% twice.
+    await page.locator('#extend-arm-numeric-input').fill('7')
+    await page.locator('#extend-arm-numeric-input').blur()
+    for (const target of [-50, 7, -120, 20, -50, 7]) {
       const current = Number(await slider.inputValue())
       const point = value => ({
         x: bounds.x + 8 + (bounds.width - 16) * (value + 120) / 140,

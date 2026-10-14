@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AnimationClip, AnimationMixer, Bone, CylinderGeometry, Float32BufferAttribute,
+  AnimationClip, AnimationMixer, Bone, BufferGeometry, CylinderGeometry, Float32BufferAttribute,
   MeshBasicMaterial, Quaternion, QuaternionKeyframeTrack, Skeleton, SkinnedMesh,
   Uint16BufferAttribute, Vector3
 } from 'three'
@@ -64,6 +64,20 @@ function sample (mesh: SkinnedMesh, clip: AnimationClip, time: number): Vector3[
 }
 
 describe('JointVolumeSupport', () => {
+  it('has no deformation jump where a third influence crosses the dominant-pair boundary', () => {
+    const mesh = makeLimb('leg', 'l')
+    const geometry = new BufferGeometry()
+    geometry.setAttribute('position', new Float32BufferAttribute([0.18, 1, 0, 0.18, 1, 0], 3))
+    const indices = [0, 1, 2, 0, 0, 1, 2, 0]
+    const weights = [0.37495, 0.37495, 0.2501, 0, 0.37505, 0.37505, 0.2499, 0]
+    JointVolumeSupport.applyWeights(geometry, mesh.skeleton, indices, weights)
+    geometry.setAttribute('skinIndex', new Uint16BufferAttribute(indices, 4))
+    geometry.setAttribute('skinWeight', new Float32BufferAttribute(weights, 4))
+    mesh.geometry = geometry
+    const points = sample(mesh, bendClip(mesh, 140), 1)
+    expect(points[0].distanceTo(points[1])).toBeLessThan(0.001)
+  })
+
   it.each(['arm', 'leg'] as const)('preserves %s ring thickness at a 140-degree bend on both sides', (role) => {
     for (const side of ['l', 'r']) {
       for (const enabled of [false, true]) {
