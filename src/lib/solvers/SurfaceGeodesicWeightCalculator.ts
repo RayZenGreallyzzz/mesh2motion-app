@@ -133,9 +133,11 @@ export class SurfaceGeodesicWeightCalculator {
     const resultBones: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
     const resultWeights: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
 
+    const bestBones: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
+    const bestDistances: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
     console.time('surface_geodesic_skinning')
     for (const component of this.components) {
-      this.solveComponent(component, resultBones, resultWeights)
+      this.solveComponent(component, resultBones, resultWeights, bestBones, bestDistances)
     }
     console.timeEnd('surface_geodesic_skinning')
 
@@ -304,7 +306,9 @@ export class SurfaceGeodesicWeightCalculator {
   private solveComponent (
     component: number[],
     resultBones: number[][],
-    resultWeights: number[][]
+    resultWeights: number[][],
+    bestBones: number[][],
+    bestDistances: number[][]
   ): void {
     if (component.length === 0) return
 
@@ -312,8 +316,6 @@ export class SurfaceGeodesicWeightCalculator {
     const candidateBones = this.selectCandidateBones(component, metrics.span)
     if (candidateBones.length === 0) return
 
-    const bestBones: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
-    const bestDistances: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
     const heap = new SurfaceMinHeap()
 
     for (const bone of candidateBones) {

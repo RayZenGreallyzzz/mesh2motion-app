@@ -1,3 +1,4 @@
+import { CharacterWeightField } from '../../solvers/CharacterWeightField.ts'
 import { UI } from '../../UI.ts'
 import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
 import { welded_surface_components } from '../../solvers/WeldedSurfaceComponents.ts'
@@ -17,7 +18,8 @@ export class StepWeightSkin extends EventTarget {
   private binding_skeleton: Skeleton | undefined
   private binding_scene_root: Object3D | undefined
   private skinning_bone_names: string[] = []
-  private joint_volume_enabled = false
+  private readonly weight_field = new CharacterWeightField()
+  private joint_volume_enabled = true
   private skinned_meshes: SkinnedMesh[] = []
 
   // stores the geometry data for meshes we will skin
@@ -111,7 +113,7 @@ export class StepWeightSkin extends EventTarget {
   public begin (): void { }
 
   public create_bone_formula_object (editable_armature: Object3D, skeleton_type: SkeletonType): void {
-    this.joint_volume_enabled = is_humanoid_skeleton_type(skeleton_type)
+    this.joint_volume_enabled = true
     // v5.8: bind the exact Bone hierarchy the user edited. No second rig rebuild,
     // no rest-axis rewrite, and no non-Bone object inside the skeleton chain.
     this.skinning_armature = editable_armature.clone(true)
@@ -553,6 +555,10 @@ export class StepWeightSkin extends EventTarget {
     }
   }
 
+  public async prepare_automatic_weights (): Promise<void> {
+    if (this.bone_skinning_formula) await this.weight_field.prepare(this.all_mesh_geometry, this.bone_skinning_formula)
+  }
+
   public calculate_weights_for_all_mesh_data (regenerate_weight_painted_mesh: boolean = false): void {
     if (this.all_mesh_geometry.length === 0) {
       console.warn('Tried to calculate_weights_for_all_mesh_data() but all_mesh_geometry is empty!')
@@ -561,10 +567,10 @@ export class StepWeightSkin extends EventTarget {
 
     if (this.bone_skinning_formula === undefined) return
 
-    // loop through each mesh geometry and calculate the weights
+    const shared = this.weight_field.calculate(this.all_mesh_geometry, this.bone_skinning_formula)
+    // Split the shared field back into the original meshes without changing indices.
     this.all_mesh_geometry.forEach((geometry_data: BufferGeometry, idx: number) => {
-      this.bone_skinning_formula!.set_geometry(geometry_data)
-      const [final_skin_indices, final_skin_weights]: number[][] = this.calculate_weights()
+      const [final_skin_indices, final_skin_weights] = shared[idx]
       this.apply_clothing_component_guard(geometry_data, final_skin_indices, final_skin_weights)
       // Manual paint stays available for normal builds, but v5.5 deliberately
       // collapses the final result to one bone per vertex AFTER every adjustment.

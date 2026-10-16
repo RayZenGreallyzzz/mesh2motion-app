@@ -144,18 +144,20 @@ export class RestPoseAnimationBridge {
       const target_rest = target_rest_pose.get(bone_name)
       if (source_rest === undefined || target_rest === undefined) continue
 
+      const stride = rotation ? 4 : 3
+      const cubic = track.values.length === track.times.length * stride * 3
       if (rotation) {
         source_inverse.copy(source_rest.quaternion).invert()
         for (let i = 0; i < track.values.length; i += 4) {
           source_animation.set(
             track.values[i], track.values[i + 1],
             track.values[i + 2], track.values[i + 3]
-          ).normalize()
+          )
           target_animation
             .copy(target_rest.quaternion)
             .multiply(source_inverse)
             .multiply(source_animation)
-            .normalize()
+          if (!cubic || (i / 4) % 3 === 1) target_animation.normalize()
           track.values[i] = target_animation.x
           track.values[i + 1] = target_animation.y
           track.values[i + 2] = target_animation.z
@@ -163,6 +165,7 @@ export class RestPoseAnimationBridge {
         }
       } else {
         for (let i = 0; i < track.values.length; i += 3) {
+          if (cubic && (i / 3) % 3 !== 1) continue
           track.values[i] = target_rest.position.x + track.values[i] - source_rest.position.x * skeleton_scale
           track.values[i + 1] = target_rest.position.y + track.values[i + 1] - source_rest.position.y * skeleton_scale
           track.values[i + 2] = target_rest.position.z + track.values[i + 2] - source_rest.position.z * skeleton_scale

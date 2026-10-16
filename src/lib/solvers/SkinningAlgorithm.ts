@@ -1,9 +1,11 @@
 import {
   type Bone,
+  Vector3,
   BufferGeometry,
   type Object3D
 } from 'three'
 
+import { type WeightConfig } from './CharacterWeightJob.ts'
 import { Utility } from '../Utilities.js'
 import { SkeletonType } from '../enums/SkeletonType.js'
 import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
@@ -11,13 +13,7 @@ import { HeadWeightCorrector } from './HeadWeightCorrector.js'
 import { WeightNormalizer } from './WeightNormalizer.js'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 
-/**
- * SkinningAlgorithm
- *
- * Humanoids use Rig Engine v2 surface/geodesic skinning. Animal rigs keep the
- * original Mesh2Motion closest-bone pipeline until they get their own tuned
- * surface presets.
- */
+/** Surface/geodesic skinning shared by humanoids and animal templates. */
 export default class SkinningAlgorithm {
   private bones_master_data: Bone[] = []
   private geometry: BufferGeometry = new BufferGeometry()
@@ -31,6 +27,21 @@ export default class SkinningAlgorithm {
   constructor (bone_hier: Object3D, skeleton_type: SkeletonType) {
     this.skeleton_type = skeleton_type
     this.bones_master_data = Utility.bone_list_from_hierarchy(bone_hier)
+  }
+
+  public cache_key (): string {
+    this.bones_master_data.forEach(bone => bone.updateWorldMatrix(true, false))
+    return JSON.stringify([this.skeleton_type, this.use_head_weight_correction, this.preview_plane_height,
+      this.bones_master_data.map(bone => [bone.name, bone.matrixWorld.elements])])
+  }
+
+  public worker_config (): WeightConfig {
+    return {
+      type: this.skeleton_type!, head: this.use_head_weight_correction, height: this.preview_plane_height,
+      bones: this.bones_master_data.map(bone => ({ name: bone.name,
+        parent: this.bones_master_data.indexOf(bone.parent as Bone),
+        position: bone.getWorldPosition(new Vector3()).toArray() }))
+    }
   }
 
   public set_geometry (geom: BufferGeometry): void {

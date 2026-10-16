@@ -15,7 +15,8 @@ import { StepLoadModel } from './lib/processes/load-model/StepLoadModel.ts'
 import { StepLoadSkeleton } from './lib/processes/load-skeleton/StepLoadSkeleton.ts'
 import { StepEditSkeleton } from './lib/processes/edit-skeleton/StepEditSkeleton.ts'
 import { MeshDragBonePlacement } from './lib/processes/edit-skeleton/MeshDragBonePlacement.ts'
-import { estimate_arm_pose } from './lib/processes/edit-skeleton/AutoRigArmPoseEstimator.ts'
+import { fit_humanoid_rig } from './lib/processes/edit-skeleton/HumanoidAutoFit.ts'
+import { AnimalAutoFit } from './lib/processes/edit-skeleton/AnimalAutoFit.ts'
 import { StepAnimationsListing } from './lib/processes/animations-listing/StepAnimationsListing.ts'
 import { ArmExtensionControl } from './lib/processes/animations-listing/ArmExtensionControl.ts'
 import { DownloadSettings } from './lib/processes/export-to-file/DownloadSettings.ts'
@@ -51,6 +52,7 @@ export class Mesh2MotionEngine {
   public is_transform_controls_dragging: boolean = false
   public readonly transform_controls_hover_distance: number = window.matchMedia?.('(pointer: coarse)').matches ? 0.055 : 0.02 // larger finger hit radius on tablets
   public is_model_gizmo_active: boolean = false
+  private weights_busy = false
   private rig_setup_group: Group | null = null
   private rig_setup_locked_state: boolean = true
   private manual_weight_stroke_vertices: Map<number, Set<number>> | null = null
@@ -282,296 +284,37 @@ export class Mesh2MotionEngine {
    * the existing humanoid skeleton to the imported mesh using its geometry,
    * then leaves the joints editable for a final human check.
    */
-  public auto_fit_humanoid_rig (): void {
-    if (this.process_step !== ProcessStep.EditSkeleton) return
-    if (!is_humanoid_skeleton_type(this.load_skeleton_step.skeleton_type())) return
+  private auto_fit_in_progress = false
 
-    // Fit only after the shared model/rig transform has been baked. That gives
-    // the autorigger stable world-space geometry and keeps Bind coordinates sane.
+  public async auto_fit_humanoid_rig (): Promise<void> {
+    if (this.process_step !== ProcessStep.EditSkeleton || this.auto_fit_in_progress) return
     if (!this.rig_setup_locked_state) this.lock_rig_setup()
-
     const model = this.load_model_step.model_meshes()
     const skeleton = this.edit_skeleton_step.skeleton()
-    const bones = skeleton.bones
-    if (bones.length === 0) return
-
-    model.updateWorldMatrix(true, true)
-    bones[0]?.updateWorldMatrix(true, true)
-
-    // Sample the actual visible geometry instead of trusting only the bounding
-    // box. High-poly characters are capped per mesh so this remains tablet-safe.
-    const points: THREE.Vector3[] = []
-    model.traverse((child: THREE.Object3D) => {
-      const geometry = (child as any).geometry as THREE.BufferGeometry | undefined
-      const positions = geometry?.getAttribute('position')
-      if (positions === undefined) return
-
-      const stride = Math.max(1, Math.ceil(positions.count / 7000))
-      const p = new THREE.Vector3()
-      for (let i = 0; i < positions.count; i += stride) {
-        p.fromBufferAttribute(positions, i)
-        child.localToWorld(p)
-        points.push(p.clone())
-      }
-    })
-
-    if (points.length < 32) return
-
-    let minX = Infinity; let maxX = -Infinity
-    let minY = Infinity; let maxY = -Infinity
-    let minZ = Infinity; let maxZ = -Infinity
-    for (const p of points) {
-      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
-      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
-      minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
-    }
-
-    const height = maxY - minY
-    const width = maxX - minX
-    const depth = maxZ - minZ
-    if (!Number.isFinite(height) || height <= 0.0001 || width <= 0.0001) return
-
-    const centerX = (minX + maxX) * 0.5
-    const centerZ = (minZ + maxZ) * 0.5
-    const yAt = (ratio: number): number => minY + height * ratio
-
-    const normalize = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const byAliases = (aliases: string[]): Bone | undefined => {
-      const wanted = aliases.map(normalize)
-      return bones.find((bone) => {
-        const n = normalize(bone.name)
-        return wanted.some(alias => n === alias || n.endsWith(alias))
-      })
-    }
-
-    const sideBone = (role: 'shoulder' | 'upperarm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'foot' | 'toe', side: 'l' | 'r'): Bone | undefined => {
-      const left = side === 'l'
-      const aliases: Record<typeof role, string[]> = {
-        shoulder: left
-          ? ['shoulder_l', 'leftshoulder', 'clavicle_l', 'leftclavicle', 'mixamorigleftshoulder']
-          : ['shoulder_r', 'rightshoulder', 'clavicle_r', 'rightclavicle', 'mixamorigrightshoulder'],
-        upperarm: left
-          ? ['upperarm_l', 'leftarm', 'leftupperarm', 'mixamorigleftarm']
-          : ['upperarm_r', 'rightarm', 'rightupperarm', 'mixamorigrightarm'],
-        forearm: left
-          ? ['forearm_l', 'leftforearm', 'lowerarm_l', 'leftlowerarm', 'mixamorigleftforearm']
-          : ['forearm_r', 'rightforearm', 'lowerarm_r', 'rightlowerarm', 'mixamorigrightforearm'],
-        hand: left
-          ? ['hand_l', 'lefthand', 'mixamoriglefthand']
-          : ['hand_r', 'righthand', 'mixamorigrighthand'],
-        thigh: left
-          ? ['thigh_l', 'leftupleg', 'leftupperleg', 'mixamorigleftupleg']
-          : ['thigh_r', 'rightupleg', 'rightupperleg', 'mixamorigrightupleg'],
-        shin: left
-          ? ['shin_l', 'leftleg', 'leftlowerleg', 'calf_l', 'mixamorigleftleg']
-          : ['shin_r', 'rightleg', 'rightlowerleg', 'calf_r', 'mixamorigrightleg'],
-        foot: left
-          ? ['foot_l', 'leftfoot', 'mixamorigleftfoot']
-          : ['foot_r', 'rightfoot', 'mixamorigrightfoot'],
-        toe: left
-          ? ['toe_l', 'lefttoe', 'toebase_l', 'lefttoebase', 'mixamoriglefttoebase']
-          : ['toe_r', 'righttoe', 'toebase_r', 'righttoebase', 'mixamorgrighttoebase']
-      }
-      return byAliases(aliases[role])
-    }
-
-    const pelvis = byAliases(['pelvis', 'hips', 'mixamorighips'])
-    const neck = byAliases(['neck', 'mixamorigneck'])
-    const head = byAliases(['head', 'mixamorighead'])
-
-    // Uniformly scale all local bone offsets first so fingers/toes and any bones
-    // we do not explicitly place inherit a sensible model-scale automatically.
-    const boneWorldBefore = bones.map(b => b.getWorldPosition(new THREE.Vector3()))
-    let boneMinY = Infinity; let boneMaxY = -Infinity
-    let boneMinZ = Infinity; let boneMaxZ = -Infinity
-    for (const p of boneWorldBefore) {
-      boneMinY = Math.min(boneMinY, p.y); boneMaxY = Math.max(boneMaxY, p.y)
-      boneMinZ = Math.min(boneMinZ, p.z); boneMaxZ = Math.max(boneMaxZ, p.z)
-    }
-    const boneHeight = Math.max(0.0001, boneMaxY - boneMinY)
-    const uniformScale = height / boneHeight
-    bones.forEach((bone, index) => {
-      if (index === 0) return
-      bone.position.multiplyScalar(uniformScale)
-    })
-    bones[0]?.updateWorldMatrix(true, true)
-
-    const originalDepth = Math.max(0.0001, boneMaxZ - boneMinZ)
-    const depthScale = depth > 0.0001 ? depth / originalDepth : 1
-    const originalCenterZ = (boneMinZ + boneMaxZ) * 0.5
-    const preservedZ = (bone: Bone): number => {
-      const old = boneWorldBefore[bones.indexOf(bone)]
-      if (old === undefined) return centerZ
-      return centerZ + (old.z - originalCenterZ) * depthScale
-    }
-
-    const depthCenterAt = (
-      x: number,
-      y: number,
-      fallback: number = centerZ,
-      radiusX: number = Math.max(width * 0.035, 0.0001),
-      radiusY: number = Math.max(height * 0.025, 0.0001)
-    ): number => {
-      const candidates: number[] = []
-      for (const p of points) {
-        const dx = (p.x - x) / radiusX
-        const dy = (p.y - y) / radiusY
-        if (dx * dx + dy * dy <= 1) candidates.push(p.z)
-      }
-
-      if (candidates.length < 8) {
-        // Expand once for thin limbs / sparse sampling.
-        for (const p of points) {
-          const dx = (p.x - x) / (radiusX * 1.8)
-          const dy = (p.y - y) / (radiusY * 1.8)
-          if (dx * dx + dy * dy <= 1) candidates.push(p.z)
-        }
-      }
-
-      if (candidates.length < 4) return fallback
-      candidates.sort((a, b) => a - b)
-
-      // Use robust inner front/back percentiles instead of raw extremes so hair,
-      // capes and armor spikes do not drag a joint out of the body volume.
-      const lo = candidates[Math.floor((candidates.length - 1) * 0.15)]
-      const hi = candidates[Math.floor((candidates.length - 1) * 0.85)]
-      return (lo + hi) * 0.5
-    }
-
-    const setWorld = (bone: Bone | undefined, x: number, y: number, z?: number): void => {
-      if (bone === undefined || bone.parent === null) return
-      bone.parent.updateWorldMatrix(true, false)
-      const target = new THREE.Vector3(x, y, z ?? depthCenterAt(x, y, preservedZ(bone)))
-      bone.position.copy(bone.parent.worldToLocal(target))
-      bone.updateWorldMatrix(true, true)
-    }
-
-    // Robust torso width estimate. A percentile of a horizontal slice ignores
-    // most arm vertices, unlike a raw max-width box which is dominated by A/T arms.
-    const sliceHalfWidth = (ratio: number, bandRatio = 0.025): number => {
-      const y = yAt(ratio)
-      const band = Math.max(height * bandRatio, 0.0001)
-      const distances: number[] = []
-      for (const p of points) {
-        if (Math.abs(p.y - y) <= band) distances.push(Math.abs(p.x - centerX))
-      }
-      if (distances.length < 8) return width * 0.12
-      distances.sort((a, b) => a - b)
-      return distances[Math.min(distances.length - 1, Math.floor(distances.length * 0.72))]
-    }
-
-    const shoulderHalf = Math.max(width * 0.08, sliceHalfWidth(0.79) * 0.95)
-    const hipHalf = Math.max(width * 0.045, sliceHalfWidth(0.52) * 0.42)
-
-    // Determine which world-X side the rig calls "left" from the current rig,
-    // so this works even if the imported character faces the opposite direction.
-    const lUpper = sideBone('upperarm', 'l')
-    const rUpper = sideBone('upperarm', 'r')
-    const lX = lUpper?.getWorldPosition(new THREE.Vector3()).x ?? 1
-    const rX = rUpper?.getWorldPosition(new THREE.Vector3()).x ?? -1
-    const leftSign = lX >= rX ? 1 : -1
-
-    // v6.4: locate real arm heights from the lateral mesh before falling
-    // back to Y=79%. Giant cat ears and hair otherwise move the assumed
-    // shoulder slice ABOVE a real T-pose and create false A-pose rigs.
-    const armEstimate = estimate_arm_pose(points, centerX, width, minY, height)
-    const shoulderY = armEstimate?.shoulderY ?? yAt(0.79)
-    const sideReach = width * 0.5
-    let shoulderFarPoints = 0
-    if (armEstimate === null) {
-      for (const p of points) {
-        if (Math.abs(p.y - shoulderY) < height * 0.035 &&
-            Math.abs(p.x - centerX) > sideReach * 0.62) {
-          shoulderFarPoints++
-        }
-      }
-    }
-    const tPose = armEstimate?.tPose ??
-      (shoulderFarPoints > Math.max(8, points.length * 0.002))
-
-    this.edit_skeleton_step.store_bone_state_for_undo()
-
-    // Centre chain.
-    setWorld(pelvis, centerX, yAt(0.52), depthCenterAt(centerX, yAt(0.52), centerZ, width * 0.12, height * 0.035))
-
-    const spineBones = bones
-      .filter(b => {
-        const n = normalize(b.name)
-        return (n.includes('spine') || n.includes('chest')) && !n.includes('shoulder')
-      })
-      .sort((a, b) => a.getWorldPosition(new THREE.Vector3()).y - b.getWorldPosition(new THREE.Vector3()).y)
-
-    spineBones.forEach((bone, index) => {
-      const t = spineBones.length <= 1 ? 1 : index / (spineBones.length - 1)
-      { const yy = yAt(0.59 + 0.16 * t); setWorld(bone, centerX, yy, depthCenterAt(centerX, yy, centerZ, width * 0.10, height * 0.03)) }
-    })
-    setWorld(neck, centerX, yAt(0.84), depthCenterAt(centerX, yAt(0.84), centerZ, width * 0.08, height * 0.025))
-    setWorld(head, centerX, yAt(0.91), depthCenterAt(centerX, yAt(0.91), centerZ, width * 0.09, height * 0.035))
-
-    // Arms: fit A-pose by default, keep T-pose horizontal when geometry says so.
-    for (const side of ['l', 'r'] as const) {
-      const sign = side === 'l' ? leftSign : -leftSign
-      const shoulder = sideBone('shoulder', side)
-      const upper = sideBone('upperarm', side)
-      const fore = sideBone('forearm', side)
-      const hand = sideBone('hand', side)
-      const sideEdge = sign > 0 ? maxX : minX
-      const shoulderX = centerX + sign * shoulderHalf
-      const handX = centerX + (sideEdge - centerX) * 0.91
-      const elbowX = shoulderX + (handX - shoulderX) * 0.52
-      const armY = armEstimate?.shoulderY ?? yAt(0.785)
-      const handY = armEstimate?.handY ?? (tPose ? armY : yAt(0.60))
-      const elbowY = armEstimate !== null
-        ? (armY + handY) * 0.5
-        : (tPose ? armY : yAt(0.69))
-
-      const shoulderJointX = centerX + sign * shoulderHalf * 0.58
-      const shoulderJointY = shoulderY
-      setWorld(shoulder, shoulderJointX, shoulderJointY,
-        depthCenterAt(shoulderJointX, shoulderJointY, centerZ, width * 0.055, height * 0.03))
-      setWorld(upper, shoulderX, armY,
-        depthCenterAt(shoulderX, armY, preservedZ(upper ?? shoulder!), width * 0.045, height * 0.025))
-      setWorld(fore, elbowX, elbowY,
-        depthCenterAt(elbowX, elbowY, preservedZ(fore ?? upper!), width * 0.035, height * 0.025))
-      setWorld(hand, handX, handY,
-        depthCenterAt(handX, handY, preservedZ(hand ?? fore!), width * 0.03, height * 0.025))
-    }
-
-    // Legs.
-    for (const side of ['l', 'r'] as const) {
-      const sign = side === 'l' ? leftSign : -leftSign
-      const thigh = sideBone('thigh', side)
-      const shin = sideBone('shin', side)
-      const foot = sideBone('foot', side)
-      const toe = sideBone('toe', side)
-      const xHip = centerX + sign * hipHalf
-      const xKnee = centerX + sign * hipHalf * 0.88
-      const xFoot = centerX + sign * hipHalf * 0.92
-
-      const hipY = yAt(0.50)
-      const kneeY = yAt(0.285)
-      const footY = yAt(0.055)
-      const toeY = yAt(0.025)
-      setWorld(thigh, xHip, hipY,
-        depthCenterAt(xHip, hipY, preservedZ(thigh ?? pelvis!), width * 0.045, height * 0.035))
-      setWorld(shin, xKnee, kneeY,
-        depthCenterAt(xKnee, kneeY, preservedZ(shin ?? thigh!), width * 0.035, height * 0.03))
-      setWorld(foot, xFoot, footY,
-        depthCenterAt(xFoot, footY, preservedZ(foot ?? shin!), width * 0.04, height * 0.025))
-      if (toe !== undefined) setWorld(toe, xFoot, toeY,
-        depthCenterAt(xFoot, toeY, preservedZ(toe), width * 0.04, height * 0.02))
-    }
-
-    bones[0]?.updateWorldMatrix(true, true)
-    this.regenerate_skeleton_helper(skeleton, 'Skeleton Helper')
-    this.sync_skeleton_helper_joint_visibility()
-    this.edit_skeleton_step.dispatchEvent(new CustomEvent('skeletonTransformed'))
-
+    const species = this.load_skeleton_step.skeleton_type()
     const status = document.getElementById('rig-setup-status')
-    if (status !== null) {
-      status.textContent = tPose
-        ? 'АвтоРиг готов (T-pose). Проверьте таз, локти, колени и кисти.'
-        : 'АвтоРиг готов (A-pose). Проверьте таз, локти, колени и кисти.'
+    this.auto_fit_in_progress = true
+    if (status) status.textContent = 'Подгонка скелета…'
+    try {
+      const before = () => this.edit_skeleton_step.store_bone_state_for_undo()
+      let result: string | null
+      if (is_humanoid_skeleton_type(species)) {
+        result = fit_humanoid_rig(model, skeleton, this.rig_setup_group, before)
+      } else {
+        const reference = await AnimalAutoFit.load_reference(species)
+        result = AnimalAutoFit.fit(model, skeleton, this.rig_setup_group, reference, before)
+      }
+      this.regenerate_skeleton_helper(skeleton, 'Skeleton Helper')
+      this.sync_skeleton_helper_joint_visibility()
+      this.edit_skeleton_step.dispatchEvent(new CustomEvent('skeletonTransformed'))
+      if (status) status.textContent = result
+        ? `Подгонка: ${result}. Проверьте суставы перед расчётом весов.`
+        : 'Недостаточно геометрии для подгонки.'
+    } catch (error) {
+      console.error(error)
+      if (status) status.textContent = 'Не удалось подогнать скелет. Можно расставить суставы вручную.'
+    } finally {
+      this.auto_fit_in_progress = false
     }
   }
 
@@ -721,7 +464,7 @@ export class Mesh2MotionEngine {
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
     if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
-      autorig.textContent = 'АвтоРиг · Rest Pose v6.1'
+      autorig.textContent = 'Подогнать скелет'
     }
     if (status !== null) {
       const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
@@ -830,6 +573,7 @@ export class Mesh2MotionEngine {
   }
 
   public is_manual_weight_editor_enabled (): boolean {
+    if (this.weights_busy) return false
     const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
     return this.process_step === ProcessStep.WeightSkin &&
       (enabled?.checked ?? false)
@@ -1106,6 +850,7 @@ export class Mesh2MotionEngine {
   }
 
   public process_step_changed (process_step: ProcessStep): ProcessStep {
+    if (this.auto_fit_in_progress || this.weights_busy) return this.process_step
     const previous_step = this.process_step
 
     // Never animate a rig whose bind matrices already move the mesh in REST.
@@ -1226,21 +971,9 @@ export class Mesh2MotionEngine {
       this.transform_controls.enabled = false
       this.dispose_skeleton_helper()
 
-      this.remove_skinned_meshes_from_scene()
-      this.calculate_skin_weighting_for_models()
-      this.apply_rig_world_transform_to_skin_outputs()
-      this.scene.add(...this.weight_skin_step.final_skinned_meshes())
-      this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
-
-      this.load_model_step.model_meshes().visible = false
       this.mesh_preview_display_type = ModelPreviewDisplay.Textured
-      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = true })
-      this.weight_skin_step.weight_painted_mesh_group().visible = false
-
-      if (this.ui.dom_weight_skin_tools !== null) this.ui.dom_weight_skin_tools.style.display = 'flex'
-      if (this.ui.dom_current_step_element !== null) this.ui.dom_current_step_element.textContent = 'Веса'
-      this.refresh_manual_weight_editor()
-      this.sync_manual_weight_editor()
+      if (this.ui.dom_weight_skin_tools) this.ui.dom_weight_skin_tools.style.display = 'flex'
+      void this.regenerate_weight_painted_preview_mesh()
     }
     else if (this.process_step === ProcessStep.AnimationsListing) {
       this.process_step = ProcessStep.AnimationsListing
@@ -1443,27 +1176,40 @@ export class Mesh2MotionEngine {
     }
   }
 
-  public regenerate_weight_painted_preview_mesh (): void {
+  public async regenerate_weight_painted_preview_mesh (): Promise<void> {
+    if (this.weights_busy) return
+    this.weights_busy = true
+    const panel = this.ui.dom_weight_skin_tools
+    const was_inert = panel?.inert ?? false
+    if (panel) panel.inert = true
+    if (this.ui.dom_current_step_element) this.ui.dom_current_step_element.textContent = 'Расчёт весов… Можно вращать модель.'
     const is_weight_step = this.process_step === ProcessStep.WeightSkin
-    if (is_weight_step) this.remove_skinned_meshes_from_scene()
-
-    this.calculate_skin_weighting_for_models()
-    this.apply_rig_world_transform_to_skin_outputs()
-
-    if (this.scene.getObjectByName('Weight Painted Mesh Preview') === undefined) {
+    try {
+      if (is_weight_step) this.remove_skinned_meshes_from_scene()
+      await this.calculate_skin_weighting_for_models()
+      this.apply_rig_world_transform_to_skin_outputs()
       this.scene.add(this.weight_skin_step.weight_painted_mesh_group())
-    }
-
-    if (is_weight_step) {
-      this.scene.add(...this.weight_skin_step.final_skinned_meshes())
-      const show_textured = this.mesh_preview_display_type === ModelPreviewDisplay.Textured
-      this.load_model_step.model_meshes().visible = false
-      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = show_textured })
-      this.weight_skin_step.weight_painted_mesh_group().visible = !show_textured
+      if (is_weight_step) {
+        this.scene.add(...this.weight_skin_step.final_skinned_meshes())
+        const textured = this.mesh_preview_display_type === ModelPreviewDisplay.Textured
+        this.load_model_step.model_meshes().visible = false
+        this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = textured })
+        this.weight_skin_step.weight_painted_mesh_group().visible = !textured
+        this.refresh_manual_weight_editor()
+        this.sync_manual_weight_editor()
+      }
+      if (this.ui.dom_current_step_element) this.ui.dom_current_step_element.textContent = 'Веса'
+    } catch (error) {
+      console.error(error)
+      this.load_model_step.model_meshes().visible = true
+      if (this.ui.dom_current_step_element) this.ui.dom_current_step_element.textContent = 'Не удалось рассчитать веса. Повторите расчёт.'
+    } finally {
+      this.weights_busy = false
+      if (panel) panel.inert = was_inert
     }
   }
 
-  private calculate_skin_weighting_for_models (): void {
+  private async calculate_skin_weighting_for_models (): Promise<void> {
     // we only need one binding skeleton. All skinned meshes will use this.
     this.weight_skin_step.reset_all_skin_process_data() // clear out any existing skinned meshes in storage
 
@@ -1498,6 +1244,7 @@ export class Mesh2MotionEngine {
     // this will take all the mesh geometry data we added above and create skinned meshes
     // TODO: Always regenerate the weight painted mesh preview for now. This will change later
     // when we have are in the "Weight Painted" display mode
+    await this.weight_skin_step.prepare_automatic_weights()
     this.weight_skin_step.calculate_weights_for_all_mesh_data(true)
     this.show_bind_rest_diagnostic()
 
