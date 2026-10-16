@@ -1,3 +1,4 @@
+import { AnimalCrossSection } from './AnimalCrossSection.ts'
 import { Box3, Matrix4, Object3D, Quaternion, Skeleton, Vector3, type Bone, type Mesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { RigConfig } from '../../RigConfig.ts'
@@ -96,6 +97,19 @@ export class AnimalAutoFit {
     const size = new Box3().setFromPoints(canonical_target).getSize(new Vector3())
     const center = new Box3().setFromPoints(canonical_target).getCenter(new Vector3())
     const source_center = fit.box.getCenter(new Vector3())
+    const identical_shape = this.shape_cost(fit.points, target, target_size) < 1e-10
+    const quadruped = reference.joints.has('Front_Leg_Upper_L') && reference.joints.has('Back_Leg_Upper_L')
+    const source_feet = quadruped ? this.foot_centers(canonical_source, size) : null
+    const target_feet = quadruped ? this.foot_centers(canonical_target, size) : null
+    const box = new Box3().setFromPoints(canonical_target)
+    const map_z = (z: number): number => {
+      if (identical_shape || !source_feet || !target_feet) return z
+      const from = [box.min.z, source_feet[0], source_feet[1], box.max.z]
+      const to = [box.min.z, target_feet[0], target_feet[1], box.max.z]
+      const i = z < from[1] ? 0 : z < from[2] ? 1 : 2
+      return to[i] + (z - from[i]) * (to[i + 1] - to[i]) / Math.max(1e-6, from[i + 1] - from[i])
+    }
+    const cross_section = !identical_shape && quadruped ? new AnimalCrossSection(model, frame, fit.yaw, canonical_target) : null
     const frame_rotation = frame?.getWorldQuaternion(new Quaternion()).normalize() ?? new Quaternion()
     const targets = new Map<string, { position: Vector3, rotation: Quaternion }>()
     for (const [name, joint] of reference.joints) {
@@ -104,10 +118,26 @@ export class AnimalAutoFit {
       // Compare homologous local sections instead of treating horns, ears or a
       // raised tail as the top of every part of the animal's torso.
       const source_section = this.section(canonical_source, canonical.z, size, center)
+      canonical.z = map_z(canonical.z)
       const target_section = this.section(canonical_target, canonical.z, size, center)
-      if (source_section && target_section) {
-        const ratio = (canonical.y - source_section.low) / Math.max(size.y * 0.03, source_section.high - source_section.low)
-        const desired = target_section.low + ratio * (target_section.high - target_section.low)
+      const body_section = cross_section?.center(canonical.z)
+      if (body_section && source_section) {
+        const lower = name.toLowerCase()
+        if (/hips|spine|neck|head|stomach|shoulder|pelvis|tail/.test(lower)) canonical.y = body_section.y
+        else if (/leg/.test(lower)) {
+          const source_top = (source_section.low + source_section.high) / 2
+          const floor = box.min.y
+          const t = Math.max(0, Math.min(1, (canonical.y - floor) / Math.max(size.y * .15, source_top - floor)))
+          canonical.y = floor + t * (body_section.y - floor)
+        } else if (/nose|chin|ear/.test(lower)) {
+          canonical.y = body_section.y + Math.max(-size.y * .06, Math.min(size.y * .1,
+            canonical.y - (source_section.low + source_section.high) / 2))
+          canonical.x = center.x + Math.max(-body_section.radius, Math.min(body_section.radius, canonical.x - center.x))
+        }
+      } else if (!identical_shape && source_section && target_section) {
+        const source_mid = (source_section.low + source_section.high) / 2
+        const target_mid = (target_section.low + target_section.high) / 2
+        const desired = canonical.y + target_mid - source_mid
         const name_lower = name.toLowerCase()
         const body = /hips|spine|neck|head|tail|jaw|ear/.test(name_lower)
         if (body) canonical.y = desired
@@ -124,6 +154,30 @@ export class AnimalAutoFit {
       position.copy(canonical.applyQuaternion(fit.yaw))
       if (frame) position.applyMatrix4(frame.matrixWorld)
       targets.set(name, { position, rotation: frame_rotation.clone().multiply(fit.yaw).multiply(joint.rotation).normalize() })
+    }
+    if (cross_section) {
+      const names = [...reference.joints.keys()].filter(name => /tail/i.test(name))
+      const first = targets.get(names[0])
+      if (first) {
+        const start = first.position.clone()
+        if (frame) start.applyMatrix4(frame.matrixWorld.clone().invert())
+        start.applyQuaternion(inverse_yaw)
+        const hips = targets.get('Hips')
+        if (hips) {
+          const hip = hips.position.clone()
+          if (frame) hip.applyMatrix4(frame.matrixWorld.clone().invert())
+          hip.applyQuaternion(inverse_yaw)
+          start.y = hip.y
+        }
+        const posterior_top = Math.max(...canonical_target.filter(p => p.z < start.z).map(p => p.y))
+        const allow_curl = posterior_top - start.y > size.y * .5
+        const path = cross_section.tail(start, names.length, allow_curl)
+        if (path) path.forEach((p, i) => {
+          p.applyQuaternion(fit.yaw)
+          if (frame) p.applyMatrix4(frame.matrixWorld)
+          targets.get(names[i])!.position.copy(p)
+        })
+      }
     }
     before_apply()
     // Parent before child, independent of Skeleton.bones array ordering.
@@ -148,15 +202,24 @@ export class AnimalAutoFit {
   private static section (points: Vector3[], z: number, size: Vector3, center: Vector3): { low: number, high: number } | null {
     const values = points.filter(p => Math.abs(p.z - z) < size.z * 0.055 && Math.abs(p.x - center.x) < size.x * 0.24).map(p => p.y).sort((a, b) => a - b)
     if (values.length < 8) return null
-    // Reject detached thin ornaments by taking the main contiguous Y cluster.
-    const clusters: number[][] = [[]]
-    for (const y of values) {
-      const last = clusters[clusters.length - 1]
-      if (last.length && y - last[last.length - 1] > size.y * 0.065) clusters.push([y])
-      else last.push(y)
+    // These are surface samples: a gap between top and underside is the body
+    // interior, not evidence of disconnected anatomy.
+    return { low: values[Math.floor((values.length - 1) * 0.12)], high: values[Math.floor((values.length - 1) * 0.88)] }
+  }
+
+  private static foot_centers (points: Vector3[], size: Vector3): [number, number] | null {
+    const floor = Math.min(...points.map(p => p.y))
+    const feet = points.filter(p => p.y < floor + size.y * 0.14)
+    if (feet.length < 16) return null
+    let back = Math.min(...feet.map(p => p.z)), front = Math.max(...feet.map(p => p.z))
+    for (let iteration = 0; iteration < 8; iteration++) {
+      const a = feet.filter(p => Math.abs(p.z - back) < Math.abs(p.z - front))
+      const b = feet.filter(p => Math.abs(p.z - back) >= Math.abs(p.z - front))
+      if (!a.length || !b.length) return null
+      back = a.reduce((sum, p) => sum + p.z, 0) / a.length
+      front = b.reduce((sum, p) => sum + p.z, 0) / b.length
     }
-    const main = clusters.sort((a, b) => b.length - a.length)[0]
-    return { low: main[Math.floor((main.length - 1) * 0.12)], high: main[Math.floor((main.length - 1) * 0.88)] }
+    return front - back > size.z * 0.15 ? [back, front] : null
   }
 
   private static shape_cost (a: Vector3[], b: Vector3[], size: Vector3): number {

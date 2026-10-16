@@ -463,13 +463,11 @@ export class Mesh2MotionEngine {
     if (pose_a !== null) pose_a.disabled = !this.rig_setup_locked_state
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
-    if (autorig !== null && this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale) {
+    if (autorig !== null) {
       autorig.textContent = 'Подогнать скелет'
     }
     if (status !== null) {
-      const cleanLive = this.load_skeleton_step.skeleton_type() === SkeletonType.MobileFemale
-        ? 'REST POSE v6.1 · '
-        : ''
+      const cleanLive = ''
       status.textContent = this.rig_setup_locked_state
         ? cleanLive + 'риг зафиксирован: правьте суставы, обзор меняется только камерой.'
         : cleanLive + 'риг разблокирован: модель и скелет двигаются вместе.'
