@@ -34,6 +34,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Check responsive worker and cache
         run: node scripts/check-rig-studio-worker.mjs
+      - name: Check full animal editing and GLB export flow
+        run: node scripts/check-rig-studio-flow.mjs
       - name: Check eight real animal rigs and animation libraries
         run: |
           node_modules/.bin/esbuild scripts/check-rig-studio-animals.ts --bundle --platform=node --format=esm --packages=external --outfile=scripts/check-rig-studio-animals.mjs
@@ -47,6 +49,7 @@ jobs:
           name: Rig-Studio-v6.7-panel-checks
           path: |
             artifacts/panel-*.png
+            artifacts/flow-*.png
             artifacts/rig-check/results.json
           if-no-files-found: ignore
           retention-days: 14
