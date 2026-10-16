@@ -286,7 +286,7 @@ export class ModelCleanupUtility {
     })
   }
 
-  public static strip_out_all_unecessary_model_data (model_data: Scene, model_display_name: string, debug_model_loading: boolean): Scene {
+  public static strip_out_all_unecessary_model_data (model_data: Object3D, model_display_name: string, debug_model_loading: boolean): Scene {
     const new_scene = new Scene()
     new_scene.name = model_display_name
 

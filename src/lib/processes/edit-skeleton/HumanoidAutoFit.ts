@@ -18,7 +18,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     model.traverse((child: THREE.Object3D) => {
       const geometry = (child as any).geometry as THREE.BufferGeometry | undefined
       const positions = geometry?.getAttribute('position')
-      if (positions === undefined) return null
+      if (positions === undefined) return
 
       const stride = Math.max(1, Math.ceil(positions.count / 7000))
       const p = new THREE.Vector3()
@@ -106,7 +106,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     const uniformScale = height / boneHeight
     before_apply()
     bones.forEach((bone, index) => {
-      if (index === 0) return null
+      if (index === 0) return
       bone.position.multiplyScalar(uniformScale)
     })
     bones[0]?.updateWorldMatrix(true, true)
@@ -154,7 +154,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
 
     const setWorld = (bone: Bone | undefined, x: number, y: number, z?: number): void => {
-      if (bone === undefined || bone.parent === null) return null
+      if (bone === undefined || bone.parent === null) return
       bone.parent.updateWorldMatrix(true, false)
       const target = new THREE.Vector3(x, y, z ?? depthCenterAt(x, y, preservedZ(bone)))
       if (frame !== null) target.applyMatrix4(frame.matrixWorld)

@@ -211,7 +211,10 @@ export class AnimationLoader extends EventTarget {
                 const converted = RestSpaceRetargeter.retarget(clip, source_rest, target_rest, mappings)
                 const converted_names = new Set(converted.tracks.map(track => track.name))
                 // Keep unmatched tracks visible to the import validator.
-                for (const track of clip.tracks) if (!converted_names.has(track.name)) converted.tracks.push(track.clone())
+                for (const track of clip.tracks) {
+                  const normalized_name = track.name.replace(/^.*\.bones\[([^\]]+)\]\./, '$1.')
+                  if (!converted_names.has(normalized_name)) converted.tracks.push(track.clone())
+                }
                 return converted
               })
             }
