@@ -14,11 +14,14 @@ public class ExportTestProvider extends ContentProvider {
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"/saved.glb".equals(uri.getPath())) throw new FileNotFoundException("Test provider denies write");
         return ParcelFileDescriptor.open(new File(getContext().getCacheDir(), "saved.glb"),
-                ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY);
+                mode.contains("w") ? ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY
+                    : ParcelFileDescriptor.MODE_READ_ONLY);
     }
     @Override public String getType(Uri uri) { return "model/gltf-binary"; }
     @Override public Cursor query(Uri uri, String[] p, String s, String[] a, String o) { return null; }
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }
-    @Override public int delete(Uri uri, String s, String[] a) { return 0; }
+    @Override public int delete(Uri uri, String s, String[] a) {
+        return "/saved.glb".equals(uri.getPath()) && new File(getContext().getCacheDir(), "saved.glb").delete() ? 1 : 0;
+    }
     @Override public int update(Uri uri, ContentValues v, String s, String[] a) { return 0; }
 }

@@ -1,7 +1,9 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 const root = 'android/app/src/androidTest'
 const dir = `${root}/java/com/rayzen/riganimationstudio`
 await mkdir(dir, { recursive: true })
+// Capacitor's generated sample asserts the template package name, not this app's ID.
+await rm(`${root}/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java`, { force: true })
 for (const file of ['NativeExportTest.java', 'ExportTestProvider.java']) {
   await copyFile(`resources/android/test/${file}`, `${dir}/${file}`)
 }

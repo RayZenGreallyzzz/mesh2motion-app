@@ -15,8 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import org.json.JSONObject;
-import java.io.File;
-import java.nio.file.Files;
+import java.io.InputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,12 +42,18 @@ public class NativeExportTest {
                 new Intent().setData(Uri.parse(URI + "saved.glb"))));
         JSONObject result = export();
         assertEquals(result.toString(), "saved", result.optString("status"));
-        File output = new File(InstrumentationRegistry.getInstrumentation().getContext().getCacheDir(), "saved.glb");
-        byte[] bytes = Files.readAllBytes(output.toPath());
+        // Read back through the document provider: instrumentation and provider contexts
+        // may have different cache directories despite belonging to the same test APK.
+        android.content.ContentResolver resolver = InstrumentationRegistry.getInstrumentation().getTargetContext().getContentResolver();
+        byte[] bytes;
+        try (InputStream input = resolver.openInputStream(Uri.parse(URI + "saved.glb"))) {
+            assertNotNull(input);
+            bytes = input.readAllBytes();
+        }
         assertEquals(524305, bytes.length);
         for (int i = 0; i < bytes.length; i++) assertEquals("Byte " + i, (i * 13) % 256, bytes[i] & 255);
         intended(hasAction(Intent.ACTION_CREATE_DOCUMENT));
-        output.delete();
+        assertEquals(1, resolver.delete(Uri.parse(URI + "saved.glb"), null, null));
     }
     @Test public void cancellationReturnsCancelledAndAllowsAnotherExport() throws Exception {
         intending(hasAction(Intent.ACTION_CREATE_DOCUMENT)).respondWith(new ActivityResult(Activity.RESULT_CANCELED, null));
