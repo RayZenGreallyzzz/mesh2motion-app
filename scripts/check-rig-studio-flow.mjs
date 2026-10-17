@@ -36,12 +36,15 @@ try {
   const layout = await page.evaluate(() => {
     const listing = document.getElementById('animations-listing').getBoundingClientRect()
     const panel = document.getElementById('tool-panel').getBoundingClientRect()
+    const content = document.getElementById('skinned-step-animation-export-options').getBoundingClientRect()
     const card = document.querySelector('#animations-items .anim-item').getBoundingClientRect()
     const preview = document.querySelector('#animations-items .anim-play-button').getBoundingClientRect()
     const label = document.querySelector('#animations-items .anim-row-checkbox').getBoundingClientRect()
-    return { panel: panel.width, listing: listing.width, card: card.width, previewBottom: preview.bottom, labelTop: label.top }
+    return { panel: panel.width, content: content.width, listing: listing.width, card: card.width, previewBottom: preview.bottom, labelTop: label.top }
   })
-  assert(layout.listing >= layout.panel - 34, 'Animation library must use full panel width')
+  console.log('Animation panel layout', layout)
+  await page.screenshot({ path: 'artifacts/flow-library-layout.png' })
+  assert(layout.listing >= layout.content - 1, 'Animation library must use full panel content width')
   assert(layout.card > 100, 'Animation previews must remain readable')
   assert(layout.labelTop >= layout.previewBottom - 1, 'Animation labels must not overlay previews')
   const download_event = page.waitForEvent('download')
