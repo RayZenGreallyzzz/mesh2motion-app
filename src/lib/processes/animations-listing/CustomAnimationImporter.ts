@@ -1,7 +1,8 @@
+import { RestSpaceRetargeter, type BoneRestSpace } from '../../../retarget/RestSpaceRetargeter.ts'
 import { UI } from '../../UI.ts'
 import { ModalDialog } from '../../ModalDialog.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
-import { type AnimationClip, type SkinnedMesh } from 'three'
+import { type AnimationClip, type Skeleton, type SkinnedMesh } from 'three'
 import { type AnimationLoader } from './AnimationLoader.ts'
 import CustomAnimationValidation from './CustomAnimationValidation.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
@@ -11,6 +12,7 @@ import { type AnimationClipMetadata, type TransformedAnimationClipPair } from '.
  * This class encapsulates the UI and logic for the import process.
  */
 export class CustomAnimationImporter extends EventTarget {
+  private readonly rest_spaces = new WeakMap<Skeleton, Map<string, BoneRestSpace>>()
   private readonly ui: UI
   private readonly animation_loader: AnimationLoader
   private skinned_meshes_to_animate: SkinnedMesh[] = []
@@ -25,6 +27,16 @@ export class CustomAnimationImporter extends EventTarget {
     this.animation_loader = animation_loader
     this.prepare_mobile_import_ui()
     this.add_event_listeners()
+  }
+
+  public remember_rest_pose (mesh: SkinnedMesh): void {
+    if (this.rest_spaces.has(mesh.skeleton)) return
+    const poses = new Map<string, BoneRestSpace>()
+    for (const bone of mesh.skeleton.bones) {
+      if (mesh.skeleton.bones.includes(bone.parent as never)) continue
+      for (const [name, pose] of RestSpaceRetargeter.capture(bone)) poses.set(name, pose)
+    }
+    this.rest_spaces.set(mesh.skeleton, poses)
   }
 
   public set_import_context (skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number): void {
@@ -137,7 +149,8 @@ export class CustomAnimationImporter extends EventTarget {
       const new_animation_clips = await this.animation_loader.load_animations_from_file(
         file,
         this.skeleton_scale,
-        metadata_override
+        metadata_override,
+        this.skinned_meshes_to_animate[0] ? this.rest_spaces.get(this.skinned_meshes_to_animate[0].skeleton) : undefined
       )
 
       // Validate custom animations against our target skeleton

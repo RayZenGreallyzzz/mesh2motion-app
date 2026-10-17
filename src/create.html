@@ -2,8 +2,7 @@
 <html lang="ru">
   <head>
     <title>Rig Animation Studio</title>
-    <link rel="icon" type="image/png" href="./images/favicon.png" />
-    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" href="./images/branding/hedgehog-icon.png" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
@@ -29,7 +28,7 @@
 
     <nav class="ras-nav">
       <div id="ras-branding" aria-label="Rig Animation Studio">
-        <span class="ras-brand-mark">RA</span>
+        <img class="ras-brand-mark" src="./images/branding/hedgehog-icon.png" alt="" width="38" height="38" />
         <span class="ras-brand-copy">
           <strong>Rig Animation Studio</strong>
           <small>Mobile Rig &amp; Animation</small>
@@ -312,7 +311,7 @@
           </div>
 
           <!-- Arm plane controls -->
-          <div id="use-arm-plane-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+          <div id="use-arm-plane-container" hidden style="display: none !important; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
             <div class="styled-checkbox">
               <input type="checkbox" id="arm-plane-checkbox" />
               <label for="arm-plane-checkbox">Use Arm Plane Correction</label>

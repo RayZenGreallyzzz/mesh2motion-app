@@ -1,3 +1,4 @@
+import { RestSpaceRetargeter, type BoneRestSpace } from '../../../retarget/RestSpaceRetargeter.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip } from 'three'
 import { AnimationUtility } from './AnimationUtility.ts'
@@ -172,7 +173,8 @@ export class AnimationLoader extends EventTarget {
   public async load_animations_from_file (
     file: File,
     skeleton_scale: number = 1.0,
-    metadata_override: Partial<AnimationClipMetadata> = {}
+    metadata_override: Partial<AnimationClipMetadata> = {},
+    target_rest?: ReadonlyMap<string, BoneRestSpace>
   ): Promise<TransformedAnimationClipPair[]> {
     const file_url = URL.createObjectURL(file)
     const file_total = file.size > 0 ? file.size : 1
@@ -190,7 +192,7 @@ export class AnimationLoader extends EventTarget {
           URL.revokeObjectURL(file_url)
 
           try {
-            const animations = gltf.animations as AnimationClip[]
+            let animations = gltf.animations as AnimationClip[]
             if (animations === null || animations === undefined || animations.length === 0) {
               this.file_progress_map.set(file.name, { loaded: file_total, total: file_total })
               this.completed_files = 1
@@ -202,9 +204,23 @@ export class AnimationLoader extends EventTarget {
             this.completed_files = 1
             this.emit_enhanced_progress(file.name, file_total, file_total)
 
+            if (target_rest?.size) {
+              const source_rest = RestSpaceRetargeter.capture(gltf.scene)
+              const mappings = new Map([...target_rest.keys()].filter(name => source_rest.has(name)).map(name => [name, name]))
+              animations = animations.map(clip => {
+                const converted = RestSpaceRetargeter.retarget(clip, source_rest, target_rest, mappings)
+                const converted_names = new Set(converted.tracks.map(track => track.name))
+                // Keep unmatched tracks visible to the import validator.
+                for (const track of clip.tracks) {
+                  const normalized_name = track.name.replace(/^.*\.bones\[([^\]]+)\]\./, '$1.')
+                  if (!converted_names.has(normalized_name)) converted.tracks.push(track.clone())
+                }
+                return converted
+              })
+            }
             const processed_clips = this.process_loaded_animations(
               animations,
-              skeleton_scale,
+              target_rest?.size ? 1 : skeleton_scale,
               metadata_override
             )
             resolve(processed_clips)

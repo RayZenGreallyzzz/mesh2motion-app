@@ -68,7 +68,7 @@ const translations: Record<string, string> = {
   'File Format': 'Формат файла',
   'FBX Preset': 'Профиль FBX',
   'Contents': 'Содержимое',
-  'Expand / Contract Arms': 'Расширить / сузить руки',
+  'Expand / Contract Arms': 'Разведение рук (угол)',
   'Rotate': 'Вращение',
   'Pan': 'Перемещение',
   'Zoom': 'Масштаб',

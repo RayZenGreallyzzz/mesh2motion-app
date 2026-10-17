@@ -1,3 +1,4 @@
+import { RestSpaceRetargeter, type BoneRestSpace } from './RestSpaceRetargeter.ts'
 import {
   AnimationClip, QuaternionKeyframeTrack,
   VectorKeyframeTrack, Scene, Group, type SkinnedMesh,
@@ -22,6 +23,8 @@ export class AnimationRetargetService {
    * Get/set for the skeleton type. This will be the source of truth
    * for other classes to grab this data
    */
+  private source_rest_space = new Map<string, BoneRestSpace>()
+  private target_rest_space = new Map<string, BoneRestSpace>()
   private source_armature: Group = new Group()
   private skeleton_type: SkeletonType = SkeletonType.None
   private target_armature: Scene = new Scene()
@@ -66,6 +69,7 @@ export class AnimationRetargetService {
 
   public set_source_armature (armature: Group): void {
     this.source_armature = armature
+    this.source_rest_space = RestSpaceRetargeter.capture(armature)
   }
 
   public get_source_armature (): Group {
@@ -74,6 +78,7 @@ export class AnimationRetargetService {
 
   public set_target_armature (new_armature: Scene): void {
     this.target_armature = new_armature
+    this.target_rest_space = RestSpaceRetargeter.capture(new_armature)
 
     // re-calculate skinned meshes from target armature scene
     this.target_skinned_meshes = []
@@ -154,6 +159,10 @@ export class AnimationRetargetService {
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // Besides the above special case, the standard retargeting will just be bone mapping applied
     // Maybe in the future we can do other more advanced things.
+
+    if (this.source_rest_space.size && this.target_rest_space.size) {
+      return RestSpaceRetargeter.retarget(source_clip, this.source_rest_space, this.target_rest_space, this.bone_mappings)
+    }
 
     const reverse_mappings = RetargetUtils.reverse_bone_mapping(this.bone_mappings)
 

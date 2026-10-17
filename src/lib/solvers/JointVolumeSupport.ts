@@ -21,27 +21,27 @@ export class JointVolumeSupport {
 
   public static addToSkeleton (skeleton: Skeleton): Skeleton {
     const bones = [...skeleton.bones]
-    for (const side of ['l', 'r']) {
-      for (const [parent_name, child_names] of [
-        [`upperarm_${side}`, [`lowerarm_${side}`, `forearm_${side}`]],
-        [`thigh_${side}`, [`calf_${side}`, `shin_${side}`]]
-      ] as Array<[string, string[]]>) {
-        const parent = bones.find(bone => bone.name === parent_name)
-        const child = bones.find(bone => child_names.includes(bone.name) && bone.parent === parent)
-        if (parent === undefined || child === undefined) continue
-        const name = `rig_volume_${child.name}`
-        if (bones.some(bone => bone.name === name)) continue
-        const support = new Bone()
-        support.name = name
-        support.position.copy(child.position)
-        support.quaternion.copy(child.quaternion)
-        support.userData.rigJointVolume = {
-          version: 1, source: child.name, rest: child.quaternion.toArray()
-        } satisfies SupportData
-        parent.add(support)
-        support.updateWorldMatrix(true, false)
-        bones.push(support)
-      }
+    for (const child of skeleton.bones) {
+      const parent = child.parent as Bone | null
+      if (!parent?.isBone) continue
+      const name_lower = child.name.toLowerCase()
+      const parent_lower = parent.name.toLowerCase()
+      const human = /^(lowerarm|forearm)_[lr]$/.test(name_lower) && /^upperarm_[lr]$/.test(parent_lower) ||
+        /^(calf|shin)_[lr]$/.test(name_lower) && /^thigh_[lr]$/.test(parent_lower)
+      const animal = /leg/.test(parent_lower) && /leg.*lower|lowerleg|leg.*ankle|ankleleg|^(front|back)_ankle|^leg_[a-d]_[23]/.test(name_lower)
+      if (!human && !animal) continue
+      const name = `rig_volume_${child.name}`
+      if (bones.some(bone => bone.name === name)) continue
+      const support = new Bone()
+      support.name = name
+      support.position.copy(child.position)
+      support.quaternion.copy(child.quaternion)
+      support.userData.rigJointVolume = {
+        version: 1, source: child.name, rest: child.quaternion.toArray()
+      } satisfies SupportData
+      parent.add(support)
+      support.updateWorldMatrix(true, false)
+      bones.push(support)
     }
     if (bones.length === skeleton.bones.length) return skeleton
     return new Skeleton(bones)

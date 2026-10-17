@@ -268,6 +268,7 @@ export class StepAnimationsListing extends EventTarget {
       if (registered.has(mesh.skeleton)) continue
       registered.add(mesh.skeleton)
       this.rest_pose_snapshots.remember(mesh.skeleton)
+      this.custom_animation_importer.remember_rest_pose(mesh)
     }
     this.props_manager.attach_to_skinned_meshes(new_skinned_meshes)
     this.rebuild_warped_animations()
@@ -306,6 +307,7 @@ export class StepAnimationsListing extends EventTarget {
       if (registered.has(mesh.skeleton)) continue
       registered.add(mesh.skeleton)
       this.rest_pose_snapshots.remember(mesh.skeleton)
+      this.custom_animation_importer.remember_rest_pose(mesh)
     }
     this.props_manager.attach_to_skinned_meshes(final_skinned_meshes)
 

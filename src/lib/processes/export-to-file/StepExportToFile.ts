@@ -108,7 +108,7 @@ export class StepExportToFile extends EventTarget {
       download_settings.export_format(),
       download_settings.fbx_export_preset()
     )
-      .then(() => {
+      .finally(() => {
         // Move the exported objects back to their original parents
         objects_to_export.forEach((exported_object) => {
           const original_par = original_parents.get(exported_object)
@@ -124,14 +124,7 @@ export class StepExportToFile extends EventTarget {
         restore_props()
         restore_bone_names()
       })
-      .catch((error) => {
-        console.log('Error exporting file:', error)
 
-        restore_props()
-        restore_bone_names()
-
-        throw error
-      })
   }
 
   public async export_scene (

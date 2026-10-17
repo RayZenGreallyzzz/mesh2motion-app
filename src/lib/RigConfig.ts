@@ -21,7 +21,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.Human,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Human · Surface Skin v2',
+      rig_display_name: 'Human',
       animation_files: [
         '../animations/human-base-animations.glb', 
         '../animations/human-addon-animations.glb',
@@ -36,7 +36,7 @@ export class RigConfig {
       skeleton_type: SkeletonType.MobileFemale,
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
-      rig_display_name: 'Humanoid v6.1 Rest Pose · Direct Clips',
+      rig_display_name: 'Humanoid',
       animation_files: [
         '../animations/human-base-animations.glb',
         '../animations/human-addon-animations.glb',

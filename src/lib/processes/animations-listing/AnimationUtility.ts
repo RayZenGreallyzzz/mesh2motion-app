@@ -1,6 +1,5 @@
 import { AnimationClip, Quaternion, Vector3, type KeyframeTrack, type QuaternionKeyframeTrack } from 'three'
 import type { TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair'
-import { RigConfig } from '../../RigConfig'
 
 export class AnimationUtility {
   // when we scaled the skeleton itself near the beginning, we kept track of that
@@ -114,7 +113,7 @@ export class AnimationUtility {
         if (is_right_arm_track_match || is_left_arm_track_match) {
           const new_track_values: Float32Array = quaterion_track.values.slice() // clone array
 
-          const track_count: number = quaterion_track.times.length
+          const track_count: number = quaterion_track.values.length / 4
           for (let i = 0; i < track_count; i++) {
             // get correct value since it is a quaternion
             const units_in_quaternions: number = 4
@@ -157,167 +156,24 @@ export class AnimationUtility {
    * This swaps tracks that end with 'L' or 'R' to create mirrored animations.
    */
   static apply_animation_mirroring (animation_clips: TransformedAnimationClipPair[]): void {
-    // do the swapping of the left/right tracks since we have all mirrored tracks exist now
-    animation_clips.forEach((warped_clip: TransformedAnimationClipPair) => {
-      const tracks = warped_clip.display_animation_clip.tracks
-      const clip_name: string = warped_clip.display_animation_clip.name
-      const track_swaps: Array<{ leftIndex: number, rightIndex: number, clipDetails: string }> = []
-
-      // Find pairs of L/R tracks to swap
-      for (let i = 0; i < tracks.length; i++) {
-        const track = tracks[i]
-        const track_name = track.name
-
-        // Check if this is a left track that we haven't already processed
-        if (track_name.toLowerCase().endsWith('_l.quaternion')) {
-          // Find the corresponding right track
-          const right_track_name = track_name.replace(/_l\.quaternion$/, '_r.quaternion')
-          const right_track_index = tracks.findIndex(t => t.name.toLowerCase() === right_track_name)
-
-          if (right_track_index !== -1) {
-            track_swaps.push({ leftIndex: i, rightIndex: right_track_index, clipDetails: clip_name + ':' + track_name })
+    for (const pair of animation_clips) {
+      const source = pair.display_animation_clip.tracks
+      const names = new Map(source.map(track => [track.name.toLowerCase(), track]))
+      pair.display_animation_clip.tracks = source.map(track => {
+        const opposite = track.name.toLowerCase().replace(/_([lr])(?=\.(?:quaternion|position|scale)$)/,
+          (_, side: string) => side === 'l' ? '_r' : '_l')
+        const mirrored = (names.get(opposite) ?? track).clone()
+        mirrored.name = track.name
+        if (track.name.endsWith('.quaternion')) {
+          for (let i = 0; i < mirrored.values.length; i += 4) {
+            mirrored.values[i + 1] *= -1
+            mirrored.values[i + 2] *= -1
           }
+        } else if (track.name.endsWith('.position')) {
+          for (let i = 0; i < mirrored.values.length; i += 3) mirrored.values[i] *= -1
         }
-      }
- 
-      // Perform the swaps with quaternion mirroring
-      track_swaps.forEach(({ leftIndex, rightIndex, clipDetails }) => {
-        const left_track = tracks[leftIndex]
-        const right_track = tracks[rightIndex]
-
-        // Clone the times and values to avoid reference issues
-        const left_values = left_track.values.slice()
-        const right_values = right_track.values.slice()
-        const left_times = left_track.times.slice()
-        const right_times = right_track.times.slice()
-
-        // Mirror the quaternions before swapping
-        const mirrored_left_values = this.mirror_quaternion_track_values(left_values)
-        const mirrored_right_values = this.mirror_quaternion_track_values(right_values)
-
-        // Swap the mirrored track values and times
-        left_track.values = mirrored_right_values
-        left_track.times = right_times
-        right_track.values = mirrored_left_values
-        right_track.times = left_times
+        return mirrored
       })
-    })
-
-    this.apply_center_bone_mirroring(animation_clips)
-    this.apply_hips_position_mirroring(animation_clips)
-  }
-
-  /**
-   * Mirrors quaternion values by inverting X and W components for proper reflection.
-   * This creates the mathematical mirror of the rotation.
-   */
-  private static mirror_quaternion_track_values (values: Float32Array): Float32Array {
-    const mirrored_values = values.slice() // clone the array
-    const units_in_quaternions = 4
-
-    // Process each quaternion keyframe
-    for (let i = 0; i < values.length; i += units_in_quaternions) {
-      const quat = new Quaternion(
-        values[i], // x
-        values[i + 1], // y
-        values[i + 2], // z
-        values[i + 3] // w
-      )
-
-      // For mirroring left/right bone rotations, we invert X and W components
-      // This creates the proper mirror reflection of the rotation
-      quat.x = -quat.x
-      quat.w = -quat.w
-
-      // Write back the mirrored quaternion
-      mirrored_values[i] = quat.x
-      mirrored_values[i + 1] = quat.y
-      mirrored_values[i + 2] = quat.z
-      mirrored_values[i + 3] = quat.w
     }
-
-    return mirrored_values
-  }
-
-  /**
-   * Mirrors center bone rotations and hips position by inverting specific components.
-   * This handles bones like spine, hips, neck, head that don't have L/R pairs.
-   */
-  private static apply_center_bone_mirroring (animation_clips: TransformedAnimationClipPair[]): void {
-    animation_clips.forEach((warped_clip: TransformedAnimationClipPair) => {
-      const tracks = warped_clip.display_animation_clip.tracks
-
-      tracks.forEach((track: KeyframeTrack) => {
-        const track_name_lower = track.name.toLowerCase()
-
-        // Handle quaternion tracks for center bones
-        if (track.name.includes('quaternion')) {
-          const is_center_bone = track_name_lower.includes('spine') ||
-                                track_name_lower.includes('hips') ||
-                                track_name_lower.includes('pelvis') ||
-                                track_name_lower.includes('neck') ||
-                                track_name_lower.includes('head') ||
-                                track_name_lower.includes('torso') ||
-                                track_name_lower.includes('chest')
-
-          if (!is_center_bone) { return } // mirror rotations for center aligned bones
-
-          const values = track.values
-          const units_in_quaternions = 4
-
-          // Process each quaternion keyframe
-          for (let i = 0; i < values.length; i += units_in_quaternions) {
-            const quat = new Quaternion(
-              values[i], // x
-              values[i + 1], // y
-              values[i + 2], // z
-              values[i + 3] // w
-            )
-
-            // For mirroring, we need to invert the Y and Z components
-            // This creates the mirror effect for center bone rotations
-            quat.y = -quat.y
-            quat.z = -quat.z
-
-            // Write back the modified quaternion
-            values[i] = quat.x
-            values[i + 1] = quat.y
-            values[i + 2] = quat.z
-            values[i + 3] = quat.w
-          }
-        }
-      })
-    })
-  }
-
-  /**
-   * Mirrors hips position tracks by inverting the X component.
-   * This handles the hips bone position for locomotion and falling animations.
-   */
-  private static apply_hips_position_mirroring (animation_clips: TransformedAnimationClipPair[]): void {
-    animation_clips.forEach((warped_clip: TransformedAnimationClipPair) => {
-      const tracks = warped_clip.display_animation_clip.tracks
-
-      tracks.forEach((track: KeyframeTrack) => {
-        const track_name_lower = track.name.toLowerCase()
-
-        // Handle position tracks specifically for hips
-        if (track.name.includes('position') &&
-        (track_name_lower.includes('hips') || track_name_lower.includes('pelvis'))) {
-          const values = track.values
-          const units_in_position = 3 // x, y, z
-
-          // Process each position keyframe
-          for (let i = 0; i < values.length; i += units_in_position) {
-            // For mirroring hips position, we need to invert the X component
-            // This creates the mirror effect for hips movement (left/right movement)
-            // Y (up/down) and Z (forward/back) remain unchanged
-            values[i] = -values[i] // invert X position
-            // values[i + 1] unchanged (Y - up/down)
-            // values[i + 2] unchanged (Z - forward/back)
-          }
-        }
-      })
-    })
   }
 }
