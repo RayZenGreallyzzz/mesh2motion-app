@@ -34,6 +34,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Check responsive worker and cache
         run: node scripts/check-rig-studio-worker.mjs
+      - name: Render portrait and landscape launch screens
+        run: node scripts/render-rig-studio-branding.mjs
       - name: Check full animal editing and GLB export flow
         run: node scripts/check-rig-studio-flow.mjs
       - name: Check eight real animal rigs and animation libraries
@@ -50,6 +52,7 @@ jobs:
           path: |
             artifacts/panel-*.png
             artifacts/flow-*.png
+            artifacts/branding-*.png
             artifacts/rig-check/results.json
           if-no-files-found: ignore
           retention-days: 14
@@ -66,6 +69,8 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+      - name: Apply hedgehog launcher and splash branding
+        run: node scripts/apply-rig-studio-branding.mjs
       - name: Keep original Rig Animation Studio installed
         run: |
           python3 - <<'PY'

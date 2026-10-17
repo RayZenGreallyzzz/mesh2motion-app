@@ -26,16 +26,13 @@
 }
 
 .ras-brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  font-weight: 900;
-  letter-spacing: -1px;
-  color: #160b04;
-  background: radial-gradient(circle at 35% 30%, #ffd08a 0, #ff8a24 42%, #d63a10 72%, #411006 100%);
-  box-shadow: 0 0 16px rgba(255,100,25,.24), inset 0 0 0 1px rgba(255,255,255,.18);
+  background: #111216;
 }
 
 .ras-brand-copy {
