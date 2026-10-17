@@ -1,3 +1,4 @@
+import { ExportFileSaver } from '../../lib/processes/export-to-file/ExportFileSaver'
 import { Scene, type AnimationClip, type Object3D, type SkinnedMesh } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXExporter } from '@comfyorg/fbx-exporter-three'
@@ -13,6 +14,7 @@ import { FbxTextureCompatibilityService } from '../../lib/processes/export-to-fi
 
 export class StepExportRetargetedAnimations extends EventTarget {
   public animation_clips_to_export: AnimationClip[] = []
+  private readonly file_saver = new ExportFileSaver()
   private readonly fbx_exporter: FBXExporter = new FBXExporter()
 
   public set_animation_clips_to_export (all_animations_clips: AnimationClip[], export_selections: AnimationExportSelection[]): void {
@@ -124,36 +126,12 @@ export class StepExportRetargetedAnimations extends EventTarget {
   }
 
   public async export_glb (exported_scene: Scene, animations_to_export: AnimationClip[], file_name: string): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const gltf_exporter = new GLTFExporter()
-
-      const export_options = {
-        binary: true,
-        onlyVisible: false,
-        embedImages: true,
-        animations: animations_to_export
-      }
-
-      gltf_exporter.parse(
-        exported_scene,
-        (result: ArrayBuffer | { [key: string]: unknown }) => {
-          // Handle the result of the export
-          if (result instanceof ArrayBuffer) {
-            const cleaned_result = GlbSkinCleanupService.remove_skin_skeleton_properties(result)
-            this.save_array_buffer(cleaned_result, `${file_name}.glb`)
-            resolve() // Resolve the promise when the export is complete
-          } else {
-            console.log('ERROR: result is not an instance of ArrayBuffer')
-            reject(new Error('Export result is not an ArrayBuffer'))
-          }
-        },
-        (error: unknown) => {
-          console.log('An error happened during parsing', error)
-          reject(error) // Reject the promise if an error occurs
-        },
-        export_options
-      )
+    const result = await new GLTFExporter().parseAsync(exported_scene, {
+      binary: true, onlyVisible: false, animations: animations_to_export
     })
+    if (!(result instanceof ArrayBuffer)) throw new Error('Export result is not an ArrayBuffer')
+    const cleaned = GlbSkinCleanupService.remove_skin_skeleton_properties(result)
+    await this.file_saver.save(new Blob([cleaned], { type: 'model/gltf-binary' }), `${file_name}.glb`)
   }
 
   public async export_fbx (
@@ -174,30 +152,11 @@ export class StepExportRetargetedAnimations extends EventTarget {
         embedTextures: true
       })
 
-      this.save_uint8_array(result, `${file_name}.fbx`)
+      await this.file_saver.save(new Blob([new Uint8Array(result)], { type: 'application/octet-stream' }), `${file_name}.fbx`)
     } finally {
       texture_compatibility_session.restore()
       exported_scene.animations = []
     }
   }
 
-  private save_file (blob: Blob, filename: string): void {
-    const export_button_hidden_link: HTMLAnchorElement | null = document.querySelector('#download-hidden-link')
-    if (export_button_hidden_link != null) {
-      export_button_hidden_link.href = URL.createObjectURL(blob)
-      export_button_hidden_link.download = filename
-      export_button_hidden_link.click()
-    } else {
-      console.log('ERROR: dom_export_button_hidden_link is null')
-    }
-  }
-
-  // used for GLB to turn content into a byte array for saving
-  private save_array_buffer (buffer: ArrayBuffer, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
-  }
-
-  private save_uint8_array (buffer: Uint8Array, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
-  }
 }

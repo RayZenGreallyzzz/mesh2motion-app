@@ -12,7 +12,8 @@ import { UI } from '../lib/UI.ts'
 import { SkeletonType } from '../lib/enums/SkeletonType.ts'
 import { is_humanoid_skeleton_type } from '../lib/HumanoidSkeleton.ts'
 import { DownloadSettings } from '../lib/processes/export-to-file/DownloadSettings.ts'
-import { ModalDialog } from '../lib/ModalDialog.ts'
+import { ExportNotice } from '../lib/components/ExportNotice.ts'
+import { ExportCancelledError, ExportFileSaver } from '../lib/processes/export-to-file/ExportFileSaver.ts'
 
 /**
  * RetargetAnimationListing - Handles animation listing and playback specifically for retargeting workflow
@@ -285,6 +286,10 @@ export class RetargetAnimationListing extends EventTarget {
     // configure export animations button
     this.export_button = document.getElementById('export-retargeting-button') as HTMLButtonElement
     this.export_button?.addEventListener('click', () => {
+      if (this.export_button?.disabled) return
+      this.download_settings.close()
+      if (this.export_button) this.export_button.disabled = true
+      ExportNotice.show('Готовим файл…', 'busy')
       // send in all the selected animation clips for export
       this.step_export_retargeted_animations.set_animation_clips_to_export(
         this.animation_clips_loaded.map(clip => clip.display_animation_clip),
@@ -293,10 +298,12 @@ export class RetargetAnimationListing extends EventTarget {
 
       // configure the export out step with retargeting info
       this.step_export_retargeted_animations.export('retargeted_animations', this.download_settings)
+        .then(() => ExportNotice.show(ExportFileSaver.is_android() ? 'Файл сохранён.' : 'Файл передан браузеру для скачивания.', 'success'))
         .catch((error: unknown) => {
-          const error_message = error instanceof Error ? error.message : 'Unknown export error'
-          new ModalDialog('Retarget export failed', error_message).show()
+          const error_message = error instanceof Error ? error.message : 'Неизвестная ошибка'
+          ExportNotice.show(error_message, error instanceof ExportCancelledError ? 'info' : 'error')
         })
+        .finally(() => { if (this.export_button) this.export_button.disabled = false })
     })
 
     // event listener for animation view mode tabs (Library vs Selected)

@@ -31,7 +31,7 @@ export class DownloadSettings extends EventTarget {
   private selected_fbx_export_preset: FbxExportPreset = this.get_default_fbx_export_preset()
   private dom_download_settings_popup: HTMLElement | null = null
   private dom_download_settings_toggle: HTMLButtonElement | null = null
-  private dom_download_settings_panel: HTMLElement | null = null
+  private dom_download_settings_panel: HTMLDialogElement | null = null
   private dom_bone_naming_section: HTMLElement | null = null
   private dom_bone_naming_group: HTMLElement | null = null
   private dom_export_contents_group: HTMLElement | null = null
@@ -93,6 +93,7 @@ export class DownloadSettings extends EventTarget {
     this.dom_download_settings_popup = document.querySelector('#download-settings-popup')
     this.dom_download_settings_toggle = document.querySelector('#download-settings-toggle')
     this.dom_download_settings_panel = document.querySelector('#download-settings')
+    if (this.dom_download_settings_panel !== null) document.body.append(this.dom_download_settings_panel)
     this.dom_bone_naming_section = document.querySelector('#download-bone-naming-section')
     this.dom_bone_naming_group = document.querySelector('#download-bone-naming-group')
     this.dom_export_contents_group = document.querySelector('#download-export-contents-group')
@@ -102,6 +103,21 @@ export class DownloadSettings extends EventTarget {
   }
 
   private add_event_listeners (): void {
+    document.querySelector('#download-settings-close')?.addEventListener('click', () => this.close())
+    document.querySelector('#download-dialog-export')?.addEventListener('click', () => {
+      this.close()
+      document.querySelector<HTMLButtonElement>('#export-button, #export-retargeting-button')?.click()
+    })
+    this.dom_download_settings_panel?.addEventListener('close', () => {
+      if (this.dom_download_settings_panel?.open) return
+      if (this.dom_download_settings_panel !== null) this.dom_download_settings_panel.hidden = true
+      this.dom_download_settings_toggle?.setAttribute('aria-expanded', 'false')
+    })
+    this.dom_download_settings_panel?.addEventListener('click', event => {
+      if (event.target !== this.dom_download_settings_panel) return
+      const rect = this.dom_download_settings_panel!.getBoundingClientRect()
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) this.close()
+    })
     this.dom_download_settings_toggle?.addEventListener('click', () => {
       this.set_popup_visibility(this.dom_download_settings_panel?.hidden !== false)
     })
@@ -116,7 +132,8 @@ export class DownloadSettings extends EventTarget {
         return
       }
 
-      if (this.dom_download_settings_popup?.contains(clicked_element) !== true) {
+      if (this.dom_download_settings_popup?.contains(clicked_element) !== true &&
+          this.dom_download_settings_panel?.contains(clicked_element) !== true) {
         this.set_popup_visibility(false)
       }
     })
@@ -214,12 +231,22 @@ export class DownloadSettings extends EventTarget {
   private set_popup_visibility (is_visible: boolean): void {
     if (this.dom_download_settings_panel !== null) {
       this.dom_download_settings_panel.hidden = !is_visible
+      if (is_visible && !this.dom_download_settings_panel.open) {
+        const summary = document.querySelector('#download-export-summary')
+        const count = document.querySelector('#animation-selection-count')?.textContent ?? '0'
+        if (summary !== null) summary.textContent = `Выбрано анимаций: ${count}`
+        this.dom_download_settings_panel.showModal()
+      } else if (!is_visible && this.dom_download_settings_panel.open) {
+        this.dom_download_settings_panel.close()
+      }
     }
 
     if (this.dom_download_settings_toggle !== null) {
       this.dom_download_settings_toggle.setAttribute('aria-expanded', is_visible ? 'true' : 'false')
     }
   }
+
+  public close (): void { this.set_popup_visibility(false) }
 
   private set_radio_group_value (group: HTMLElement | null, name: string, value: string): void {
     const option_radio = group?.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)

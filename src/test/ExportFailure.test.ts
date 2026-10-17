@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { AnimationClip, Bone, BufferGeometry, Float32BufferAttribute, MeshBasicMaterial, QuaternionKeyframeTrack, Scene, Skeleton, SkinnedMesh, Uint16BufferAttribute } from 'three'
+import { ExportFileSaver } from '../lib/processes/export-to-file/ExportFileSaver.ts'
 import { StepExportToFile } from '../lib/processes/export-to-file/StepExportToFile.ts'
 import { DownloadSettings } from '../lib/processes/export-to-file/DownloadSettings.ts'
 it('returns model and rig to original parent when export rejects', async () => {
@@ -11,7 +12,7 @@ it('returns model and rig to original parent when export rejects', async () => {
   bone.name = 'hips'; mesh.add(bone); mesh.bind(new Skeleton([bone])); scene.add(mesh)
   const exporter = new StepExportToFile()
   exporter.set_animation_clips_to_export([new AnimationClip('idle', 1, [new QuaternionKeyframeTrack('hips.quaternion', [0], [0, 0, 0, 1])])], [{ animation_index: 0, mirror_export_mode: 'none' }])
-  vi.spyOn(exporter, 'export_scene').mockRejectedValueOnce(new Error('Disk full'))
+  vi.spyOn(ExportFileSaver.prototype, 'save').mockRejectedValueOnce(new Error('Disk full'))
   await expect(exporter.export([mesh], 'test', new DownloadSettings())).rejects.toThrow('Disk full')
   expect(mesh.parent).toBe(scene)
   expect(bone.parent).toBe(mesh)

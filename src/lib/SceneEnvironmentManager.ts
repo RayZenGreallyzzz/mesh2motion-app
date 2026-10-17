@@ -201,8 +201,8 @@ export class SceneEnvironmentManager {
     }
 
     return {
-      grid_color: 0x4f6f6f,
-      floor_color: 0x2d4353,
+      grid_color: 0x363d4a,
+      floor_color: 0x1b2029,
       light_strength: 10
     }
   }

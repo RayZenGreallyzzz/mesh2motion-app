@@ -110,7 +110,7 @@ export class DOMUtilities {
              <img src="../images/icons/play.svg" alt="Play" width="14" height="14" />
           </button>
 
-          <span>
+          <span class="animation-time">
             <span id="current-time">0f</span> /
             <span id="total-time">0f</span>
           </span>
@@ -208,8 +208,12 @@ export class DOMUtilities {
           <img src="${dropdown_icon_src}" alt="dropdown" width="16" height="16" />
         </button>
 
-        <div id="download-settings" class="download-settings-panel" role="dialog" aria-label="Download settings" hidden>
-          <span class="download-settings-header">Download Options</span>
+        <dialog id="download-settings" class="download-settings-panel" aria-labelledby="download-settings-title" hidden>
+          <div class="download-dialog-heading">
+            <div><span class="download-settings-header" id="download-settings-title">Download Options</span>
+              <p id="download-export-summary"></p></div>
+            <button id="download-settings-close" class="no-style-button" type="button" aria-label="Закрыть настройки">×</button>
+          </div>
 
           <div id="download-bone-naming-section" class="options-container">
             <span class="download-settings-label">Bone Naming Pattern</span>
@@ -237,8 +241,10 @@ export class DOMUtilities {
             <fieldset id="download-export-contents-group" class="toggle" aria-label="Export contents">
               ${DOMUtilities.get_export_contents_options_markup()}
             </fieldset>
+            <small class="download-contents-hint">Выберите «Модель + анимации», чтобы сохранить персонажа целиком.</small>
           </div>
-        </div>
+          <button id="download-dialog-export" type="button">Сохранить файл</button>
+        </dialog>
       </div>
     `
   }
@@ -355,8 +361,8 @@ export class DOMUtilities {
       threejs: 'Three.js',
       fbx: 'FBX 7.4',
       glb: 'GLB',
-      full: 'Default',
-      skeleton: 'Skeleton + Animations'
+      full: 'Model + animations',
+      skeleton: 'Skeleton only'
     }
 
     const custom_label = custom_labels[value]

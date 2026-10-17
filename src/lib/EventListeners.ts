@@ -5,7 +5,8 @@ import { TransformSpace } from './enums/TransformSpace'
 import { Utility } from './Utilities'
 import { ModelCleanupUtility } from './processes/load-model/ModelCleanupUtility'
 import { ModelAnalysisReport } from './processes/load-model/ModelAnalysisReport'
-import { DownloadSuccessDialog } from './components/download-success/DownloadSuccessDialog'
+import { ExportNotice } from './components/ExportNotice.ts'
+import { ExportCancelledError, ExportFileSaver } from './processes/export-to-file/ExportFileSaver.ts'
 import { ModalDialog } from './ModalDialog.ts'
 import { type Bone, type Material, type MeshBasicMaterial, type MeshPhongMaterial, type MeshStandardMaterial } from 'three'
 
@@ -13,6 +14,7 @@ export class EventListeners {
   // Track the pointer that started canvas drag so touch/pencil moves stay consistent
   // and we can ignore unrelated pointers before releasing capture on pointerup/cancel.
   private active_canvas_pointer_id: number | null = null
+  private export_busy = false
 
   constructor (private readonly bootstrap: Mesh2MotionEngine) {}
 
@@ -361,8 +363,22 @@ export class EventListeners {
     })
 
     this.bootstrap.ui.dom_export_button?.addEventListener('click', () => {
+      if (this.export_busy) return
       const all_clips = this.bootstrap.animations_listing_step.animation_clips()
       const export_selections = this.bootstrap.animations_listing_step.get_animation_export_selections()
+      if (export_selections.length === 0) {
+        ExportNotice.show('Выберите хотя бы одну анимацию')
+        return
+      }
+
+      this.export_busy = true
+      this.bootstrap.download_settings.close()
+      const panel = document.getElementById('tool-panel')
+      const player = document.getElementById('animation-player')
+      if (panel !== null) panel.inert = true
+      if (player !== null) player.inert = true
+      ExportNotice.show(ExportFileSaver.is_android()
+        ? 'Готовим файл… Затем выберите папку для сохранения.' : 'Готовим файл для скачивания…', 'busy')
 
       this.bootstrap.file_export_step.set_animation_clips_to_export(all_clips, export_selections)
       void this.bootstrap.file_export_step.export(
@@ -371,11 +387,21 @@ export class EventListeners {
         this.bootstrap.download_settings
       )
         .then(() => {
-          new DownloadSuccessDialog().show()
+          ExportNotice.show(ExportFileSaver.is_android()
+            ? 'Файл с выбранными анимациями сохранён.' : 'Файл передан браузеру для скачивания.', 'success')
         })
         .catch((error: unknown) => {
+          if (error instanceof ExportCancelledError) {
+            ExportNotice.show('Сохранение отменено. Можно попробовать снова.')
+            return
+          }
           const error_message = error instanceof Error ? error.message : 'Failed to export file.'
-          new ModalDialog('Export failed', error_message).show()
+          ExportNotice.show(`Не удалось сохранить файл: ${error_message}`, 'error')
+        })
+        .finally(() => {
+          this.export_busy = false
+          if (panel !== null) panel.inert = false
+          if (player !== null) player.inert = false
         })
     })
 

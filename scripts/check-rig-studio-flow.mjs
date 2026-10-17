@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
 const server = await createServer({ server: { port: 4181, strictPort: true, open: false } })
@@ -33,6 +33,7 @@ try {
   await page.uncheck('#manual-weight-enabled')
   await page.click('#action_weights_to_animations')
   await page.waitForFunction(() => window.rigEngine.animations_listing_step.animation_clips_loaded.length >= 14)
+  const download_event = page.waitForEvent('download')
   const result = await page.evaluate(async () => {
     const engine = window.rigEngine
     const clips = engine.animations_listing_step.animation_clips_loaded
@@ -42,7 +43,23 @@ try {
     return await check_export(engine.file_export_step, engine.weight_skin_step.final_skinned_meshes(),
       clips[run].display_animation_clip, engine.download_settings)
   })
+  const download = await download_event
+  await download.saveAs('artifacts/flow-export.glb')
+  const exported = await readFile('artifacts/flow-export.glb')
+  assert.equal(exported.readUInt32LE(0), 0x46546c67, 'Browser must receive a real GLB')
+  assert.equal(exported.length, result.bytes)
+  assert.equal(await download.failure(), null)
   assert(result.bytes > 1000 && result.clips === 1 && result.supports > 0 && result.skinned > 0)
+  await page.locator('#animations-items input[type="checkbox"]').first().check()
+  await page.locator('#download-settings-toggle').click()
+  await page.screenshot({ path: 'artifacts/flow-export-menu.png' })
+  assert(await page.locator('#download-settings').evaluate(d => d.open))
+  const actual_download = page.waitForEvent('download')
+  await page.locator('#download-dialog-export').click()
+  await actual_download
+  await page.waitForFunction(() => document.querySelector('#rig-export-notice')?.textContent.includes('браузеру'))
+  assert.equal(await page.locator('text=Enjoy the free animations').count(), 0)
+  assert.equal(await page.locator('#tool-panel').evaluate(p => p.inert), false)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: 'artifacts/flow-fox-run.png' })
   console.log('PASS complete model → animal AutoFit → worker weights → brush → animation → GLB re-import', result)

@@ -1,4 +1,4 @@
-import { UI } from '../../UI.ts'
+import { ExportFileSaver } from './ExportFileSaver.ts'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXExporter } from '@comfyorg/fbx-exporter-three'
 import { type AnimationClip, Scene, type SkinnedMesh, type Object3D } from 'three'
@@ -15,7 +15,7 @@ import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
 
 // Note: EventTarget is a built-in interface and do not need to import it
 export class StepExportToFile extends EventTarget {
-  private readonly ui: UI = UI.getInstance()
+  private readonly file_saver = new ExportFileSaver()
   private animation_clips_to_export: AnimationClip[] = []
   private readonly fbx_exporter: FBXExporter = new FBXExporter()
 
@@ -143,36 +143,12 @@ export class StepExportToFile extends EventTarget {
   }
 
   public async export_glb (exported_scene: Scene, animations_to_export: AnimationClip[], file_name: string): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const gltf_exporter = new GLTFExporter()
-
-      const export_options = {
-        binary: true,
-        onlyVisible: false,
-        embedImages: true,
-        animations: animations_to_export
-      }
-
-      gltf_exporter.parse(
-        exported_scene,
-        (result: ArrayBuffer) => {
-          // Handle the result of the export
-          if (result !== null) {
-            const cleaned_result = GlbSkinCleanupService.remove_skin_skeleton_properties(result)
-            this.save_array_buffer(cleaned_result, `${file_name}.glb`)
-            resolve() // Resolve the promise when the export is complete
-          } else {
-            console.log('ERROR: result is not an instance of ArrayBuffer')
-            reject(new Error('Export result is not an ArrayBuffer'))
-          }
-        },
-        (error: any) => {
-          console.log('An error happened during parsing', error)
-          reject(error) // Reject the promise if an error occurs
-        },
-        export_options
-      )
+    const result = await new GLTFExporter().parseAsync(exported_scene, {
+      binary: true, onlyVisible: false, animations: animations_to_export
     })
+    if (!(result instanceof ArrayBuffer)) throw new Error('Export result is not an ArrayBuffer')
+    const cleaned_result = GlbSkinCleanupService.remove_skin_skeleton_properties(result)
+    await this.save_array_buffer(cleaned_result, `${file_name}.glb`)
   }
 
   public async export_fbx (
@@ -193,30 +169,24 @@ export class StepExportToFile extends EventTarget {
         embedTextures: true
       })
 
-      this.save_uint8_array(result, `${file_name}.fbx`)
+      await this.save_uint8_array(result, `${file_name}.fbx`)
     } finally {
       texture_compatibility_session.restore()
       exported_scene.animations = []
     }
   }
 
-  private save_file (blob: Blob, filename: string): void {
-    if (this.ui.dom_export_button_hidden_link != null) {
-      this.ui.dom_export_button_hidden_link.href = URL.createObjectURL(blob)
-      this.ui.dom_export_button_hidden_link.download = filename
-      this.ui.dom_export_button_hidden_link.click()
-    } else {
-      console.log('ERROR: dom_export_button_hidden_link is null')
-    }
+  private save_file (blob: Blob, filename: string): Promise<void> {
+    return this.file_saver.save(blob, filename)
   }
 
   // used for GLB to turn content into a byte array for saving
-  private save_array_buffer (buffer: ArrayBuffer, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
+  private save_array_buffer (buffer: ArrayBuffer, filename: string): Promise<void> {
+    return this.save_file(new Blob([buffer], { type: 'model/gltf-binary' }), filename)
   }
 
   // used for FBX exporter to turn content into a byte array for saving
-  private save_uint8_array (buffer: Uint8Array, filename: string): void {
-    this.save_file(new Blob([buffer], { type: 'application/octet-stream' }), filename)
+  private save_uint8_array (buffer: Uint8Array, filename: string): Promise<void> {
+    return this.save_file(new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' }), filename)
   }
 }
