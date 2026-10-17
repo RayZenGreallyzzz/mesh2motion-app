@@ -55,6 +55,7 @@ const translations: Record<string, string> = {
   'Finish ›': 'Готово ›',
   'Library': 'Библиотека',
   'Selected': 'Выбранные',
+  'Test animations': 'Анимации',
   'Model + animations': 'Модель + анимации',
   'Skeleton only': 'Только скелет',
   'Filter': 'Фильтр',

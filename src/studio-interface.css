@@ -50,10 +50,13 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
   border: 1px solid var(--bg-tertiary) !important; border-radius: 18px;
   box-shadow: 0 12px 40px #0003 !important; padding: 16px !important;
 }
+#skinned-step-animation-export-options { flex-direction: column; align-items: stretch; width: 100%; min-width: 0; }
+#tool-selection-group > div:first-child { margin-bottom: 6px !important; }
+#current-step-label { font-size: 22px !important; font-weight: 600; }
 .studio-panel-heading { margin: 0 0 16px; }
 .studio-panel-heading h2 { font-size: 22px; font-weight: 600; margin: 0 0 3px; line-height: 1.2; }
 .studio-panel-heading p { font-size: 12px; color: var(--text-alternate); margin: 0; }
-#animations-listing { padding: 0; }
+#animations-listing { padding: 0; width: 100%; min-width: 0; box-sizing: border-box; }
 .animation-filter-row { flex-direction: column; gap: 10px !important; padding: 0; }
 .animation-filter-row > span, .animation-filter-row .pill-switch-group { width: 100%; padding: 0; }
 .animation-filter-row .pill-switch { width: 100%; box-sizing: border-box; border-radius: 10px; padding: 3px; gap: 3px; }
@@ -67,29 +70,30 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 #animations-items, #animations-items.create-page {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); box-sizing: border-box;
   width: 100%; gap: 8px; padding: 2px; margin: 0 0 12px; border: none; background: transparent;
-  max-height: min(48dvh, 540px); overflow-y: auto; scrollbar-width: thin;
+  max-height: min(48dvh, 540px); align-content: start; grid-auto-rows: max-content; overflow-y: auto; scrollbar-width: thin;
 }
 #animations-items .anim-item, #animations-items .anim-custom-item {
   width: 100%; min-width: 0; height: auto; border-radius: 12px; overflow: hidden;
   border: 1px solid var(--bg-tertiary); background: var(--bg-alternate); box-sizing: border-box;
 }
 #animations-items .anim-item[data-selected='true'], #animations-items .anim-custom-item[data-selected='true'] { border-color: var(--button-primary-bg); }
-#animations-items .anim-play-button { background: var(--bg-primary); min-height: 0; border-radius: 0; }
+#animations-items .anim-play-button { background: var(--bg-primary); min-height: 0; height: auto; flex: 0 0 auto; border-radius: 0; }
 #animations-items .anim-preview, #animations-items .anim-preview-placeholder { width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: contain; background: var(--bg-primary); }
-#animations-items .anim-row-checkbox { width: 100%; min-width: 0; margin: 0; min-height: 44px; gap: 3px; box-sizing: border-box; padding: 4px 5px; align-items: center; }
-#animations-items .anim-row-checkbox label { padding: 4px 1px; font-size: 12px; }
+#animations-items .anim-row-checkbox { width: 100%; min-width: 0; margin: 0; min-height: 44px; gap: 3px; box-sizing: border-box; padding: 4px 5px; align-items: center; flex-shrink: 0; }
+#animations-items .anim-row-checkbox .anim-preview-label { padding: 4px 1px; font-size: 12px; }
 #animations-items .anim-row-checkbox input { flex-shrink: 0; width: 18px; height: 18px; }
 #animations-items .anim-mirror-mode-toggle { min-height: 32px; width: 32px; height: 32px; }
 #arm-extension-options { border-top: 1px solid var(--bg-tertiary); padding-top: 12px; }
 #arm-extension-options hr { display: none; }
-.download-actions-row { display: grid; grid-template-columns: 1fr 44px; gap: 8px; padding: 12px 0 0; }
+.download-actions-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px 0 0; }
 #action_back_to_edit_skeleton { text-align: left; padding-left: 0; }
-#import-animations-button { width: 44px; padding: 8px; }
+#import-animations-button { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 8px 10px; font-size: 12px; white-space: nowrap; }
 #download-control-mount { grid-column: 1 / -1; padding: 0; }
 .download-combo { display: flex; width: 100%; padding: 0; }
 .download-combo #export-button { flex: 1; min-width: 0; min-height: 48px; border-radius: 10px 0 0 10px; }
 .download-settings-popup-container { padding: 0; }
 #download-settings-toggle.download-split-toggle { width: 48px; min-height: 48px; padding: 0; border-radius: 0 10px 10px 0; border-left-color: #211b142e; }
+.download-combo .button-icon-group { white-space: nowrap; }
 #animation-selection-count { background: #211b1420; color: #211b14; }
 #settings-dropdown-content { border: 1px solid var(--bg-tertiary); border-radius: 14px; background: var(--bg-primary); box-shadow: 0 12px 40px #0005; }
 #animation-player {
@@ -119,3 +123,6 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 @media (max-height: 500px) and (min-width: 601px) {
   #animations-items, #animations-items.create-page { max-height: 160px; }
 }
+
+#animations-items .anim-request-tile { display: none; }
+.download-settings-panel .toggle input + label:first-of-type, .download-settings-panel .toggle input + label:last-of-type { border-radius: 9px; border: 1px solid var(--bg-tertiary); }

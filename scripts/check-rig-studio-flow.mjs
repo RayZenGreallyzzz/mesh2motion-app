@@ -33,6 +33,17 @@ try {
   await page.uncheck('#manual-weight-enabled')
   await page.click('#action_weights_to_animations')
   await page.waitForFunction(() => window.rigEngine.animations_listing_step.animation_clips_loaded.length >= 14)
+  const layout = await page.evaluate(() => {
+    const listing = document.getElementById('animations-listing').getBoundingClientRect()
+    const panel = document.getElementById('tool-panel').getBoundingClientRect()
+    const card = document.querySelector('#animations-items .anim-item').getBoundingClientRect()
+    const preview = document.querySelector('#animations-items .anim-play-button').getBoundingClientRect()
+    const label = document.querySelector('#animations-items .anim-row-checkbox').getBoundingClientRect()
+    return { panel: panel.width, listing: listing.width, card: card.width, previewBottom: preview.bottom, labelTop: label.top }
+  })
+  assert(layout.listing >= layout.panel - 34, 'Animation library must use full panel width')
+  assert(layout.card > 100, 'Animation previews must remain readable')
+  assert(layout.labelTop >= layout.previewBottom - 1, 'Animation labels must not overlay previews')
   const download_event = page.waitForEvent('download')
   const result = await page.evaluate(async () => {
     const engine = window.rigEngine
@@ -61,6 +72,7 @@ try {
   assert.equal(await page.locator('text=Enjoy the free animations').count(), 0)
   assert.equal(await page.locator('#tool-panel').evaluate(p => p.inert), false)
   assert.deepEqual(errors, [])
+  await page.locator('#rig-export-notice button').click()
   await page.screenshot({ path: 'artifacts/flow-fox-run.png' })
   console.log('PASS complete model → animal AutoFit → worker weights → brush → animation → GLB re-import', result)
 } finally { await browser.close(); await server.close() }

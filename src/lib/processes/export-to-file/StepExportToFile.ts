@@ -43,7 +43,7 @@ export class StepExportToFile extends EventTarget {
     })
   }
 
-  public export (
+  public async export (
     skinned_meshes: SkinnedMesh[], 
     filename: string = 'exported_model',
     download_settings: DownloadSettings): Promise<void> {
