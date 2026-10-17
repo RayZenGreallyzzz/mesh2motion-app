@@ -103,7 +103,7 @@ jobs:
         working-directory: android
         run: |
           for attempt in 1 2 3; do
-            if ./gradlew assembleDebug --no-daemon --refresh-dependencies; then
+            if ./gradlew assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx1536m --refresh-dependencies; then
               exit 0
             fi
             echo "Gradle dependency retrieval failed on attempt $attempt; retrying"
@@ -120,9 +120,9 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -feature -Vulkan -memory 3072 -cores 2
           # Run our app tests; avoid generating test APKs for dependency library modules.
-          script: cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon
+          script: bash scripts/check-rig-studio-native.sh
       - name: Upload Android export test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -131,6 +131,8 @@ jobs:
           path: |
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
+            artifacts/android-logcat.txt
+            artifacts/android-host.txt
           if-no-files-found: ignore
           retention-days: 14
       - name: Name test APK
