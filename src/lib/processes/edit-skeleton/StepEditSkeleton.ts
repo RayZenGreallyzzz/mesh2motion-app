@@ -6,6 +6,7 @@ import { PreviewPlaneManager } from './PreviewPlaneManager.ts'
 import { ArmPlaneManager } from './ArmPlaneManager.ts'
 import { ArmWeightCorrector } from '../../solvers/ArmWeightCorrector.ts'
 import { IndependentBoneMovement } from './IndependentBoneMovement.ts'
+import { capture_hand_shape, place_hand_shape } from './HandPose.ts'
 import { ModalDialog } from '../../ModalDialog.ts'
 import {
   Vector3,
@@ -434,6 +435,7 @@ export class StepEditSkeleton extends EventTarget {
     ]
 
     for (const chain of chains) {
+      const hand_shape = capture_hand_shape(chain.hand, chain.lower)
       const shoulder = chain.upper.getWorldPosition(new Vector3())
       const elbow = chain.lower.getWorldPosition(new Vector3())
       const wrist = chain.hand.getWorldPosition(new Vector3())
@@ -466,6 +468,7 @@ export class StepEditSkeleton extends EventTarget {
       const updated_elbow = chain.lower.getWorldPosition(new Vector3())
       const wrist_target = updated_elbow.clone().addScaledVector(arm_direction, lower_length)
       this.set_bone_world_position(chain.hand, wrist_target)
+      place_hand_shape(chain.hand, hand_shape, arm_direction)
       applied = true
     }
 

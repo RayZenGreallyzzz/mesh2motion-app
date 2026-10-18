@@ -10,13 +10,20 @@ import { SkeletonType } from '../src/lib/enums/SkeletonType.ts'
 import { AnimationUtility } from '../src/lib/processes/animations-listing/AnimationUtility.ts'
 import { RestPoseAnimationBridge } from '../src/lib/processes/animations-listing/RestPoseAnimationBridge.ts'
 import { JointVolumeSupport } from '../src/lib/solvers/JointVolumeSupport.ts'
+import { HumanoidClipCalibration } from '../src/lib/processes/animations-listing/HumanoidClipCalibration.ts'
+import { is_humanoid_skeleton_type } from '../src/lib/HumanoidSkeleton.ts'
 const print = console.log.bind(console)
 console.log = () => {}; console.time = () => {}; console.timeEnd = () => {}; console.info = () => {}
 globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] } as any
 const directory = process.env.RIG_CHECK_OUTPUT ?? 'artifacts/rig-check'
 mkdirSync(directory, { recursive: true })
-const cases: Array<{ name: string, file: string, type: SkeletonType }> = process.argv[2]
-  ? JSON.parse(readFileSync(process.argv[2], 'utf8'))
+const cases: Array<{ name: string, file: string, type: SkeletonType }> = process.argv[2] === '--humanoids'
+  ? [
+      { name: 'human', file: 'static/models/model-human.glb', type: SkeletonType.Human },
+      { name: 'female', file: 'static/models-variation/human/female.glb', type: SkeletonType.MobileFemale },
+      { name: 'monster', file: 'static/models-variation/human/monster_3.glb', type: SkeletonType.MobileFemale }
+    ]
+  : process.argv[2] ? JSON.parse(readFileSync(process.argv[2], 'utf8'))
   : RigConfig.all.filter(c => ![SkeletonType.Human, SkeletonType.MobileFemale].includes(c.skeleton_type))
     .map(c => ({ name: c.skeleton_type, file: 'static/' + c.model_file, type: c.skeleton_type }))
 const results = []
@@ -30,10 +37,11 @@ for (const item of cases) {
   const bones: Bone[] = []
   rig.scene.traverse(object => { if (object instanceof Bone) bones.push(object) })
   const skeleton = new Skeleton(bones)
-  const source_rest = new Map(bones.map(b => [b.name, { position: b.position.clone(), quaternion: b.quaternion.clone() }]))
-  if (item.type === SkeletonType.Human) fit_humanoid_rig(target, skeleton, null, () => {})
+  const source_rest = new Map(bones.map(b => [b.name, { position: b.position.clone(), quaternion: b.quaternion.clone(), parent_name: b.parent?.name }]))
+  if (is_humanoid_skeleton_type(item.type)) fit_humanoid_rig(target, skeleton, null, () => {})
   else AnimalAutoFit.fit(target, skeleton, null, reference, () => {})
-  const target_rest = new Map(bones.map(b => [b.name, { position: b.position.clone(), quaternion: b.quaternion.clone() }]))
+  const target_rest = new Map(bones.map(b => [b.name, { position: b.position.clone(), quaternion: b.quaternion.clone(), parent_name: b.parent?.name }]))
+  const humanoid = is_humanoid_skeleton_type(item.type) ? new HumanoidClipCalibration(source_rest, target_rest) : null
   const joints = bones.map(b => ({ name: b.name, parent: bones.indexOf(b.parent as Bone), position: b.getWorldPosition(new Vector3()).toArray() }))
   const positions: number[] = [], triangles: number[] = []
   const step = new StepWeightSkin()
@@ -72,7 +80,8 @@ for (const item of cases) {
     }
   }
   for (const clip of clips.sort((a, b) => Number(/run|sprint/i.test(b.name)) - Number(/run|sprint/i.test(a.name)))) {
-    RestPoseAnimationBridge.rebase_clip_to_rest_pose(clip, source_rest, target_rest)
+    if (humanoid) humanoid.apply(clip, 1)
+    else RestPoseAnimationBridge.rebase_clip_to_rest_pose(clip, source_rest, target_rest)
     JointVolumeSupport.updateClip(clip, meshes[0].skeleton)
     const mixer = new AnimationMixer(root)
     mixer.clipAction(clip).play()

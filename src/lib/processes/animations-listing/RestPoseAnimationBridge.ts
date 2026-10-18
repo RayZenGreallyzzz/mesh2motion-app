@@ -2,20 +2,22 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip, type Bone, Quaternion, type Skeleton, Vector3 } from 'three'
 import { RigConfig } from '../../RigConfig.ts'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
+import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
+import { HumanoidClipCalibration } from './HumanoidClipCalibration.ts'
 import { type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 
 export interface AnimationRestTransform {
   quaternion: Quaternion
   position: Vector3
+  parent_name?: string
 }
 
 /**
- * Convert stock Human animation tracks from the SOURCE bind/rest local frame
- * into the actual user-edited Mobile Female bind frame.
+ * Adapt each bundled animation library to its user-edited skeleton.
  *
- * The bones may have the same names but different local rest transforms:
- * playing stock absolute quaternion/position tracks directly replaces the
- * user's joint placement with the Human rig's values.
+ * Humanoid edits change the anatomical axes as well as the joint positions,
+ * so calibrate those axes from child offsets. Other creature rigs keep their
+ * own source rest frames and use the existing rest-relative conversion.
  *
  * This is a one-time conversion of the loaded clip values. The 178-library
  * playback still uses the lightweight AnimationMixer, with no per-frame bake.
@@ -44,7 +46,15 @@ export class RestPoseAnimationBridge {
       )
     }
 
+    const humanoid = is_humanoid_skeleton_type(skeleton_type)
+      ? new HumanoidClipCalibration(source_rest_pose, target_rest_pose) : null
+
     for (const pair of animation_pairs) {
+      if (humanoid) {
+        humanoid.apply(pair.original_animation_clip, skeleton_scale)
+        humanoid.apply(pair.display_animation_clip, skeleton_scale)
+        continue
+      }
       // Run this once per clip pair. Both original and display tracks must be
       // rebased to avoid subsequent mirror/speed changes recreating bad poses.
       this.rebase_clip_to_rest_pose(
@@ -86,7 +96,8 @@ export class RestPoseAnimationBridge {
           const bone = object as Bone
           poses.set(bone.name, {
             quaternion: bone.quaternion.clone(),
-            position: bone.position.clone()
+            position: bone.position.clone(),
+            parent_name: bone.parent?.type === 'Bone' ? bone.parent.name : undefined
           })
         })
         if (poses.size === 0) {
@@ -110,7 +121,8 @@ export class RestPoseAnimationBridge {
     skeleton.bones.forEach((bone) => {
       result.set(bone.name, {
         quaternion: bone.quaternion.clone(),
-        position: bone.position.clone()
+        position: bone.position.clone(),
+        parent_name: bone.parent?.type === 'Bone' ? bone.parent.name : undefined
       })
     })
     return result

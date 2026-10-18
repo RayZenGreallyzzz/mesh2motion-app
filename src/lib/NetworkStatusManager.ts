@@ -30,7 +30,7 @@ export class NetworkStatusManager {
 
     // Show a toast notification if requested
     if (show_toast) {
-      this.show_toast(online ? 'You are back online' : 'You are offline')
+      this.show_toast(online ? 'Интернет подключён' : 'Офлайн — риг, анимации и экспорт доступны')
     }
   }
 

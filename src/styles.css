@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Jost&display=swap');
-
 /* CSS Variables for theming */
 :root {
   /* Dark theme (default) */
@@ -99,7 +97,7 @@ nav .active-nav-item, nav a:hover {
 html, body, li, p, div, span, label, input, 
 h1, h2, h3, h4, h5, h6, input, button, select {
     color: var(--text-primary);
-    font-family: 'Jost', sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     font-size: 14px;
     font-weight: 400;
     display: inline-block;

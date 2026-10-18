@@ -16,6 +16,9 @@ import org.junit.*;
 import org.junit.runner.RunWith;
 import org.json.JSONObject;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -66,6 +69,50 @@ public class NativeExportTest {
         JSONObject result = export();
         assertEquals(result.toString(), "error", result.optString("status"));
         assertTrue(result.optString("message").contains("Не удалось записать файл"));
+    }
+    @Test public void rigsAnimatesAndSavesGlbFromFreshOfflineLaunch() throws Exception {
+        assertEquals("Emulator must have Wi-Fi and mobile data disabled", "false", evaluate("navigator.onLine"));
+        intending(hasAction(Intent.ACTION_CREATE_DOCUMENT)).respondWith(new ActivityResult(Activity.RESULT_OK,
+                new Intent().setData(Uri.parse(URI + "saved.glb"))));
+        evaluate("document.getElementById('model-selection').value='models/model-human.glb';document.getElementById('load-model-button').click()");
+        awaitTrue("document.getElementById('skeleton-selection').getClientRects().length > 0");
+        evaluate("const select=document.getElementById('skeleton-selection');select.value='human-mobile-female';select.dispatchEvent(new Event('change',{bubbles:true}));");
+        awaitTrue("!document.getElementById('load-skeleton-button').disabled");
+        evaluate("document.getElementById('load-skeleton-button').click()");
+        awaitTrue("document.getElementById('autorig-humanoid-button')?.getClientRects().length > 0");
+        evaluate("document.getElementById('autorig-humanoid-button').click()");
+        awaitTrue("document.getElementById('action_bind_pose').getClientRects().length > 0 && !document.getElementById('action_bind_pose').disabled");
+        evaluate("document.getElementById('action_bind_pose').click()");
+        awaitTrue("document.getElementById('action_weights_to_animations').getClientRects().length > 0 && !document.getElementById('action_weights_to_animations').closest('[inert]')");
+        evaluate("document.getElementById('action_weights_to_animations').click()");
+        awaitTrue("document.querySelectorAll('#animations-items .anim-play-button').length >= 178");
+        evaluate("document.querySelector('#animations-items .anim-play-button').click();document.querySelector('#animations-items input[type=checkbox]').click();");
+        awaitTrue("!document.getElementById('export-button').disabled");
+        evaluate("document.getElementById('export-button').click()");
+        awaitTrue("document.getElementById('rig-export-notice')?.classList.contains('export-notice-success')");
+        android.content.ContentResolver resolver = InstrumentationRegistry.getInstrumentation().getTargetContext().getContentResolver();
+        byte[] bytes;
+        try (InputStream input = resolver.openInputStream(Uri.parse(URI + "saved.glb"))) {
+            assertNotNull(input);
+            bytes = input.readAllBytes();
+        }
+        ByteBuffer header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(0x46546c67, header.getInt(0));
+        assertEquals(bytes.length, header.getInt(8));
+        JSONObject gltf = new JSONObject(new String(bytes, 20, header.getInt(12), StandardCharsets.UTF_8));
+        assertEquals(1, gltf.getJSONArray("animations").length());
+        assertTrue(gltf.getJSONArray("skins").length() > 0);
+        assertTrue(gltf.getJSONArray("meshes").length() > 0);
+        intended(hasAction(Intent.ACTION_CREATE_DOCUMENT));
+        resolver.delete(Uri.parse(URI + "saved.glb"), null, null);
+    }
+    private void awaitTrue(String expression) throws Exception {
+        long deadline = System.currentTimeMillis() + 120000;
+        while (System.currentTimeMillis() < deadline) {
+            if ("true".equals(evaluate("Boolean(" + expression + ")"))) return;
+            Thread.sleep(150);
+        }
+        throw new AssertionError("Offline UI did not finish: " + expression + "; notice=" + evaluate("document.getElementById('rig-export-notice')?.textContent"));
     }
     private JSONObject export() throws Exception {
         evaluate("window.__nativeExportResult = null; (async () => { let id; try {" +

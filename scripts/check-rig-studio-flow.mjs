@@ -9,6 +9,15 @@ try {
   await mkdir('artifacts', { recursive: true })
   const page = await browser.newPage({ viewport: { width: 800, height: 1280 }, hasTouch: true })
   const errors = []
+  const external_requests = []
+  // The APK serves its bundled files on localhost. Deny every external origin
+  // from the FIRST launch: no cached online visit is needed to rig and export.
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url())
+    if (['localhost', '127.0.0.1'].includes(url.hostname) || ['data:', 'blob:'].includes(url.protocol)) return route.continue()
+    external_requests.push(url.origin + url.pathname)
+    return route.abort('internetdisconnected')
+  })
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/CustomModelUploadBootstrap.ts', async route => {
     const response = await route.fetch()
@@ -75,6 +84,7 @@ try {
   assert.equal(await page.locator('text=Enjoy the free animations').count(), 0)
   assert.equal(await page.locator('#tool-panel').evaluate(p => p.inert), false)
   assert.deepEqual(errors, [])
+  assert.deepEqual(external_requests, [], 'Rigging/export must not request remote resources')
   await page.locator('#rig-export-notice button').click()
   await page.screenshot({ path: 'artifacts/flow-fox-run.png' })
   console.log('PASS complete model → animal AutoFit → worker weights → brush → animation → GLB re-import', result)
