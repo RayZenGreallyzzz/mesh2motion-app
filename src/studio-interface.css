@@ -56,6 +56,8 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 .studio-panel-heading { margin: 0 0 16px; }
 .studio-panel-heading h2 { font-size: 22px; font-weight: 600; margin: 0 0 3px; line-height: 1.2; }
 .studio-panel-heading p { font-size: 12px; color: var(--text-alternate); margin: 0; }
+.rig-view-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.rig-view-controls > button { min-width: 0; padding-inline: 3px; font-size: 12px; white-space: nowrap; }
 #animations-listing { padding: 0; width: 100%; min-width: 0; box-sizing: border-box; }
 .animation-filter-row { flex-direction: column; gap: 10px !important; padding: 0; }
 .animation-filter-row > span, .animation-filter-row .pill-switch-group { width: 100%; padding: 0; }
