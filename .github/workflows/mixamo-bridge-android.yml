@@ -1,0 +1,71 @@
+name: Mixamo Bridge Android APK
+
+on:
+  push:
+    branches:
+      - feature/mixamo-offline-converter
+    paths:
+      - 'converter/**'
+      - 'capacitor.config.json'
+      - '.github/workflows/mixamo-bridge-android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build self-contained offline converter
+        run: npx vite build --config converter/vite.config.mjs
+      - name: Add Capacitor 8
+        run: npm install --no-save --package-lock=false @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - name: Generate Android shell
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Install native Android file-save bridge
+        run: |
+          mkdir -p android/app/src/main/java/com/rayzen/mixamobridge
+          cp converter/native/MainActivity.java android/app/src/main/java/com/rayzen/mixamobridge/MainActivity.java
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Collect APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Mixamo-Bridge-Android-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixamo-Bridge-Android-debug-APK
+          path: artifacts/Mixamo-Bridge-Android-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish Android APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="mixamo-bridge-v0.1.0"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/Mixamo-Bridge-Android-debug.apk --clobber
+          else
+            gh release create "$TAG" artifacts/Mixamo-Bridge-Android-debug.apk \
+              --title "Mixamo Bridge v0.1.0 — Android (test)" \
+              --notes "Offline Android converter: GLB to Mixamo-ready OBJ+MTL+textures ZIP, experimental FBX 7.4 binary export, FBX to animated/skinned GLB, native Android document save. Requires testing on device and Mixamo; FBX 2013/7.3 export is not included."
+          fi
