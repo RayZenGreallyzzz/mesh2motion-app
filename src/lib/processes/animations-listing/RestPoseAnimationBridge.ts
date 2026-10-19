@@ -1,3 +1,4 @@
+import { CreatureAnimationLibrary } from './CreatureAnimationLibrary.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip, type Bone, Quaternion, type Skeleton, Vector3 } from 'three'
 import { RigConfig } from '../../RigConfig.ts'
@@ -16,8 +17,8 @@ export interface AnimationRestTransform {
  * Adapt each bundled animation library to its user-edited skeleton.
  *
  * Humanoid edits change the anatomical axes as well as the joint positions,
- * so calibrate those axes from child offsets. Other creature rigs keep their
- * own source rest frames and use the existing rest-relative conversion.
+ * so calibrate those axes from child offsets. Upright winged creatures get
+ * rest-relative procedural motions; other animals keep their own libraries.
  *
  * This is a one-time conversion of the loaded clip values. The 178-library
  * playback still uses the lightweight AnimationMixer, with no per-frame bake.
@@ -34,6 +35,15 @@ export class RestPoseAnimationBridge {
     skeleton_type: SkeletonType,
     skeleton_scale: number = 1
   ): Promise<void> {
+    if (skeleton_type === SkeletonType.Dragon && CreatureAnimationLibrary.supports(target_skeleton)) {
+      const generated = CreatureAnimationLibrary.generate(target_skeleton)
+      animation_pairs.splice(0, animation_pairs.length, ...generated.map(clip => ({
+        original_animation_clip: clip,
+        display_animation_clip: clip.clone(),
+        metadata: { source_type: 'default-library' as const, tags: ['creature', 'offline', 'fitted-rest'] }
+      })))
+      return
+    }
     // Target rest is authoritative regardless of manual or automatic fitting.
     const source_rest_pose = await this.load_source_rest_pose(skeleton_type)
     const target_rest_pose = this.capture_rest_pose(target_skeleton)

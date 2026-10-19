@@ -1,3 +1,4 @@
+import { CreatureAnimationLibrary } from '../src/lib/processes/animations-listing/CreatureAnimationLibrary.ts'
 import { AnimationMixer, Bone, Box3, Group, Mesh, Skeleton, Vector3 } from 'three'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { read_glb } from '../src/test/GlbFixture.ts'
@@ -34,6 +35,7 @@ for (const item of cases) {
   ModelCleanupUtility.bake_transforms_into_geometry(input.scene)
   const target = ModelCleanupUtility.strip_out_all_unecessary_model_data(input.scene, item.name, false)
   ModelCleanupUtility.scale_model_on_import_if_extreme(target)
+  ModelCleanupUtility.move_model_to_floor(target)
   const bones: Bone[] = []
   rig.scene.traverse(object => { if (object instanceof Bone) bones.push(object) })
   const skeleton = new Skeleton(bones)
@@ -66,7 +68,8 @@ for (const item of cases) {
   writeFileSync(output + '/positions.bin', Buffer.from(new Float32Array(positions).buffer))
   writeFileSync(output + '/triangles.bin', Buffer.from(new Uint32Array(triangles).buffer))
   writeFileSync(output + '/joints.json', JSON.stringify(joints))
-  const clips = (await Promise.all(config.animation_files.map(file => read_glb('static/' + file.replace('../', ''))))).flatMap(g => g.animations)
+  const creature = item.type === SkeletonType.Dragon && CreatureAnimationLibrary.supports(step.skeleton()!)
+  const clips = creature ? CreatureAnimationLibrary.generate(step.skeleton()!) : (await Promise.all(config.animation_files.map(file => read_glb('static/' + file.replace('../', ''))))).flatMap(g => g.animations)
   AnimationUtility.clean_track_data(clips, config.position_tracking_bone_name)
   let frames = 0, invalid = 0, rest_error = 0, captured = 0
   const point = new Vector3()
@@ -81,7 +84,7 @@ for (const item of cases) {
   }
   for (const clip of clips.sort((a, b) => Number(/run|sprint/i.test(b.name)) - Number(/run|sprint/i.test(a.name)))) {
     if (humanoid) humanoid.apply(clip, 1)
-    else RestPoseAnimationBridge.rebase_clip_to_rest_pose(clip, source_rest, target_rest)
+    else if (!creature) RestPoseAnimationBridge.rebase_clip_to_rest_pose(clip, source_rest, target_rest)
     JointVolumeSupport.updateClip(clip, meshes[0].skeleton)
     const mixer = new AnimationMixer(root)
     mixer.clipAction(clip).play()

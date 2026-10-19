@@ -294,7 +294,8 @@ export class Mesh2MotionEngine {
     const species = this.load_skeleton_step.skeleton_type()
     const status = document.getElementById('rig-setup-status')
     this.auto_fit_in_progress = true
-    if (status) status.textContent = 'Подгонка скелета…'
+    if (status) status.textContent = 'Подгонка скелета по геометрии…'
+    await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
     try {
       const before = () => this.edit_skeleton_step.store_bone_state_for_undo()
       let result: string | null
@@ -302,14 +303,16 @@ export class Mesh2MotionEngine {
         result = fit_humanoid_rig(model, skeleton, this.rig_setup_group, before)
       } else {
         const reference = await AnimalAutoFit.load_reference(species)
-        result = AnimalAutoFit.fit(model, skeleton, this.rig_setup_group, reference, before)
+        const selected = (document.getElementById('creature-fit-mode') as HTMLSelectElement | null)?.value
+        const mode = species === SkeletonType.Dragon && (selected === 'template' || selected === 'upright-winged') ? selected : 'auto'
+        result = AnimalAutoFit.fit(model, skeleton, this.rig_setup_group, reference, before, mode)
       }
       this.regenerate_skeleton_helper(skeleton, 'Skeleton Helper')
       this.sync_skeleton_helper_joint_visibility()
       this.edit_skeleton_step.dispatchEvent(new CustomEvent('skeletonTransformed'))
       if (status) status.textContent = result
         ? `Подгонка: ${result}. Проверьте суставы перед расчётом весов.`
-        : 'Недостаточно геометрии для подгонки.'
+        : 'Форма не распознана. Попробуйте обычный шаблон или расставьте суставы вручную.'
     } catch (error) {
       console.error(error)
       if (status) status.textContent = 'Не удалось подогнать скелет. Можно расставить суставы вручную.'
@@ -463,6 +466,8 @@ export class Mesh2MotionEngine {
     if (pose_a !== null) pose_a.disabled = !this.rig_setup_locked_state
     if (pose_t !== null) pose_t.disabled = !this.rig_setup_locked_state
     if (bind !== null) bind.disabled = !this.rig_setup_locked_state
+    const creature_options = document.getElementById('creature-fit-options')
+    if (creature_options) creature_options.style.display = this.load_skeleton_step.skeleton_type() === SkeletonType.Dragon ? 'flex' : 'none'
     if (autorig !== null) {
       autorig.textContent = 'Подогнать скелет'
     }

@@ -32,7 +32,7 @@
         <img class="ras-brand-mark ignore-filters" src="./images/branding/hedgehog-icon.png" alt="" width="38" height="38" />
         <span class="ras-brand-copy">
           <strong>Rig Animation Studio</strong>
-          <small>v6.9 · Офлайн-риг и анимации</small>
+          <small>v7.0 · Умный риг существ</small>
         </span>
       </div>
       <div style="display: inline-flex; align-items: center;">
@@ -229,8 +229,17 @@
               <button type="button" class="secondary-button" id="rig-view-back" style="flex: 1;">Сзади</button>
             </div>
             <small id="rig-setup-status">Риг разблокирован: модель и скелет двигаются вместе.</small>
-            <button type="button" id="autorig-humanoid-button" class="secondary-button">АвтоРиг · Humanoid</button>
-            <small>Автоматически подгоняет humanoid-скелет под модель. После этого проверьте таз, локти и колени.</small>
+            <label id="creature-fit-options" style="display: none; flex-direction: column; gap: .35rem;">
+              <span>Форма дракона</span>
+              <select id="creature-fit-mode" style="width: 100%; min-width: 0;">
+                <option value="auto">Определить автоматически</option>
+                <option value="upright-winged">Две ноги, поднятые лапы, крылья</option>
+                <option value="template">Обычный шаблон дракона</option>
+              </select>
+              <small>Для двуногого дракона: поиск цепочек по объёму, 4 анимации и поза покоя офлайн. Рога и перепонки проверьте вручную.</small>
+            </label>
+            <button type="button" id="autorig-humanoid-button" class="secondary-button">Подогнать скелет</button>
+            <small>Подгоняет выбранный скелет по геометрии модели. После этого проверьте суставы спереди и сбоку; точки можно передвинуть вручную.</small>
           </div>
 
           <div style="display: flex; flex-direction: column;">
