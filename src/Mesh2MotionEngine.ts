@@ -294,9 +294,14 @@ export class Mesh2MotionEngine {
     const species = this.load_skeleton_step.skeleton_type()
     const status = document.getElementById('rig-setup-status')
     this.auto_fit_in_progress = true
+    const bind_button = document.getElementById('action_bind_pose') as HTMLButtonElement | null
+    const fit_button = document.getElementById('autorig-humanoid-button') as HTMLButtonElement | null
+    if (bind_button) bind_button.disabled = true
+    if (fit_button) fit_button.disabled = true
     if (status) status.textContent = 'Подгонка скелета по геометрии…'
-    await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
     try {
+      // Yield for the busy message without waiting for a foreground render frame.
+      await new Promise<void>(resolve => setTimeout(resolve, 16))
       const before = () => this.edit_skeleton_step.store_bone_state_for_undo()
       let result: string | null
       if (is_humanoid_skeleton_type(species)) {
@@ -318,6 +323,8 @@ export class Mesh2MotionEngine {
       if (status) status.textContent = 'Не удалось подогнать скелет. Можно расставить суставы вручную.'
     } finally {
       this.auto_fit_in_progress = false
+      if (bind_button) bind_button.disabled = !this.rig_setup_locked_state
+      if (fit_button) fit_button.disabled = false
     }
   }
 

@@ -9,6 +9,12 @@ collect_diagnostics() {
   exit "$rig_test_status"
 }
 trap collect_diagnostics EXIT
+# The fresh emulator can still be behind keyguard when ActivityScenario starts.
+# Native document intents require an awake, focused activity.
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
+adb shell svc power stayon true
+adb shell settings put system screen_off_timeout 600000
 # File I/O tests do not need a 1080p software-rendered canvas.
 adb shell wm size 480x800
 # A fresh installation must work without ever connecting to the internet.
