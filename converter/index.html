@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#111521" />
+  <title>Mixamo Bridge — офлайн-конвертер</title>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="logo" aria-hidden="true">M<span>⇄</span></div>
+      <div><div class="brand">MIXAMO <b>BRIDGE</b></div><div class="subbrand">3D FORMAT CONVERTER • OFFLINE</div></div>
+      <div class="offline"><i></i>OFFLINE</div>
+    </header>
+
+    <main>
+      <section class="hero"><div class="eyebrow">GLB · FBX · OBJ · ZIP</div><h1>Одна модель.<br/><em>Два направления.</em></h1><p>Готовь модели для Mixamo и возвращай скелеты и анимации в GLB — прямо на устройстве.</p></section>
+      <div class="tabs" role="tablist" aria-label="Направление конвертации">
+        <button class="tab active" data-tab="to-mixamo" aria-selected="true">GLB → Mixamo</button>
+        <button class="tab" data-tab="from-mixamo" aria-selected="false">Mixamo → GLB</button>
+      </div>
+
+      <section class="panel" id="to-mixamo">
+        <div class="section-count">01 / ИСХОДНАЯ МОДЕЛЬ</div>
+        <label class="file-drop" for="glb-input">
+          <div class="file-icon">⬡</div><b id="glb-title">Выбрать GLB</b><span id="glb-subtitle">Файл Meshy, Blender или Rig Animation Studio</span>
+          <input type="file" id="glb-input" accept=".glb,model/gltf-binary,application/octet-stream" />
+        </label>
+        <div id="glb-stats" class="stats hidden" aria-live="polite"></div>
+        <div class="section-count spaced">02 / ФОРМАТ ДЛЯ MIXAMO</div>
+        <label class="mode selected"><input type="radio" name="out-format" value="zip" checked><div class="dot"></div><div class="mode-text"><b>OBJ + материалы + текстуры (ZIP)</b><small>Рекомендуется для незаригленных моделей. Официально поддерживается Mixamo.</small></div><span class="chip">Надёжнее</span></label>
+        <label class="mode"><input type="radio" name="out-format" value="fbx"><div class="dot"></div><div class="mode-text"><b>FBX Binary 7.4</b><small>Пробный экспорт с костями и анимациями. Не FBX 2013 — совместимость проверяй в Mixamo.</small></div></label>
+        <label class="setting"><span>Развернуть модель лицом назад, по оси Y</span><input type="checkbox" id="flip-y" /><span class="switch"></span></label>
+        <button id="convert-out" class="primary" disabled>Подготовить файл для Mixamo <span>→</span></button>
+        <div class="footnote">OBJ не сохраняет скелет и анимации. Для уже заригленных персонажей выбирай FBX.</div>
+      </section>
+
+      <section class="panel hidden" id="from-mixamo">
+        <div class="section-count">01 / ФАЙЛ ИЗ MIXAMO</div>
+        <label class="file-drop" for="fbx-input"><div class="file-icon">◈</div><b id="fbx-title">Выбрать FBX</b><span id="fbx-subtitle">Скачанный персонаж с костями / анимацией</span><input type="file" id="fbx-input" accept=".fbx,application/octet-stream" /></label>
+        <div id="fbx-stats" class="stats hidden" aria-live="polite"></div>
+        <div class="section-count spaced">02 / ЭКСПОРТ</div>
+        <div class="output-box"><span>Формат</span><b>GLB 2.0</b><small>Скелет • Веса • Анимации • Встроенные текстуры*</small></div>
+        <label class="setting"><span>Ограничить текстуры до 2048 px</span><input type="checkbox" id="texture-limit" checked /><span class="switch"></span></label>
+        <button id="convert-in" class="primary" disabled>Конвертировать в GLB <span>→</span></button>
+        <div class="footnote">* Если FBX ссылается на внешние изображения, их может потребоваться прикрепить отдельно. Конвертер не исправляет неправильные веса и движения костей.</div>
+      </section>
+
+      <div id="feedback" class="feedback hidden" role="status" aria-live="polite"><div class="pulse"></div><span id="feedback-text"></span></div>
+      <div id="progress-wrap" class="progress-wrap hidden"><div id="progress-bar" class="progress-bar"></div></div>
+      <section class="how"><div class="how-title">КАК ЭТО РАБОТАЕТ</div><div class="steps"><div><span>01</span><b>GLB → ZIP</b><p>Сохраняем форму и текстуры для авториггинга.</p></div><div><span>02</span><b>Mixamo</b><p>Загрузи ZIP, установи маркеры и скачай FBX.</p></div><div><span>03</span><b>FBX → GLB</b><p>Возвращаем скелет и анимации для Godot.</p></div></div></section>
+      <footer>Mixamo Bridge · Локальная обработка · Без загрузки моделей на сервер</footer>
+    </main>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
