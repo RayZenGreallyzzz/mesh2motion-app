@@ -1,3 +1,4 @@
+import { WingedCreatureAutoFit } from './WingedCreatureAutoFit.ts'
 import { AnimalCrossSection } from './AnimalCrossSection.ts'
 import { Box3, Matrix4, Object3D, Quaternion, Skeleton, Vector3, type Bone, type Mesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -68,7 +69,7 @@ export class AnimalAutoFit {
   }
 
   public static fit (model: Object3D, skeleton: Skeleton, frame: Object3D | null,
-    reference: AnimalRigReference, before_apply: () => void): string | null {
+    reference: AnimalRigReference, before_apply: () => void, creature_mode: 'auto' | 'template' | 'upright-winged' = 'auto'): string | null {
     const target = this.sample(model, frame)
     if (target.length < 32 || reference.points.length < 32) return null
     const target_box = new Box3().setFromPoints(target)
@@ -98,6 +99,11 @@ export class AnimalAutoFit {
     const center = new Box3().setFromPoints(canonical_target).getCenter(new Vector3())
     const source_center = fit.box.getCenter(new Vector3())
     const identical_shape = this.shape_cost(fit.points, target, target_size) < 1e-10
+    const winged = reference.joints.has('wing_1_l') && reference.joints.has('front_leg_l')
+    const creature = !identical_shape && winged && creature_mode !== 'template' &&
+      (creature_mode === 'upright-winged' || size.y / size.x > .65)
+      ? WingedCreatureAutoFit.propose(model, frame, fit.yaw, canonical_target) : null
+    if (creature_mode === 'upright-winged' && !creature) return null
     const quadruped = reference.joints.has('Front_Leg_Upper_L') && reference.joints.has('Back_Leg_Upper_L')
     const source_feet = quadruped ? this.foot_centers(canonical_source, size) : null
     const target_feet = quadruped ? this.foot_centers(canonical_target, size) : null
@@ -179,6 +185,14 @@ export class AnimalAutoFit {
         })
       }
     }
+    if (creature) {
+      for (const [name, point] of creature) {
+        const joint = targets.get(name)
+        if (!joint) continue
+        joint.position.copy(point).applyQuaternion(fit.yaw)
+        if (frame) joint.position.applyMatrix4(frame.matrixWorld)
+      }
+    }
     before_apply()
     // Parent before child, independent of Skeleton.bones array ordering.
     const bones = [...skeleton.bones].sort((a, b) => this.depth(a) - this.depth(b))
@@ -190,7 +204,8 @@ export class AnimalAutoFit {
       bone.quaternion.copy(bone.parent.getWorldQuaternion(new Quaternion()).normalize().invert().multiply(target_joint.rotation)).normalize()
       bone.updateWorldMatrix(true, true)
     }
-    return 'шаблон животного; лапы, спина и хвост требуют проверки'
+    return creature ? 'двуногий дракон; цепочки внутри тела, шеи и хвоста; крылья и поднятые лапы отдельно'
+      : 'шаблон животного; лапы, спина и хвост требуют проверки'
   }
 
   private static depth (object: Object3D): number {
