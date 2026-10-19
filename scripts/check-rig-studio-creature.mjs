@@ -23,10 +23,8 @@ try {
   await page.goto('http://localhost:4187/create.html')
   await page.waitForFunction(() => window.rigEngine)
   await page.evaluate(async () => {
-    const { winged_creature_fixture } = await import('/test/WingedCreatureFixture.ts')
-    const { GLTFExporter } = await import('/node_modules/three/examples/jsm/exporters/GLTFExporter.js')
-    const binary = await new GLTFExporter().parseAsync(winged_creature_fixture(), { binary: true })
-    const url = URL.createObjectURL(new Blob([binary], { type: 'model/gltf-binary' }))
+    const { creature_fixture_url } = await import('/test/BrowserCreatureFixture.ts')
+    const url = await creature_fixture_url()
     window.creatureFixtureUrl = url
     await window.rigEngine.load_model_step.load_model_file(url, 'glb')
   })
