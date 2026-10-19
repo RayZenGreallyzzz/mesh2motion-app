@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.app.Instrumentation.ActivityResult;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.ConnectivityManager;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.espresso.intent.Intents;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -31,7 +32,7 @@ public class NativeExportTest {
         Intents.init();
         scenario = ActivityScenario.launch(MainActivity.class);
         long deadline = System.currentTimeMillis() + 60000;
-        while (!"true".equals(evaluate("location.pathname.endsWith('/create.html') && !!window.Capacitor?.nativePromise"))) {
+        while (!"true".equals(evaluate("document.readyState === 'complete' && location.pathname.endsWith('/create.html') && !!window.Capacitor?.nativePromise"))) {
             if (System.currentTimeMillis() > deadline) fail("WebView and real Capacitor bridge did not become ready");
             Thread.sleep(150);
         }
@@ -71,6 +72,9 @@ public class NativeExportTest {
         assertTrue(result.optString("message").contains("Не удалось записать файл"));
     }
     @Test public void rigsAnimatesAndSavesGlbFromFreshOfflineLaunch() throws Exception {
+        ConnectivityManager connectivity = InstrumentationRegistry.getInstrumentation()
+                .getTargetContext().getSystemService(ConnectivityManager.class);
+        assertNull("Android must have no active network, not just an offline UI flag", connectivity.getActiveNetwork());
         assertEquals("Emulator must have Wi-Fi and mobile data disabled", "false", evaluate("navigator.onLine"));
         intending(hasAction(Intent.ACTION_CREATE_DOCUMENT)).respondWith(new ActivityResult(Activity.RESULT_OK,
                 new Intent().setData(Uri.parse(URI + "saved.glb"))));
