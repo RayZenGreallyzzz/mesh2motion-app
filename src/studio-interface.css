@@ -128,3 +128,15 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 
 #animations-items .anim-request-tile { display: none; }
 .download-settings-panel .toggle input + label:first-of-type, .download-settings-panel .toggle input + label:last-of-type { border-radius: 9px; border: 1px solid var(--bg-tertiary); }
+
+/* Procedural creature clips have bundled symbols, not missing video URLs. */
+#animations-items .anim-creature-preview {
+  align-items: center; justify-content: center; flex-direction: column; gap: 8px;
+  color: var(--button-primary-bg);
+  background: radial-gradient(circle at 50% 40%, rgba(221, 168, 98, .12), transparent 75%);
+}
+#animations-items .anim-creature-symbol { width: 56px; height: 56px; flex-shrink: 0; }
+#animations-items .anim-creature-preview small { font-size: 10px; color: var(--text-secondary); }
+#animations-items [data-creature='true'] .anim-preview-label {
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.25;
+}

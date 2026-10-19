@@ -46,6 +46,9 @@ try {
   await page.waitForFunction(() => window.rigEngine.animations_listing_step.animation_clips_loaded.length === 5)
   const names = await page.evaluate(() => window.rigEngine.animations_listing_step.animation_clips_loaded.map(p => p.display_animation_clip.name))
   assert(names.includes('Creature_Walk') && names.includes('Creature_Fly_Flap'))
+  assert.equal(await page.locator('#animations-items .anim-creature-preview svg').count(), 5)
+  assert.deepEqual(await page.locator('#animations-items .anim-preview-label').allTextContents(), ['Взмах', 'Планирование', 'Покой', 'Исходная поза', 'Ходьба'])
+  assert.equal(await page.locator('#animations-items .anim-creature-preview video').count(), 0)
   const download_event = page.waitForEvent('download')
   const exported = await page.evaluate(async () => {
     const e = window.rigEngine

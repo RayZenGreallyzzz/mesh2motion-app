@@ -1,3 +1,4 @@
+import { creature_motion_label, creature_motion_symbol } from './CreatureMotionPresentation.ts'
 import { type ThemeManager } from '../../ThemeManager'
 import { SkeletonType } from '../../enums/SkeletonType'
 import { RigConfig } from '../../RigConfig'
@@ -257,7 +258,9 @@ export class AnimationSearch extends EventTarget {
 
       // some animation names have underscores (even though that isn't shown on UI), others have spaces. 
       // we need to support both for searching to get a consistent match
-      const matches_search = animation.name.toLowerCase().replace(/_/g, ' ').includes(filter_text.toLowerCase().trim())
+      const query = filter_text.toLowerCase().trim()
+      const matches_search = animation.name.toLowerCase().replace(/_/g, ' ').includes(query) ||
+        this.animation_name_clean(animation.name).toLowerCase().includes(query)
 
       if (this.show_selected_only) {
         return matches_search && animation.isChecked === true
@@ -301,7 +304,8 @@ export class AnimationSearch extends EventTarget {
       const theme_name: string = this.theme_manager.get_current_theme()
       const is_custom_animation = animation_clip.metadata?.source_type === 'custom-import'
 
-      const preview_data_src_attribute = is_custom_animation
+      const is_creature_motion = animation_clip.metadata?.tags.includes('fitted-rest') === true && creature_motion_label(anim_name) !== undefined
+      const preview_data_src_attribute = is_custom_animation || is_creature_motion
         ? ''
         : ` data-src="../animpreviews/${preview_folder}/${theme_name}_${anim_name}.mp4"`
 
@@ -312,10 +316,10 @@ export class AnimationSearch extends EventTarget {
       const mirror_export_mode = animation_clip.mirror_export_mode ?? 'none'
       const mirror_toggle_label = this.get_mirror_toggle_label(mirror_export_mode)
       const animation_entry_html = `
-        <div class="${is_custom_animation ? 'anim-custom-item' : 'anim-item'}" data-animation-index="${original_index}" data-selected="${was_checked ? 'true' : 'false'}" data-mirror-mode="${mirror_export_mode}">
+        <div class="${is_custom_animation ? 'anim-custom-item' : 'anim-item'}" data-animation-index="${original_index}" data-creature="${is_creature_motion}" data-selected="${was_checked ? 'true' : 'false'}" data-mirror-mode="${mirror_export_mode}">
           <button class="secondary-button play anim-play-button" data-action="play-animation" data-index="${original_index}" aria-label="Play ${this.animation_name_clean(animation_clip.name)}">
             ${custom_animation_badge_html}
-            <div class="anim-preview-placeholder"${preview_data_src_attribute}></div>
+            <div class="anim-preview-placeholder${is_creature_motion ? ' anim-creature-preview' : ''}"${preview_data_src_attribute}>${is_creature_motion ? creature_motion_symbol(anim_name) : ''}</div>
           </button>
 
           <label class="styled-checkbox anim-row-checkbox">
@@ -396,12 +400,12 @@ export class AnimationSearch extends EventTarget {
     }, { rootMargin: '300px' }) // rootMargin pre-loads videos before they scroll into view to reduce popping
 
     // grabs all the animation list elements and tells the observer to start watching them for processing
-    const placeholders = this.animation_list_container?.querySelectorAll('.anim-preview-placeholder')
+    const placeholders = this.animation_list_container?.querySelectorAll('.anim-preview-placeholder[data-src]')
     placeholders?.forEach(ph => { observer.observe(ph) })
   }
 
   public animation_name_clean (input: string): string {
-    return input.replace(/_/g, ' ')
+    return creature_motion_label(input) ?? input.replace(/_/g, ' ')
   }
 
   /**

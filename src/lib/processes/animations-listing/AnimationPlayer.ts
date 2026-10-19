@@ -1,3 +1,4 @@
+import { creature_motion_label } from './CreatureMotionPresentation.ts'
 import { type AnimationClip, type AnimationAction } from 'three'
 import { UI } from '../../UI'
 
@@ -54,7 +55,7 @@ export class AnimationPlayer {
   }
 
   public animation_name_clean (input: string): string {
-    return input.replace(/_/g, ' ')
+    return creature_motion_label(input) ?? input.replace(/_/g, ' ')
   }
 
   public set_animation (animation_clip: AnimationClip, animation_actions: AnimationAction[]): void {
