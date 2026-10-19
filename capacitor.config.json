@@ -1,9 +1,7 @@
 {
-  "appId": "com.rayzen.riganimationstudio",
-  "appName": "Rig Animation Studio",
+  "appId": "com.rayzen.mixamobridge",
+  "appName": "Mixamo Bridge",
   "webDir": "dist",
   "bundledWebRuntime": false,
-  "android": {
-    "backgroundColor": "#111111"
-  }
+  "android": { "backgroundColor": "#10131b" }
 }
