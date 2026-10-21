@@ -1,0 +1,163 @@
+name: Rig Animation Studio v7.2 Meshy-style Joints TEST APK
+
+on:
+  push:
+    branches:
+      - feature/rig-studio-meshy-joint-editor-v72
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - name: Install web dependencies
+        run: npm ci
+      - name: Run full regression tests
+        run: npm test -- --run
+      - name: Build web assets
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          npm run build
+      - name: Install browser test tools
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Check own rigs, library restart and GLB roundtrip offline
+        run: node scripts/check-rig-studio-own-rigs.mjs
+      - name: Check responsive worker and cache
+        run: node scripts/check-rig-studio-worker.mjs
+      - name: Render portrait and landscape launch screens
+        run: node scripts/render-rig-studio-branding.mjs
+      - name: Check full animal editing and GLB export flow
+        run: node scripts/check-rig-studio-flow.mjs
+      - name: Check upright creature auto-fit, offline motions and GLB export
+        run: node scripts/check-rig-studio-creature.mjs
+      - name: Check eight real animal rigs and animation libraries
+        run: |
+          node_modules/.bin/esbuild scripts/check-rig-studio-animals.ts --bundle --platform=node --format=esm --packages=external --outfile=scripts/check-rig-studio-animals.mjs
+          node scripts/check-rig-studio-animals.mjs
+      - name: Check real humanoid meshes through every library motion
+        run: RIG_CHECK_OUTPUT=artifacts/humanoid-check node scripts/check-rig-studio-animals.mjs --humanoids
+      - name: Check fresh offline production app, humanoid rig and GLB export
+        run: node scripts/check-rig-studio-offline.mjs
+      - name: Check export menu on phones and tablets
+        run: node scripts/check-rig-studio-export-menu.mjs
+      - name: Check touch panel and repeated arm slider drags
+        run: node scripts/check-rig-studio-touch-panel.mjs
+      - name: Upload touch panel checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Studio-v7.2-panel-checks
+          path: |
+            artifacts/own-rigs-*.png
+            artifacts/own-rigs-results.json
+            artifacts/panel-*.png
+            artifacts/flow-*.png
+            artifacts/creature-*.png
+            artifacts/creature-results.json
+            artifacts/branding-*.png
+            artifacts/menu-*.png
+            artifacts/rig-check/results.json
+            artifacts/humanoid-check/results.json
+            artifacts/offline-*.png
+            artifacts/offline-results.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Capacitor install
+        run: npm install --no-save @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - name: Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Apply hedgehog launcher and splash branding
+        run: node scripts/apply-rig-studio-branding.mjs
+      - name: Register native document saving and instrumentation tests
+        run: |
+          node scripts/apply-rig-studio-file-export.mjs
+          RIG_OWN_RIG_TEST=1 node scripts/apply-rig-studio-export-tests.mjs
+      - name: Keep original Rig Animation Studio installed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle = Path('android/app/build.gradle')
+          text = gradle.read_text()
+          app_id = 'com.rayzen.riganimationstudio'
+          new_id = app_id + '.v72test'
+          old = 'applicationId "' + app_id + '"'
+          count = text.count(old)
+          if count != 1:
+              raise RuntimeError(f'Expected one applicationId={app_id}, got {count}; refusing to overwrite installed Rig Studio')
+          updated = text.replace(old, 'applicationId "' + new_id + '"')
+          gradle.write_text(updated)
+          names = Path('android/app/src/main/res/values/strings.xml')
+          if names.exists():
+              names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v7.2 TEST'))
+          print('Distinct Android test applicationId:', new_id)
+          PY
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile APK
+        working-directory: android
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx1536m --refresh-dependencies; then
+              exit 0
+            fi
+            echo "Gradle dependency retrieval failed on attempt $attempt; retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Verify native file writes, cancel and provider errors on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -feature -Vulkan -memory 3072 -cores 2
+          # Run our app tests; avoid generating test APKs for dependency library modules.
+          script: bash scripts/check-rig-studio-native.sh
+      - name: Upload Android export test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Studio-v7.2-native-export-checks
+          path: |
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+            artifacts/android-logcat.txt
+            artifacts/android-host.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Name test APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/Rig-Animation-Studio-v7.2-Meshy-Joints-test.apk
+      - name: Upload TEST APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Animation-Studio-v7.2-Meshy-Joints-test-APK
+          path: artifacts/Rig-Animation-Studio-v7.2-Meshy-Joints-test.apk
+          if-no-files-found: error
+          retention-days: 14
