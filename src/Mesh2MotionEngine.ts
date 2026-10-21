@@ -211,6 +211,7 @@ export class Mesh2MotionEngine {
     })
     this.skeleton_helper.name = helper_name
     this.skeleton_helper.setJointVisualization(this.meshy_joint_visuals_enabled ? 'meshy' : 'classic')
+    this.skeleton_helper.setHighlightedJoint(this.edit_skeleton_step.get_currently_selected_bone()?.name ?? null)
     this.scene.add(this.skeleton_helper)
   }
 
