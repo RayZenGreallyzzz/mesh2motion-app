@@ -77,6 +77,8 @@ export class Mesh2MotionEngine {
   // for looking at specific bones
   public process_step: ProcessStep = ProcessStep.LoadModel
   public skeleton_helper: CustomSkeletonHelper | undefined = undefined
+  // Preview preference only; never modifies the Bone hierarchy or skinning data.
+  private meshy_joint_visuals_enabled: boolean = false
   public debugging_visual_object: Group = new Group()
 
   // when editing the skeleton, what type of mesh will we see
@@ -208,6 +210,7 @@ export class Mesh2MotionEngine {
       thickness_ratio: mobileHelperThickness
     })
     this.skeleton_helper.name = helper_name
+    this.skeleton_helper.setJointVisualization(this.meshy_joint_visuals_enabled ? 'meshy' : 'classic')
     this.scene.add(this.skeleton_helper)
   }
 
@@ -239,6 +242,11 @@ export class Mesh2MotionEngine {
     this.scene.remove(this.skeleton_helper)
     this.skeleton_helper.dispose()
     this.skeleton_helper = undefined
+  }
+
+  public set_meshy_joint_visuals_enabled (enabled: boolean): void {
+    this.meshy_joint_visuals_enabled = enabled
+    this.skeleton_helper?.setJointVisualization(enabled ? 'meshy' : 'classic')
   }
 
   public sync_skeleton_helper_joint_visibility (): void {
