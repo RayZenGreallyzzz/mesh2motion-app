@@ -13,6 +13,12 @@ await writeFile(`${root}/AndroidManifest.xml`, `<?xml version="1.0" encoding="ut
    android:authorities="com.rayzen.riganimationstudio.export.test" android:exported="true" /></application>
 </manifest>
 `)
+// Enable this additional suite only in workflows that generate and verify its fixture.
+if (process.env.RIG_OWN_RIG_TEST === '1') {
+  await copyFile('resources/android/test/OwnRigsNativeTest.java', dir + '/OwnRigsNativeTest.java')
+  await mkdir(root + '/assets', { recursive: true })
+  await copyFile('artifacts/own-rig-fixture.glb', root + '/assets/own-rig-fixture.glb')
+}
 const gradle = 'android/app/build.gradle'
 const original = await readFile(gradle, 'utf8')
 await writeFile(gradle, original + `
