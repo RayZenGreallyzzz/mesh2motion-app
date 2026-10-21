@@ -5,6 +5,7 @@ import { TransformSpace } from './enums/TransformSpace'
 import { Utility } from './Utilities'
 import { ModelCleanupUtility } from './processes/load-model/ModelCleanupUtility'
 import { ModelAnalysisReport } from './processes/load-model/ModelAnalysisReport'
+import { find_meshy_marker_bone } from './processes/edit-skeleton/MeshyMarkerGuide.ts'
 import { ExportNotice } from './components/ExportNotice.ts'
 import { ExportCancelledError, ExportFileSaver } from './processes/export-to-file/ExportFileSaver.ts'
 import { ModalDialog } from './ModalDialog.ts'
@@ -346,6 +347,38 @@ export class EventListeners {
     document.querySelector<HTMLInputElement>('#meshy-joint-visuals')?.addEventListener('change', (event: Event) => {
       const enabled = (event.target as HTMLInputElement).checked
       this.bootstrap.set_meshy_joint_visuals_enabled(enabled)
+    })
+
+    // Guided anatomical-point selection, inspired by Meshy's marker workflow.
+    // Never updates Bone matrices/weight attributes on its own.
+    document.getElementById('meshy-marker-guide')?.addEventListener('click', (event: MouseEvent) => {
+      const button = event.target instanceof HTMLElement
+        ? event.target.closest<HTMLButtonElement>('button[data-meshy-marker]')
+        : null
+      if (button === null) return
+      const status = document.getElementById('meshy-marker-guide-status')
+      if (this.bootstrap.process_step !== ProcessStep.EditSkeleton) {
+        if (status !== null) status.textContent = 'Сначала открой редактирование скелета.'
+        return
+      }
+      const marker = button.dataset.meshyMarker ?? ''
+      const editor = this.bootstrap.edit_skeleton_step
+      const bone = find_meshy_marker_bone(editor.skeleton().bones, marker)
+      if (bone === null || !editor.is_bone_selectable(bone)) {
+        if (status !== null) status.textContent = 'Кость не найдена или скрыта зеркальным режимом. Проверь тип скелета и настройку зеркала.'
+        return
+      }
+      editor.set_currently_selected_bone(bone)
+      const toggle = document.querySelector<HTMLInputElement>('#meshy-joint-visuals')
+      if (toggle !== null) toggle.checked = true
+      this.bootstrap.set_meshy_joint_visuals_enabled(true)
+      this.bootstrap.skeleton_helper?.setHighlightedJoint(bone.name)
+      if (!editor.is_mesh_drag_placement_enabled() && this.bootstrap.is_rig_setup_locked()) {
+        this.bootstrap.transform_controls.attach(bone)
+      }
+      if (status !== null) {
+        status.textContent = 'Выбрана кость ' + bone.name + '. Найди жёлтый шарнир на модели и поправь его положение вручную.'
+      }
     })
 
     this.bootstrap.ui.dom_show_skeleton_checkbox?.addEventListener('click', (event: MouseEvent) => {
