@@ -343,6 +343,11 @@ export class EventListeners {
       }
     })
 
+    document.querySelector<HTMLInputElement>('#meshy-joint-visuals')?.addEventListener('change', (event: Event) => {
+      const enabled = (event.target as HTMLInputElement).checked
+      this.bootstrap.set_meshy_joint_visuals_enabled(enabled)
+    })
+
     this.bootstrap.ui.dom_show_skeleton_checkbox?.addEventListener('click', (event: MouseEvent) => {
       if (this.bootstrap.skeleton_helper !== undefined) {
         this.bootstrap.skeleton_helper.visible = event.target.checked
