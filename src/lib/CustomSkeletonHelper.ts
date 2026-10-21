@@ -3,7 +3,7 @@
 // and ideas from
 // https://discourse.threejs.org/t/extend-skeletonhelper-to-accommodate-fat-lines-perhaps-with-linesegments2/59436/2
 
-import { Color, Matrix4, Quaternion, Vector3, Points, PointsMaterial, BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, TextureLoader, InstancedMesh, MeshBasicMaterial, FrontSide, DynamicDrawUsage, type Bone, type Camera, type ColorRepresentation, type Material, type Texture } from 'three'
+import { Color, Matrix4, Quaternion, Vector3, Points, PointsMaterial, BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, TextureLoader, InstancedMesh, MeshBasicMaterial, FrontSide, DynamicDrawUsage, SphereGeometry, CylinderGeometry, type Bone, type Camera, type ColorRepresentation, type Material, type Texture } from 'three'
 import { BoneCategory, BoneClassifier } from './solvers/BoneClassifier'
 import { create_octahedral_bone_geometry } from './geometry/OctahedralBoneGeometry'
 
@@ -62,6 +62,11 @@ class CustomSkeletonHelper extends InstancedMesh {
   public readonly bones: any[]
 
   private readonly joint_points: Points
+  private readonly rounded_joint_mesh: InstancedMesh
+  private readonly classic_bone_geometry: BufferGeometry
+  private rounded_bone_geometry: BufferGeometry | null = null
+  private show_joints_requested: boolean = true
+  private meshy_visual_mode: boolean = false
   private hide_right_side_joints: boolean = false
   private is_disposed: boolean = false
 
@@ -125,6 +130,7 @@ class CustomSkeletonHelper extends InstancedMesh {
     super(create_octahedral_bone_geometry(), material, Math.max(segment_bone_indices.length, 1))
     this.count = segment_bone_indices.length
     this.instanceMatrix.setUsage(DynamicDrawUsage)
+    this.classic_bone_geometry = this.geometry
 
     if(options.jointColor) {
       this._joint_color = new Color(options.jointColor)
@@ -194,8 +200,30 @@ class CustomSkeletonHelper extends InstancedMesh {
 
     this.joint_points = new Points(pointsGeometry, pointsMaterial)
     this.joint_points.frustumCulled = false
-    this.joint_points.visible = options.showJoints ?? true
+    this.show_joints_requested = options.showJoints ?? true
+    this.joint_points.visible = this.show_joints_requested
     this.add(this.joint_points)
+
+    // Meshy-inspired PREVIEW ONLY: shaded ball joints over rounded bone segments.
+    // This never edits bones, joint axes, bind matrices, skin weights or animation tracks.
+    // Instancing keeps draw calls almost constant even for large creature skeletons.
+    this.rounded_joint_mesh = new InstancedMesh(
+      new SphereGeometry(1, 10, 8),
+      new MeshBasicMaterial({
+        color: this._joint_color,
+        transparent: true,
+        opacity: 0.92,
+        depthTest: false,
+        depthWrite: false
+      }),
+      Math.max(bones.length, 1)
+    )
+    this.rounded_joint_mesh.count = bones.length
+    this.rounded_joint_mesh.frustumCulled = false
+    this.rounded_joint_mesh.renderOrder = 12
+    this.rounded_joint_mesh.instanceMatrix.setUsage(DynamicDrawUsage)
+    this.rounded_joint_mesh.visible = false
+    this.add(this.rounded_joint_mesh)
 
     // the bone shapes have to be sorted by camera distance, and onBeforeRender
     // is where the camera for the current pass is available
@@ -210,10 +238,14 @@ class CustomSkeletonHelper extends InstancedMesh {
 
     _matrixWorldInv.copy(this.root.matrixWorld).invert()
 
+    let lowest_joint_y = Infinity
+    let highest_joint_y = -Infinity
     for (let i = 0; i < bones.length; i++) {
       const bone = bones[i]
       _boneMatrix.multiplyMatrices(_matrixWorldInv, bone.matrixWorld)
       _vector.setFromMatrixPosition(_boneMatrix)
+      lowest_joint_y = Math.min(lowest_joint_y, _vector.y)
+      highest_joint_y = Math.max(highest_joint_y, _vector.y)
 
       if (this.hide_right_side_joints && is_right_side_bone(bone)) {
         pointPositions.setXYZ(i, Number.NaN, Number.NaN, Number.NaN)
@@ -242,6 +274,24 @@ class CustomSkeletonHelper extends InstancedMesh {
     }
 
     pointPositions.needsUpdate = true
+
+    if (this.meshy_visual_mode) {
+      // Scale by the visible character's height; unlike fixed screen-size dots,
+      // these spherical markers have real 3D volume. Invisible mirrored markers
+      // get zero scale, without altering the actual skeleton.
+      const height = Math.max(0.001, highest_joint_y - lowest_joint_y)
+      const radius = Math.max(0.002, height * 0.018)
+      const marker_scale = new Vector3(radius, radius, radius)
+      const no_scale = new Vector3(0, 0, 0)
+      for (let i = 0; i < bones.length; i++) {
+        _boneMatrix.multiplyMatrices(_matrixWorldInv, bones[i].matrixWorld)
+        _vector.setFromMatrixPosition(_boneMatrix)
+        const hidden = this.hide_right_side_joints && is_right_side_bone(bones[i])
+        _instance_matrix.compose(_vector, _quaternion.identity(), hidden ? no_scale : marker_scale)
+        this.rounded_joint_mesh.setMatrixAt(i, _instance_matrix)
+      }
+      this.rounded_joint_mesh.instanceMatrix.needsUpdate = true
+    }
 
     super.updateMatrixWorld(force)
   }
@@ -324,8 +374,12 @@ class CustomSkeletonHelper extends InstancedMesh {
     }
     this.is_disposed = true
 
-    this.geometry.dispose()
+    this.classic_bone_geometry.dispose()
+    this.rounded_bone_geometry?.dispose()
     ;(this.material as Material).dispose()
+    this.rounded_joint_mesh.geometry.dispose()
+    ;(this.rounded_joint_mesh.material as Material).dispose()
+    this.rounded_joint_mesh.dispose()
     this.joint_points.geometry.dispose()
     ;(this.joint_points.material as Material).dispose()
 
@@ -346,7 +400,47 @@ class CustomSkeletonHelper extends InstancedMesh {
   }
 
   public setJointsVisible (visible: boolean): void {
-    this.joint_points.visible = visible
+    this.show_joints_requested = visible
+    this.joint_points.visible = visible && !this.meshy_visual_mode
+    this.rounded_joint_mesh.visible = visible && this.meshy_visual_mode
+  }
+
+  /**
+   * Switch only the helper's appearance. Exported GLB, bind/rest transforms,
+   * actual bone positions and retargeting are deliberately unaffected.
+   */
+  public setJointVisualization (style: 'classic' | 'meshy'): void {
+    this.meshy_visual_mode = style === 'meshy'
+    if (this.meshy_visual_mode && this.rounded_bone_geometry === null) {
+      const rounded = new CylinderGeometry(0.5, 0.5, 1, 10, 1)
+      rounded.translate(0, 0.5, 0)
+      // The existing material uses vertexColors to support the octahedral rig.
+      // Supply white vertex colors so cylinder shading keeps the same per-bone
+      // category colors rather than rendering black.
+      const vertex_count = rounded.getAttribute('position').count
+      rounded.setAttribute('color', new Float32BufferAttribute(
+        new Float32Array(vertex_count * 3).fill(1), 3
+      ))
+      this.rounded_bone_geometry = rounded
+    }
+    this.geometry = this.meshy_visual_mode
+      ? this.rounded_bone_geometry!
+      : this.classic_bone_geometry
+    this.setJointsVisible(this.show_joints_requested)
+  }
+
+  /** Highlight the landmark selected in the 12-marker guide. Colors are
+   * applied to preview spheres only; Bone matrices remain untouched. */
+  public setHighlightedJoint (bone_name: string | null): void {
+    const active = new Color(0xffcd5b)
+    for (let i = 0; i < this.bones.length; i++) {
+      this.rounded_joint_mesh.setColorAt(
+        i, this.bones[i].name === bone_name ? active : this._joint_color
+      )
+    }
+    if (this.rounded_joint_mesh.instanceColor !== null) {
+      this.rounded_joint_mesh.instanceColor.needsUpdate = true
+    }
   }
 
   public setHideRightSideJoints (value: boolean): void {

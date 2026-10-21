@@ -239,6 +239,30 @@
               </select>
               <small>Для двуногого дракона: поиск цепочек по объёму, 4 анимации и поза покоя офлайн. Рога и перепонки проверьте вручную.</small>
             </label>
+            <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;padding:.45rem 0;">
+              <input type="checkbox" id="meshy-joint-visuals" />
+              <span>● Шарниры и круглые кости (тест)</span>
+            </label>
+            <small>Вид скелета как в Meshy: шарики на суставах, округлые соединения. Меняет только отображение — привязка, оси и анимации остаются прежними.</small>
+            <details id="meshy-marker-guide" style="border:1px solid #526679;border-radius:.7rem;padding:.55rem;margin:.35rem 0;">
+              <summary style="cursor:pointer;font-weight:600;">◎ 12 ориентиров — как в Meshy (тест)</summary>
+              <small>Выбери анатомическую точку ниже: приложение подсветит соответствующую кость. После этого перетащи этот сустав на 3D-модели. Это только помощник расстановки, а не новый алгоритм риггинга.</small>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:.6rem 0;">
+                  <button type="button" class="secondary-button" data-meshy-marker="chin" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">1 · Подбородок</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="left-shoulder" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">2 · Левое плечо</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="right-shoulder" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">3 · Правое плечо</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="left-elbow" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">4 · Левый локоть</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="right-elbow" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">5 · Правый локоть</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="left-wrist" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">6 · Левое запястье</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="right-wrist" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">7 · Правое запястье</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="groin" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">8 · Таз</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="left-knee" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">9 · Левое колено</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="right-knee" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">10 · Правое колено</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="left-ankle" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">11 · Левая лодыжка</button>
+                  <button type="button" class="secondary-button" data-meshy-marker="right-ankle" style="min-width:0;font-size:.8rem;white-space:normal;padding:.45rem .25rem;">12 · Правая лодыжка</button>
+              </div>
+              <small id="meshy-marker-guide-status" aria-live="polite">Начни с плеч и локтей. Для отдельной правой стороны при необходимости отключи зеркальную правку.</small>
+            </details>
             <button type="button" id="autorig-humanoid-button" class="secondary-button">Подогнать скелет</button>
             <small>Подгоняет выбранный скелет по геометрии модели. После этого проверьте суставы спереди и сбоку; точки можно передвинуть вручную.</small>
           </div>
