@@ -429,6 +429,20 @@ class CustomSkeletonHelper extends InstancedMesh {
     this.setJointsVisible(this.show_joints_requested)
   }
 
+  /** Highlight the landmark selected in the 12-marker guide. Colors are
+   * applied to preview spheres only; Bone matrices remain untouched. */
+  public setHighlightedJoint (bone_name: string | null): void {
+    const active = new Color(0xffcd5b)
+    for (let i = 0; i < this.bones.length; i++) {
+      this.rounded_joint_mesh.setColorAt(
+        i, this.bones[i].name === bone_name ? active : this._joint_color
+      )
+    }
+    if (this.rounded_joint_mesh.instanceColor !== null) {
+      this.rounded_joint_mesh.instanceColor.needsUpdate = true
+    }
+  }
+
   public setHideRightSideJoints (value: boolean): void {
     this.hide_right_side_joints = value
   }
