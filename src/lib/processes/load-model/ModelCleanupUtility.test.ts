@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Box3, type BufferGeometry, BoxGeometry, Group, Mesh, MeshStandardMaterial, PlaneGeometry, Scene, Vector3 } from 'three'
+import { Box3, BufferGeometry, BoxGeometry, BufferAttribute, InterleavedBuffer, InterleavedBufferAttribute, Group, Mesh, MeshStandardMaterial, PlaneGeometry, Scene, Vector3 } from 'three'
 import { ModelCleanupUtility } from './ModelCleanupUtility'
 
 function make_mesh (name: string, geometry: BufferGeometry = new BoxGeometry(1, 1, 1)): Mesh {
@@ -16,6 +16,53 @@ function mesh_bounds (mesh: Mesh): Box3 {
 }
 
 describe('ModelCleanupUtility.bake_transforms_into_geometry', () => {
+  it('preserves quantized gltfpack positions smaller than one unit instead of collapsing them', () => {
+    const geometry = new BufferGeometry()
+    const packed = new Uint16Array([0, 0, 0, 99, 16383, 0, 8000, 99, 8000, 16383, 12000, 99])
+    geometry.setAttribute('position', new InterleavedBufferAttribute(new InterleavedBuffer(packed, 4), 3, 0))
+    geometry.setIndex([0, 1, 2])
+    const mesh = make_mesh('Quantized', geometry)
+    mesh.scale.setScalar(0.000116172014)
+    mesh.position.set(-0.875063002, -0.952215016, -0.307130992)
+    const scene = new Scene()
+    scene.add(mesh)
+    const expected = mesh_bounds(mesh)
+
+    ModelCleanupUtility.bake_transforms_into_geometry(scene)
+
+    const actual = mesh_bounds(mesh)
+    expect(actual.min.distanceTo(expected.min)).toBeLessThan(1e-6)
+    expect(actual.max.distanceTo(expected.max)).toBeLessThan(1e-6)
+    expect(mesh.geometry.getAttribute('position').array).toBeInstanceOf(Float32Array)
+    expect(Array.from(mesh.geometry.getIndex()!.array)).toEqual([0, 1, 2])
+    expect(Array.from(packed)).toEqual([0, 0, 0, 99, 16383, 0, 8000, 99, 8000, 16383, 12000, 99])
+  })
+
+  it('decodes normalized integer positions, normals and tangents before changing their axes', () => {
+    const geometry = new BufferGeometry()
+    geometry.setAttribute('position', new BufferAttribute(new Int16Array([-32767, 0, 0, 0, 32767, 0, 32767, 0, 32767]), 3, true))
+    geometry.setAttribute('normal', new BufferAttribute(new Int8Array([0, 0, 127, 0, 0, 127, 0, 0, 127]), 3, true))
+    geometry.setAttribute('tangent', new BufferAttribute(new Int8Array([127, 0, 0, -127, 127, 0, 0, -127, 127, 0, 0, -127]), 4, true))
+    const mesh = make_mesh('Normalized', geometry)
+    mesh.rotation.y = Math.PI / 4
+    mesh.scale.setScalar(0.25)
+    const scene = new Scene()
+    scene.add(mesh)
+    scene.updateMatrixWorld(true)
+    const expected = new Vector3(-1, 0, 0).applyMatrix4(mesh.matrixWorld)
+
+    ModelCleanupUtility.bake_transforms_into_geometry(scene)
+
+    expect(new Vector3().fromBufferAttribute(mesh.geometry.getAttribute('position'), 0).distanceTo(expected)).toBeLessThan(1e-6)
+    const normal = mesh.geometry.getAttribute('normal'), tangent = mesh.geometry.getAttribute('tangent')
+    expect(normal.normalized).toBe(false)
+    expect(normal.getX(0)).toBeCloseTo(Math.SQRT1_2, 6)
+    expect(normal.getZ(0)).toBeCloseTo(Math.SQRT1_2, 6)
+    expect(tangent.getX(0)).toBeCloseTo(Math.SQRT1_2, 6)
+    expect(tangent.getZ(0)).toBeCloseTo(-Math.SQRT1_2, 6)
+    expect(tangent.getW(0)).toBe(-1)
+  })
+
   it('keeps a mesh where it was, but with an identity transform', () => {
     const scene = new Scene()
     const mesh = make_mesh('head')

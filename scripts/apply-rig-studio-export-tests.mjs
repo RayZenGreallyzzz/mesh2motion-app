@@ -19,6 +19,11 @@ if (process.env.RIG_OWN_RIG_TEST === '1') {
   await mkdir(root + '/assets', { recursive: true })
   await copyFile('artifacts/own-rig-fixture.glb', root + '/assets/own-rig-fixture.glb')
 }
+if (process.env.RIG_QUANTIZED_TEST === '1') {
+  await copyFile('resources/android/test/QuantizedImportNativeTest.java', dir + '/QuantizedImportNativeTest.java')
+  await mkdir(root + '/assets', { recursive: true })
+  await copyFile('artifacts/quantized-import-fixture.glb', root + '/assets/quantized-import-fixture.glb')
+}
 const gradle = 'android/app/build.gradle'
 const original = await readFile(gradle, 'utf8')
 await writeFile(gradle, original + `
