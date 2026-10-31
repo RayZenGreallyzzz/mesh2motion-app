@@ -51,7 +51,7 @@ function create_definition (
 }
 
 export class PropCatalog {
-  public static readonly supported_skeleton_types: SkeletonType[] = [SkeletonType.Human, SkeletonType.MobileFemale, SkeletonType.Kaiju]
+  public static readonly supported_skeleton_types: SkeletonType[] = [SkeletonType.Human, SkeletonType.Woman, SkeletonType.MobileFemale, SkeletonType.Kaiju]
 
   private static readonly draco_loader: DRACOLoader = (() => {
     const loader = new DRACOLoader()

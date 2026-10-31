@@ -2,6 +2,7 @@
 export enum SkeletonType {
   Fox = 'fox',
   Human = 'human',
+  Woman = 'woman',
   MobileFemale = 'human-mobile-female',
   Bird = 'bird',
   Dragon = 'dragon',

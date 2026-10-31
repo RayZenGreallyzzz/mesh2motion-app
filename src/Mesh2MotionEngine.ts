@@ -1,3 +1,7 @@
+import { SurfaceWeightBrush } from './lib/weight-paint/SurfaceWeightBrush.ts'
+import { selectedWeight } from './lib/weight-paint/ManualWeightEdits.ts'
+import { default_chest_guard } from './lib/solvers/ChestWeightGuard.ts'
+import { RigConfig } from './lib/RigConfig.ts'
 import * as THREE from 'three'
 import { CustomTransformControls } from './lib/components/CustomTransformControls.ts'
 import type { CustomViewHelper } from './lib/CustomViewHelper.ts'
@@ -17,6 +21,7 @@ import { StepEditSkeleton } from './lib/processes/edit-skeleton/StepEditSkeleton
 import { MeshDragBonePlacement } from './lib/processes/edit-skeleton/MeshDragBonePlacement.ts'
 import { fit_humanoid_rig } from './lib/processes/edit-skeleton/HumanoidAutoFit.ts'
 import { AnimalAutoFit } from './lib/processes/edit-skeleton/AnimalAutoFit.ts'
+import { MannequinMarkerFit } from './lib/processes/edit-skeleton/MannequinMarkerFit.ts'
 import { StepAnimationsListing } from './lib/processes/animations-listing/StepAnimationsListing.ts'
 import { ArmExtensionControl } from './lib/processes/animations-listing/ArmExtensionControl.ts'
 import { DownloadSettings } from './lib/processes/export-to-file/DownloadSettings.ts'
@@ -55,7 +60,12 @@ export class Mesh2MotionEngine {
   private weights_busy = false
   private rig_setup_group: Group | null = null
   private rig_setup_locked_state: boolean = true
-  private manual_weight_stroke_vertices: Map<number, Set<number>> | null = null
+  private manual_weight_stroke_vertices: Map<number, Map<number, { amount: number, target?: number }>> | null = null
+  private manual_weight_options = { bone: 0, strength: .15, radius: .04, front: true, mode: 'add' as 'add' | 'remove' | 'smooth' }
+  private manual_weight_brushes = new WeakMap<THREE.BufferGeometry, SurfaceWeightBrush>()
+  private manual_weight_preparing = false
+  private manual_weight_previous_hit: { mesh: number, point: THREE.Vector3 } | null = null
+  private manual_weight_ring: HTMLDivElement | null = null
   private manual_weight_last_sample_ms: number = -Infinity
   public readonly mesh_drag_bone_placement: MeshDragBonePlacement
 
@@ -77,8 +87,6 @@ export class Mesh2MotionEngine {
   // for looking at specific bones
   public process_step: ProcessStep = ProcessStep.LoadModel
   public skeleton_helper: CustomSkeletonHelper | undefined = undefined
-  // Preview preference only; never modifies the Bone hierarchy or skinning data.
-  private meshy_joint_visuals_enabled: boolean = false
   public debugging_visual_object: Group = new Group()
 
   // when editing the skeleton, what type of mesh will we see
@@ -141,6 +149,59 @@ export class Mesh2MotionEngine {
     this.animate() // start the render loop which will continue rendering the scene
     this.inject_build_version()
     this.setup_tooltips()
+    this.setup_chest_guard_controls()
+  }
+
+  private setup_chest_guard_controls (): void {
+    for (const id of ['chest-guard-enabled', 'chest-guard-strength', 'chest-guard-width', 'chest-guard-height', 'chest-guard-offset', 'chest-guard-preview']) {
+      document.getElementById(id)?.addEventListener('input', () => this.update_chest_guard_labels())
+    }
+    document.getElementById('chest-guard-apply')?.addEventListener('click', async () => {
+      if (this.weights_busy || this.process_step !== ProcessStep.WeightSkin) return
+      if ((document.getElementById('chest-guard-enabled') as HTMLInputElement)?.checked &&
+          (document.getElementById('chest-guard-preview') as HTMLInputElement)?.checked) {
+        (document.getElementById('manual-weight-enabled') as HTMLInputElement).checked = false
+      }
+      await this.regenerate_weight_painted_preview_mesh()
+    })
+    document.getElementById('chest-guard-reset')?.addEventListener('click', () => {
+      for (const [id, value] of Object.entries({ strength: 1, width: 1, height: 1, offset: 0 })) {
+        const input = document.getElementById('chest-guard-' + id) as HTMLInputElement | null
+        if (input) input.value = String(value)
+      }
+      this.update_chest_guard_labels()
+    })
+    this.update_chest_guard_labels()
+  }
+
+  private update_chest_guard_labels (): void {
+    for (const id of ['strength', 'width', 'height', 'offset']) {
+      const input = document.getElementById('chest-guard-' + id) as HTMLInputElement | null, label = document.getElementById('chest-guard-' + id + '-value')
+      if (input && label) label.textContent = Math.round(Number(input.value) * 100) + '%'
+    }
+    const status = document.getElementById('chest-guard-status')
+    if (status) status.textContent = 'Настройте область и нажмите «Применить». Ручная кисть применяется после защиты.'
+  }
+
+  private configure_chest_guard (): void {
+    const options = default_chest_guard()
+    options.anchor_to_chest = this.load_skeleton_step.skeleton_type() === SkeletonType.Woman
+    options.enabled = (document.getElementById('chest-guard-enabled') as HTMLInputElement | null)?.checked ?? false
+    for (const id of ['strength', 'width', 'height', 'offset'] as const) {
+      const input = document.getElementById('chest-guard-' + id) as HTMLInputElement | null
+      if (input && Number.isFinite(Number(input.value))) options[id] = Number(input.value)
+    }
+    const preview = options.enabled && ((document.getElementById('chest-guard-preview') as HTMLInputElement | null)?.checked ?? false) &&
+      !((document.getElementById('manual-weight-enabled') as HTMLInputElement | null)?.checked ?? false)
+    this.weight_skin_step.set_chest_guard(options, preview)
+    if (preview && this.process_step === ProcessStep.WeightSkin) this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
+  }
+
+  private show_chest_guard_status (): void {
+    const status = document.getElementById('chest-guard-status'), result = this.weight_skin_step.get_chest_guard_stats()
+    if (!status) return
+    status.textContent = !result ? 'Защита выключена. Используются обычные автоматические веса и ручные правки.' : !result.available ? result.reason :
+      'Область: ' + result.region.toLocaleString('ru') + ' вершин. Исправлено: ' + result.changed.toLocaleString('ru') + '. Опора: ' + result.target + '. Проверьте движение рук.'
   }
 
   public get_theme_manager(): ThemeManager {
@@ -188,7 +249,8 @@ export class Mesh2MotionEngine {
   }
 
   public enable_orbit_controls (enabled: boolean): void {
-    this.scene_environment.enable_orbit_controls(enabled)
+    const painting = this.process_step === ProcessStep.WeightSkin && (document.getElementById('manual-weight-enabled') as HTMLInputElement | null)?.checked
+    this.scene_environment.enable_orbit_controls(enabled && !painting)
   }
 
   private setup_environment (): void {
@@ -210,8 +272,6 @@ export class Mesh2MotionEngine {
       thickness_ratio: mobileHelperThickness
     })
     this.skeleton_helper.name = helper_name
-    this.skeleton_helper.setJointVisualization(this.meshy_joint_visuals_enabled ? 'meshy' : 'classic')
-    this.skeleton_helper.setHighlightedJoint(this.edit_skeleton_step.get_currently_selected_bone()?.name ?? null)
     this.scene.add(this.skeleton_helper)
   }
 
@@ -243,11 +303,6 @@ export class Mesh2MotionEngine {
     this.scene.remove(this.skeleton_helper)
     this.skeleton_helper.dispose()
     this.skeleton_helper = undefined
-  }
-
-  public set_meshy_joint_visuals_enabled (enabled: boolean): void {
-    this.meshy_joint_visuals_enabled = enabled
-    this.skeleton_helper?.setJointVisualization(enabled ? 'meshy' : 'classic')
   }
 
   public sync_skeleton_helper_joint_visibility (): void {
@@ -294,6 +349,7 @@ export class Mesh2MotionEngine {
    * then leaves the joints editable for a final human check.
    */
   private auto_fit_in_progress = false
+  private active_body_profile: SkeletonType | null = null
 
   public async auto_fit_humanoid_rig (): Promise<void> {
     if (this.process_step !== ProcessStep.EditSkeleton || this.auto_fit_in_progress) return
@@ -313,8 +369,17 @@ export class Mesh2MotionEngine {
       await new Promise<void>(resolve => setTimeout(resolve, 16))
       const before = () => this.edit_skeleton_step.store_bone_state_for_undo()
       let result: string | null
-      if (is_humanoid_skeleton_type(species)) {
-        result = fit_humanoid_rig(model, skeleton, this.rig_setup_group, before)
+      const marker = MannequinMarkerFit.recognize(model)
+      if (marker) {
+        if (!MannequinMarkerFit.compatible(marker, skeleton)) {
+          if (status) status.textContent = `Для манекена «${marker.profile.title}» нужен совместимый скелет: ${RigConfig.by_key(marker.profile.recommendedRig)?.rig_display_name ?? marker.profile.recommendedRig}. Вернитесь к выбору скелета.`
+          return
+        }
+        result = MannequinMarkerFit.apply(marker, skeleton, await AnimalAutoFit.load_reference(species), before)
+        for (const id of ['skeleton-template-image', 'creature-fit-options']) { const el = document.getElementById(id); if (el) el.style.display = 'none' }
+      } else if (is_humanoid_skeleton_type(species) || (RigConfig.by_key(species)?.pack_source && ['upperarm_l', 'thigh_l', 'pelvis'].every(name => skeleton.bones.some(bone => bone.name === name)))) {
+        result = fit_humanoid_rig(model, skeleton, this.rig_setup_group, before, species === SkeletonType.Woman ? 'woman' : 'human')
+        if (result && species === SkeletonType.Woman) result = 'Woman · ' + result
       } else {
         const reference = await AnimalAutoFit.load_reference(species)
         const selected = (document.getElementById('creature-fit-mode') as HTMLSelectElement | null)?.value
@@ -327,6 +392,8 @@ export class Mesh2MotionEngine {
       if (status) status.textContent = result
         ? `Подгонка: ${result}. Проверьте суставы перед расчётом весов.`
         : 'Форма не распознана. Попробуйте обычный шаблон или расставьте суставы вручную.'
+      const uncertain = skeleton.bones.filter(b => b.userData.rigFitWarning).map(b => b.name)
+      if (status && uncertain.length) status.textContent += ` Оранжевые суставы требуют ручной проверки: ${uncertain.join(', ')}.`
     } catch (error) {
       console.error(error)
       if (status) status.textContent = 'Не удалось подогнать скелет. Можно расставить суставы вручную.'
@@ -602,21 +669,37 @@ export class Mesh2MotionEngine {
     const enabled = document.getElementById('manual-weight-enabled') as HTMLInputElement | null
     const status = document.getElementById('manual-weight-status')
     if (enabled === null) return
+    if (!enabled.checked) this.end_manual_weight_stroke(undefined, true)
+    this.enable_orbit_controls(!enabled.checked)
+    const mode=document.getElementById('manual-weight-focus-mode')
+    if(mode)mode.textContent=enabled.checked?'Обзор':'Кисть' 
 
     const select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
     const selected = select === null ? NaN : Number.parseInt(select.value, 10)
     this.weight_skin_step.set_manual_weight_preview_bone(Number.isFinite(selected) ? selected : null)
 
     if (enabled.checked) {
+      const areaPreview = document.getElementById('chest-guard-preview') as HTMLInputElement | null
+      if (areaPreview) areaPreview.checked = false
+      this.weight_skin_step.hide_chest_guard_preview()
       this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
       this.changed_model_preview_display(ModelPreviewDisplay.WeightPainted)
-      if (status !== null) status.textContent = 'Проведите пальцем по модели. Цвет показывает влияние выбранной кости.'
+      void this.prepare_manual_weight_brushes()
+    } else if (this.weight_skin_step.is_chest_guard_preview()) {
+      this.mesh_preview_display_type = ModelPreviewDisplay.WeightPainted
+      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = false })
+      this.weight_skin_step.weight_painted_mesh_group().visible = true
+      if (status !== null) status.textContent = 'Золотым показана область защиты груди. Включение кисти вернёт раскраску выбранной кости.'
     } else {
       this.changed_model_preview_display(ModelPreviewDisplay.Textured)
       if (status !== null) status.textContent = 'Включите кисть, выберите кость и проведите пальцем по модели.'
     }
 
+    const radio = document.getElementById(this.mesh_preview_display_type === ModelPreviewDisplay.WeightPainted ? 'preview-painted' : 'preview-textured') as HTMLInputElement | null
+    if (radio) radio.checked = true
+
     this.update_manual_weight_labels()
+    this.refresh_manual_weight_history()
   }
 
   public preview_selected_weight_bone (): void {
@@ -674,101 +757,110 @@ export class Mesh2MotionEngine {
     if (strength !== null && strength_label !== null) strength_label.textContent = Math.round(Number(strength.value) * 100).toString()
   }
 
-  private collect_manual_weight_vertices (event: PointerEvent): boolean {
-    if (!this.is_manual_weight_editor_enabled() || this.manual_weight_stroke_vertices === null) return false
+  public set_manual_weight_focus(focus: boolean): void {
+    if(focus && (this.process_step!==ProcessStep.WeightSkin || this.weights_busy))return
+    const panel=document.getElementById('tool-panel'),toolbar=document.getElementById('manual-weight-toolbar')
+    if(panel)panel.style.visibility=focus?'hidden':''
+    if(toolbar)toolbar.hidden=!focus
+    if(focus){const enabled=document.getElementById('manual-weight-enabled') as HTMLInputElement|null;if(enabled)enabled.checked=true;this.sync_manual_weight_editor()}
+  }
+  public toggle_manual_weight_focus_mode(): void {
+    if(this.weights_busy)return
+    const enabled=document.getElementById('manual-weight-enabled') as HTMLInputElement|null
+    if(enabled){enabled.checked=!enabled.checked;this.sync_manual_weight_editor()}
+  }
 
-    // High-poly mobile characters can have hundreds of thousands of vertices.
-    // Sampling every raw pointermove would scan the mesh far more often than the
-    // screen can usefully display and causes tablet hitching. Keep painting fluid
-    // while capping the expensive spatial scan to roughly 18 Hz.
-    const now = event.timeStamp
-    if (now - this.manual_weight_last_sample_ms < 55) return true
-    this.manual_weight_last_sample_ms = now
+  private async prepare_manual_weight_brushes(): Promise<void> {
+    if(this.manual_weight_preparing)return
+    this.manual_weight_preparing=true
+    const status=document.getElementById('manual-weight-status')
+    try {
+      for(const mesh of this.weight_skin_step.final_skinned_meshes())if(!this.manual_weight_brushes.has(mesh.geometry)){
+        if(status)status.textContent='Подготовка кисти…'
+        await new Promise<void>(resolve=>setTimeout(resolve,16))
+        this.manual_weight_brushes.set(mesh.geometry,new SurfaceWeightBrush(mesh.geometry))
+      }
+      if(status && (document.getElementById('manual-weight-enabled') as HTMLInputElement)?.checked)status.textContent='Рисуйте одним пальцем. Для поворота модели выключите кисть. Правка применяется после отпускания.'
+    } finally { this.manual_weight_preparing=false }
+  }
 
-    const group = this.weight_skin_step.weight_painted_mesh_group()
-    if (group === null || !group.visible) return false
-
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    const pointer = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    )
-    const raycaster = new THREE.Raycaster()
-    raycaster.setFromCamera(pointer, this.camera)
-
-    const paint_surfaces = group.children.filter(child => child.userData.manualWeightSurface === true)
-    const hit = raycaster.intersectObjects(paint_surfaces, false)[0]
-    if (hit === undefined || !(hit.object instanceof THREE.Mesh)) return false
-
-    const mesh_index = Number(hit.object.userData.weightMeshIndex)
-    if (!Number.isInteger(mesh_index)) return false
-
-    const radius_input = document.getElementById('manual-weight-radius') as HTMLInputElement | null
-    const radius = Math.max(0.001, Number(radius_input?.value ?? 0.08))
-    const radius_squared = radius * radius
-    const local_point = hit.object.worldToLocal(hit.point.clone())
-    const positions = hit.object.geometry.getAttribute('position')
-    if (positions === undefined) return false
-
-    let vertices = this.manual_weight_stroke_vertices.get(mesh_index)
-    if (vertices === undefined) {
-      vertices = new Set<number>()
-      this.manual_weight_stroke_vertices.set(mesh_index, vertices)
+  private collect_manual_weight_vertices(event: PointerEvent, force=false): boolean {
+    if(!this.is_manual_weight_editor_enabled() || !this.manual_weight_stroke_vertices || this.manual_weight_preparing)return false
+    if(!force && event.timeStamp-this.manual_weight_last_sample_ms<55)return true
+    this.manual_weight_last_sample_ms=event.timeStamp
+    const group=this.weight_skin_step.weight_painted_mesh_group()
+    if(!group?.visible)return false
+    const rect=this.renderer.domElement.getBoundingClientRect(), pointer=new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1)
+    const raycaster=new THREE.Raycaster();raycaster.setFromCamera(pointer,this.camera)
+    const hit=raycaster.intersectObjects(group.children.filter(o=>o.userData.manualWeightSurface),false)[0]
+    if(!hit || !(hit.object instanceof THREE.Mesh) || !hit.face){this.manual_weight_previous_hit=null;if(this.manual_weight_ring)this.manual_weight_ring.hidden=true;return false}
+    const mesh=Number(hit.object.userData.weightMeshIndex),source=this.weight_skin_step.final_skinned_meshes()[mesh],brush=this.manual_weight_brushes.get(source?.geometry)
+    if(!brush)return false
+    const point=hit.object.worldToLocal(hit.point.clone()),box=new THREE.Box3()
+    for(const m of this.weight_skin_step.final_skinned_meshes()){if(!m.geometry.boundingBox)m.geometry.computeBoundingBox();box.union(m.geometry.boundingBox!)}
+    const radius=this.manual_weight_options.radius*Math.max(box.max.y-box.min.y,1e-6)
+    const inverse=hit.object.matrixWorld.clone().invert(),view=raycaster.ray.direction.clone().negate().transformDirection(inverse)
+    let vertices=this.manual_weight_stroke_vertices.get(mesh)
+    if(!vertices){vertices=new Map();this.manual_weight_stroke_vertices.set(mesh,vertices)}
+    const previous=this.manual_weight_previous_hit,dist=previous?.mesh===mesh?previous.point.distanceTo(point):Infinity
+    const steps=dist<radius*8?Math.min(12,Math.max(1,Math.ceil(dist/(radius*.45)))):1
+    for(let n=1;n<=steps;n++){
+      const center=steps>1?previous!.point.clone().lerp(point,n/steps):point
+      for(const [i,amount] of brush.query(center,radius,hit.face.a,view,this.manual_weight_options.front)){
+        if(amount<=(vertices.get(i)?.amount??0))continue
+        let target:number|undefined
+        if(this.manual_weight_options.mode==='smooth'){
+          const p=new THREE.Vector3().fromBufferAttribute(source.geometry.getAttribute('position'),i)
+          let sum=0,total=0
+          for(const [neighbor,w] of brush.query(p,radius*.3,i,view,this.manual_weight_options.front,64)){
+            const values=this.weight_skin_step.read_vertex_weights(mesh,neighbor);if(values){sum+=selectedWeight(values,this.manual_weight_options.bone)*w;total+=w}
+          }
+          if(total>0)target=sum/total
+        }
+        vertices.set(i,{amount,target})
+      }
     }
-
-    const vertex = new THREE.Vector3()
-    for (let index = 0; index < positions.count; index++) {
-      vertex.fromBufferAttribute(positions, index)
-      if (vertex.distanceToSquared(local_point) <= radius_squared) vertices.add(index)
-    }
-
+    this.manual_weight_previous_hit={mesh,point}
+    // Project the real local radius so the touch outline agrees with the brush.
+    const worldRadius=radius*hit.object.getWorldScale(new THREE.Vector3()).x
+    const edge=hit.point.clone().add(new THREE.Vector3(worldRadius,0,0).applyQuaternion(this.camera.quaternion)).project(this.camera),center=hit.point.clone().project(this.camera)
+    const pixels=Math.abs(edge.x-center.x)*rect.width*.5
+    if(!this.manual_weight_ring){this.manual_weight_ring=document.createElement('div');this.manual_weight_ring.id='manual-weight-ring';this.manual_weight_ring.style.cssText='position:fixed;pointer-events:none;z-index:60;border:2px solid #ffca7c;border-radius:50%;box-sizing:border-box;box-shadow:0 0 0 1px #14202a;';document.body.appendChild(this.manual_weight_ring)}
+    const ring=this.manual_weight_ring;ring.hidden=false;ring.style.width=ring.style.height=`${pixels*2}px`;ring.style.left=`${event.clientX-pixels}px`;ring.style.top=`${event.clientY-pixels}px`
     return true
   }
 
-  public begin_manual_weight_stroke (event: PointerEvent): boolean {
-    if (!this.is_manual_weight_editor_enabled()) return false
-    this.manual_weight_stroke_vertices = new Map<number, Set<number>>()
-    this.manual_weight_last_sample_ms = -Infinity
-    this.enable_orbit_controls(false)
-    return this.collect_manual_weight_vertices(event)
+  public begin_manual_weight_stroke(event: PointerEvent): boolean {
+    if(!this.is_manual_weight_editor_enabled() || this.manual_weight_preparing || this.manual_weight_stroke_vertices)return false
+    const value=(id:string,fallback:number)=>Number((document.getElementById(id) as HTMLInputElement)?.value??fallback)
+    this.manual_weight_options={bone:value('manual-weight-bone',0),strength:value('manual-weight-strength',.15),radius:value('manual-weight-radius',.04),front:(document.getElementById('manual-weight-front') as HTMLInputElement)?.checked??true,mode:(document.getElementById('manual-weight-smooth') as HTMLInputElement)?.checked?'smooth':(document.getElementById('manual-weight-remove') as HTMLInputElement)?.checked?'remove':'add'}
+    this.manual_weight_stroke_vertices=new Map();this.manual_weight_previous_hit=null;this.manual_weight_last_sample_ms=-Infinity
+    this.enable_orbit_controls(false);this.collect_manual_weight_vertices(event,true);return true
   }
-
-  public continue_manual_weight_stroke (event: PointerEvent): boolean {
-    if (this.manual_weight_stroke_vertices === null) return false
-    this.collect_manual_weight_vertices(event)
-    return true
+  public continue_manual_weight_stroke(event: PointerEvent): boolean {
+    if(!this.manual_weight_stroke_vertices)return false
+    this.collect_manual_weight_vertices(event);return true
   }
-
-  public end_manual_weight_stroke (): boolean {
-    const stroke = this.manual_weight_stroke_vertices
-    if (stroke === null) return false
-    this.manual_weight_stroke_vertices = null
-    this.enable_orbit_controls(true)
-
-    const bone_select = document.getElementById('manual-weight-bone') as HTMLSelectElement | null
-    const strength_input = document.getElementById('manual-weight-strength') as HTMLInputElement | null
-    const remove = (document.getElementById('manual-weight-remove') as HTMLInputElement | null)?.checked ?? false
-    const bone_index = Number.parseInt(bone_select?.value ?? '', 10)
-    const strength = Math.max(0.01, Math.min(1, Number(strength_input?.value ?? 0.15)))
-    if (!Number.isFinite(bone_index)) return true
-
-    const delta = remove ? -strength : strength
-    stroke.forEach((vertices, mesh_index) => {
-      this.weight_skin_step.add_manual_weight_adjustment(mesh_index, [...vertices], bone_index, delta)
-    })
-
-    this.regenerate_weight_painted_preview_mesh()
-    this.update_weight_debug_status(false)
-    return true
+  public end_manual_weight_stroke(event?: PointerEvent,cancel=false): boolean {
+    if(!this.manual_weight_stroke_vertices)return false
+    if(event&&!cancel)this.collect_manual_weight_vertices(event,true)
+    const stroke=this.manual_weight_stroke_vertices;this.manual_weight_stroke_vertices=null;this.manual_weight_previous_hit=null
+    if(this.manual_weight_ring)this.manual_weight_ring.hidden=true
+    if(!cancel){const o=this.manual_weight_options,count=this.weight_skin_step.paint_manual_weights(stroke,o.bone,o.strength,o.mode);const status=document.getElementById('manual-weight-status');if(status)status.textContent=count?`Изменено вершин: ${count}. Мазок можно отменить.`:'Вес не изменился. Проверьте кость, режим и силу кисти.'}
+    this.refresh_manual_weight_history();this.enable_orbit_controls(true);return true
   }
-
-  public reset_manual_weight_overrides (): void {
-    this.weight_skin_step.clear_manual_weight_overrides()
-    if (this.process_step === ProcessStep.WeightSkin) {
-      this.regenerate_weight_painted_preview_mesh()
-      this.update_weight_debug_status(false)
-    }
+  private refresh_manual_weight_history(): void {
+    const state=this.weight_skin_step.manual_weight_history()
+    for(const key of ['undo','redo'] as const)for(const prefix of ['manual-weight-','manual-weight-focus-']){const b=document.getElementById(prefix+key) as HTMLButtonElement|null;if(b)b.disabled=!state[key]}
   }
+  public change_manual_weight_history(action:'undo'|'redo'|'reset'):void {
+    if(this.weights_busy)return
+    this.end_manual_weight_stroke(undefined,true)
+    const count=action==='undo'?this.weight_skin_step.undo_manual_weights():action==='redo'?this.weight_skin_step.redo_manual_weights():this.weight_skin_step.reset_manual_weights()
+    this.refresh_manual_weight_history()
+    const status=document.getElementById('manual-weight-status');if(status)status.textContent=`${action==='undo'?'Отменено':action==='redo'?'Повторено':'Сброшено'}: ${count} вершин.`
+  }
+  public reset_manual_weight_overrides(): void {this.change_manual_weight_history('reset')}
 
   // --- Model position gizmo (step 2) ---
 
@@ -870,6 +962,13 @@ export class Mesh2MotionEngine {
 
   public process_step_changed (process_step: ProcessStep): ProcessStep {
     if (this.auto_fit_in_progress || this.weights_busy) return this.process_step
+    if(process_step !== ProcessStep.WeightSkin){
+      this.set_manual_weight_focus(false)
+      this.end_manual_weight_stroke(undefined,true)
+      const enabled=document.getElementById('manual-weight-enabled') as HTMLInputElement|null
+      if(enabled)enabled.checked=false
+      this.enable_orbit_controls(true)
+    }
     const previous_step = this.process_step
 
     // Never animate a rig whose bind matrices already move the mesh in REST.
@@ -935,6 +1034,14 @@ export class Mesh2MotionEngine {
       // reset the state in the case of coming back to this step
       this.remove_imported_model()
       this.weight_skin_step.clear_manual_weight_overrides()
+      this.active_body_profile = null
+      for (const id of ['chest-guard-enabled', 'chest-guard-preview']) { const input = document.getElementById(id) as HTMLInputElement | null; if (input) input.checked = false }
+      this.weight_skin_step.set_chest_guard(default_chest_guard(), false)
+      for (const [id, value] of Object.entries({ strength: 1, width: 1, height: 1, offset: 0 })) {
+        const input = document.getElementById('chest-guard-' + id) as HTMLInputElement | null
+        if (input) input.value = String(value)
+      }
+      this.update_chest_guard_labels()
       this.load_model_step.clear_loaded_model_data()
       this.load_model_step.begin()
     }
@@ -955,11 +1062,27 @@ export class Mesh2MotionEngine {
       // finish initialization and add origin markers
       // this needs to happen at the end since it is expecting the mesh data
       this.load_skeleton_step.begin()
+      const skeleton_select = document.getElementById('skeleton-selection') as HTMLSelectElement | null
+      if (skeleton_select) {
+        for (const option of skeleton_select.options) if (option.dataset.markerOriginalLabel) { option.textContent = option.dataset.markerOriginalLabel; delete option.dataset.markerOriginalLabel }
+        const known = MannequinMarkerFit.recognize(this.load_model_step.model_meshes()), recommended = known && [...skeleton_select.options].find(o => o.value === known.profile.recommendedRig)
+        if (known && recommended) { recommended.dataset.markerOriginalLabel = recommended.textContent ?? ''; recommended.textContent = `${known.profile.title} · ${known.profile.kind === 'winged-quadruped' ? '4 лапы + 2 крыла' : known.profile.kind === 'quadruped' ? '4 лапы' : 'гуманоид'} · по меткам` }
+        if (previous_step === ProcessStep.LoadModel && !new URLSearchParams(location.search).has('rig') && known && recommended) { skeleton_select.value = known.profile.recommendedRig; skeleton_select.dispatchEvent(new Event('change', { bubbles: true })) }
+      }
     }
     else if (this.process_step === ProcessStep.EditSkeleton) {
       this.load_skeleton_step?.dispose()
 
       const start_rig_unlocked = previous_step === ProcessStep.LoadSkeleton
+      const profile = this.load_skeleton_step.skeleton_type()
+      if (start_rig_unlocked && profile !== this.active_body_profile) {
+        if (profile === SkeletonType.Woman || this.active_body_profile === SkeletonType.Woman) {
+          const guard = document.getElementById('chest-guard-enabled') as HTMLInputElement | null
+          if (guard) guard.checked = profile === SkeletonType.Woman
+          this.update_chest_guard_labels()
+        }
+        this.active_body_profile = profile
+      }
       this.rig_setup_locked_state = !start_rig_unlocked
       if (start_rig_unlocked) {
         this.prepare_rig_setup_group()
@@ -971,6 +1094,7 @@ export class Mesh2MotionEngine {
 
       if (start_rig_unlocked) {
         this.unlock_rig_setup()
+        if (profile === SkeletonType.Woman || RigConfig.by_key(profile)?.pack_source || MannequinMarkerFit.recognize(this.load_model_step.model_meshes())) void this.auto_fit_humanoid_rig()
       } else {
         this.update_edit_bone_interaction_mode()
         this.transform_controls.setMode(this.transform_controls_type) // 'translate', 'rotate'
@@ -996,6 +1120,11 @@ export class Mesh2MotionEngine {
     }
     else if (this.process_step === ProcessStep.AnimationsListing) {
       this.process_step = ProcessStep.AnimationsListing
+      // Leave the static diagnostic surface behind when starting playback.
+      this.mesh_preview_display_type = ModelPreviewDisplay.Textured
+      this.load_model_step.model_meshes().visible = false
+      this.weight_skin_step.weight_painted_mesh_group().visible = false
+      this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = true })
 
       const active_skeleton_type: SkeletonType = this.load_skeleton_step.skeleton_type()
       this.animations_listing_step.begin(active_skeleton_type, this.load_skeleton_step.skeleton_scale())
@@ -1056,7 +1185,11 @@ export class Mesh2MotionEngine {
 
     if (this.process_step === ProcessStep.WeightSkin) {
       if (this.mesh_preview_display_type === ModelPreviewDisplay.WeightPainted) {
-        this.regenerate_weight_painted_preview_mesh()
+        this.weight_skin_step.refresh_manual_weight_colors()
+        this.load_model_step.model_meshes().visible = false
+        this.weight_skin_step.final_skinned_meshes().forEach(mesh => { mesh.visible = false })
+        const group=this.weight_skin_step.weight_painted_mesh_group()
+        if(group)group.visible = true
         return
       }
 
@@ -1259,12 +1392,15 @@ export class Mesh2MotionEngine {
       this.weight_skin_step.add_mesh_material(mesh_material)
     })
 
+    this.configure_chest_guard()
+
     // perform skinning operation
     // this will take all the mesh geometry data we added above and create skinned meshes
     // TODO: Always regenerate the weight painted mesh preview for now. This will change later
     // when we have are in the "Weight Painted" display mode
     await this.weight_skin_step.prepare_automatic_weights()
     this.weight_skin_step.calculate_weights_for_all_mesh_data(true)
+    this.show_chest_guard_status()
     this.show_bind_rest_diagnostic()
 
     // remember our skeleton position before we do the skinning process

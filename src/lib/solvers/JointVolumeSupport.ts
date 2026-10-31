@@ -2,6 +2,7 @@ import {
   type AnimationClip, Bone, type BufferGeometry, InterpolateDiscrete,
   type Interpolant, type KeyframeTrack, Quaternion, QuaternionKeyframeTrack, Skeleton, Vector3
 } from 'three'
+import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 
 interface SupportData {
   version: number
@@ -9,7 +10,7 @@ interface SupportData {
   rest: number[]
 }
 
-/** Four ordinary deform bones keep the elbow/knee cross-section at half bend.
+/** Ordinary deform bones keep shoulder/elbow/knee cross-sections at half bend.
  * Unlike a renderer-only skinning shader, these weights and animation tracks
  * survive GLB/FBX export. The editable rig and original bone indices stay intact.
  */
@@ -27,6 +28,7 @@ export class JointVolumeSupport {
       const name_lower = child.name.toLowerCase()
       const parent_lower = parent.name.toLowerCase()
       const human = /^(lowerarm|forearm)_[lr]$/.test(name_lower) && /^upperarm_[lr]$/.test(parent_lower) ||
+        /^upperarm_[lr]$/.test(name_lower) && /^clavicle_[lr]$/.test(parent_lower) ||
         /^(calf|shin)_[lr]$/.test(name_lower) && /^thigh_[lr]$/.test(parent_lower)
       const animal = /leg/.test(parent_lower) && /leg.*lower|lowerleg|leg.*ankle|ankleleg|^(front|back)_ankle|^leg_[a-d]_[23]/.test(name_lower)
       if (!human && !animal) continue
@@ -64,7 +66,10 @@ export class JointVolumeSupport {
       const joint = child.getWorldPosition(new Vector3())
       const incoming = joint.clone().sub(parent.getWorldPosition(new Vector3()))
       const outgoing = tip.getWorldPosition(new Vector3()).sub(joint)
-      const length = Math.min(incoming.length(), outgoing.length())
+      const shoulder = /^upperarm_[lr]$/.test(child.name) && /^clavicle_[lr]$/.test(parent.name)
+      // The clavicle is much shorter than the upper arm. Its length alone
+      // clips the mask inside the shoulder, leaving the deltoid unsupported.
+      const length = shoulder ? Math.min(incoming.length()*2, outgoing.length()*.8) : Math.min(incoming.length(), outgoing.length())
       if (length < 1e-5) continue
       const axis = incoming.normalize().add(outgoing.normalize()).normalize()
       if (axis.lengthSq() < 0.5) continue
@@ -87,7 +92,7 @@ export class JointVolumeSupport {
         point.fromBufferAttribute(positions, vertex).sub(joint)
         const axial = point.dot(axis)
         const radial = Math.sqrt(Math.max(0, point.lengthSq() - axial * axial))
-        const falloff = this.fade(Math.abs(axial) / (length * 0.35)) *
+        const falloff = this.fade(Math.abs(axial) / (length * (shoulder ? .65 : .35))) *
           this.fade(Math.max(0, radial / length - 0.45) / 0.3)
         const fraction = child_weight / total
         // Fade confidence continuously: a hard 75% cutoff would give two
@@ -95,17 +100,18 @@ export class JointVolumeSupport {
         const confidence = 1 - this.fade((total - 0.5) / 0.35)
         const amount = 4 * fraction * (1 - fraction) * falloff * confidence
         if (amount < 0.001) continue
-        const entries = [
+        const candidates = [
           ...Array.from({ length: 4 }, (_, slot) => ({
             index: indices[offset + slot],
             weight: weights[offset + slot] * (slot === parent_slot || slot === child_slot ? 1 - amount : 1)
           })),
           { index: support_index, weight: total * amount }
-        ].sort((a, b) => b.weight - a.weight).slice(0, 4)
+        ]
+        const entries = continuous_skin_weights(candidates.map(v=>[v.index,v.weight])).map(([index,weight])=>({index,weight}))
         const sum = entries.reduce((value, entry) => value + entry.weight, 0)
         for (let slot = 0; slot < 4; slot++) {
-          indices[offset + slot] = entries[slot].index
-          weights[offset + slot] = entries[slot].weight / sum
+          indices[offset + slot] = entries[slot]?.index ?? 0
+          weights[offset + slot] = (entries[slot]?.weight ?? 0) / sum
         }
       }
     }

@@ -1,3 +1,4 @@
+const escape_label = (value: string): string => value.replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]!))
 import { creature_motion_label, creature_motion_symbol } from './CreatureMotionPresentation.ts'
 import { type ThemeManager } from '../../ThemeManager'
 import { SkeletonType } from '../../enums/SkeletonType'
@@ -302,7 +303,7 @@ export class AnimationSearch extends EventTarget {
 
       const anim_name: string = animation_clip.name
       const theme_name: string = this.theme_manager.get_current_theme()
-      const is_custom_animation = animation_clip.metadata?.source_type === 'custom-import'
+      const is_custom_animation = animation_clip.metadata?.source_type === 'custom-import' || animation_clip.metadata?.tags.includes('pack') === true
 
       const is_creature_motion = animation_clip.metadata?.tags.includes('fitted-rest') === true && creature_motion_label(anim_name) !== undefined
       const preview_data_src_attribute = is_custom_animation || is_creature_motion
@@ -317,14 +318,14 @@ export class AnimationSearch extends EventTarget {
       const mirror_toggle_label = this.get_mirror_toggle_label(mirror_export_mode)
       const animation_entry_html = `
         <div class="${is_custom_animation ? 'anim-custom-item' : 'anim-item'}" data-animation-index="${original_index}" data-creature="${is_creature_motion}" data-selected="${was_checked ? 'true' : 'false'}" data-mirror-mode="${mirror_export_mode}">
-          <button class="secondary-button play anim-play-button" data-action="play-animation" data-index="${original_index}" aria-label="Play ${this.animation_name_clean(animation_clip.name)}">
+          <button class="secondary-button play anim-play-button" data-action="play-animation" data-index="${original_index}" aria-label="Play ${escape_label(this.animation_name_clean(animation_clip.name))}">
             ${custom_animation_badge_html}
             <div class="anim-preview-placeholder${is_creature_motion ? ' anim-creature-preview' : ''}"${preview_data_src_attribute}>${is_creature_motion ? creature_motion_symbol(anim_name) : ''}</div>
           </button>
 
           <label class="styled-checkbox anim-row-checkbox">
-            <input type="checkbox" name="${animation_clip.name}" value="${original_index}" ${checked_attribute}>
-            <span class="anim-preview-label">${this.animation_name_clean(animation_clip.name)}</span>
+            <input type="checkbox" name="${escape_label(animation_clip.name)}" value="${original_index}" ${checked_attribute}>
+            <span class="anim-preview-label">${escape_label(this.animation_name_clean(animation_clip.name))}</span>
           </label>
 
           <button

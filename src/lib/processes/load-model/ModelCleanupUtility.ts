@@ -1,4 +1,4 @@
-import { Box3, type BufferGeometry, Group, Matrix4, MathUtils, type Object3DEventMap, type Object3D, Scene, Mesh, MeshPhongMaterial, type Material, type SkinnedMesh } from 'three'
+import { Box3, BufferAttribute, type BufferGeometry, Group, Matrix4, MathUtils, type Object3DEventMap, type Object3D, Scene, Mesh, MeshPhongMaterial, type Material, type SkinnedMesh } from 'three'
 import { FrontSide } from 'three/src/constants.js'
 
 /**
@@ -234,6 +234,24 @@ export class ModelCleanupUtility {
       // so each mesh needs its own copy before we bake anything into it
       const baked_geometry: BufferGeometry = mesh.geometry.clone()
       baked_geometry.name = mesh.geometry.name
+      // KHR_mesh_quantization keeps positions in integer arrays plus a node
+      // transform. Applying that transform in place truncates sub-unit vertices
+      // (often all of them) to zero. Decode before any geometry-space edits.
+      // Attribute getters also handle normalized and interleaved layouts.
+      for (const name of ['position', 'normal', 'tangent']) {
+        const attribute = baked_geometry.getAttribute(name)
+        if (!attribute || (attribute.array instanceof Float32Array &&
+            !('isInterleavedBufferAttribute' in attribute) && !attribute.normalized)) continue
+        const values = new Float32Array(attribute.count * attribute.itemSize)
+        for (let vertex = 0; vertex < attribute.count; vertex++) {
+          for (let component = 0; component < attribute.itemSize; component++) {
+            values[vertex * attribute.itemSize + component] = attribute.getComponent(vertex, component)
+          }
+        }
+        const decoded = new BufferAttribute(values, attribute.itemSize)
+        decoded.name = attribute.name
+        baked_geometry.setAttribute(name, decoded)
+      }
       baked_geometry.applyMatrix4(world_matrix)
 
       // a mirrored transform reverses triangle winding, which renders the mesh

@@ -4,6 +4,7 @@ import {
 } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GlbDocument } from './GlbEnvelope.ts'
+import { dedupe_identical_keys } from './RigTrackSanitizer.ts'
 
 export interface RigNode {
   id: string
@@ -22,6 +23,7 @@ export interface RigNode {
 }
 
 export interface RigAsset {
+  motion_info?: { format: 'bvh' | 'fbx', calibration_frame?: number, warnings: string[] }
   name: string
   scene: Group
   nodes: Map<string, RigNode>
@@ -70,7 +72,9 @@ export function build_rig_asset (gltf: GLTF, document: GlbDocument, buffer: Arra
           !['position', 'quaternion', 'scale', 'morphTargetInfluences'].includes(parts.propertyName)) {
         throw new Error('Не удалось однозначно связать дорожку анимации: ' + track.name)
       }
-      if (track.times.length > 200_000 || !track.times.length || track.times.some((time, index) =>
+      if (track.times.length > 200_000) throw new Error('Слишком много ключевых кадров: ' + clip.name)
+      dedupe_identical_keys(track)
+      if (!track.times.length || track.times.some((time, index) =>
         !Number.isFinite(time) || time < 0 || (index > 0 && time <= track.times[index - 1])) ||
         track.values.some(value => !Number.isFinite(value))) {
         throw new Error('Повреждены ключевые кадры: ' + clip.name)

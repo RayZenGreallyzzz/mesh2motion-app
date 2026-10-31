@@ -156,6 +156,7 @@ export class StepEditSkeleton extends EventTarget {
     // update DOM element background image
     this.dom_template_image = document.getElementById('skeleton-template-image')
     if (this.dom_template_image !== null && rig_config_entry !== undefined) {
+      this.dom_template_image.style.display = rig_config_entry.skeleton_template_image_url ? '' : 'none'
       this.dom_template_image.style.width = '250px'
       this.dom_template_image.style.height = '220px'
       this.dom_template_image.style.backgroundImage = `url(${ rig_config_entry.skeleton_template_image_url  })`

@@ -1,3 +1,4 @@
+import { load_pack_rig } from '../../../library/PackRigSource.ts'
 import { RestSpaceRetargeter, type BoneRestSpace } from '../../../retarget/RestSpaceRetargeter.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip } from 'three'
@@ -55,6 +56,8 @@ export class AnimationLoader extends EventTarget {
     _retarget_target?: SkinnedMesh
   ): Promise<TransformedAnimationClipPair[]> {
     this.skeleton_type = skeleton_type
+    const pack = RigConfig.by_key(skeleton_type)?.pack_source
+    if (pack) return this.process_loaded_animations((await load_pack_rig(pack)).clips, skeleton_scale, { tags: ['pack', 'offline'] })
     const configured_animation_files = RigConfig.get_animation_file_paths(this.skeleton_type)
     const file_paths = configured_animation_files.map(f => `${this.animations_file_path}${f}`)
 
@@ -305,7 +308,7 @@ export class AnimationLoader extends EventTarget {
     RigConfig.by_skeleton_type(this.skeleton_type)?.position_tracking_bone_name
 
     // Clean track data (remove position tracks except for specific cases)
-    AnimationUtility.clean_track_data(cloned_animations, position_tracking_bone_name)
+    if (!RigConfig.by_key(this.skeleton_type)?.pack_source) AnimationUtility.clean_track_data(cloned_animations, position_tracking_bone_name)
 
     // Apply skeleton scaling to position keyframes
     AnimationUtility.apply_skeleton_scale_to_position_keyframes(cloned_animations, skeleton_scale)

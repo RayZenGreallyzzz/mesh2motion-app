@@ -1,3 +1,4 @@
+import { copy_rigs_for_export } from './ExportRigCopy.ts'
 import { ExportFileSaver } from './ExportFileSaver.ts'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { FBXExporter } from '@comfyorg/fbx-exporter-three'
@@ -53,6 +54,7 @@ export class StepExportToFile extends EventTarget {
       return Promise.reject(new Error('No animation clips added to export'))
     }
 
+    skinned_meshes = copy_rigs_for_export(skinned_meshes)
     const export_scene = new Scene()
 
     const export_clips = this.animation_clips_to_export.map((clip) => {

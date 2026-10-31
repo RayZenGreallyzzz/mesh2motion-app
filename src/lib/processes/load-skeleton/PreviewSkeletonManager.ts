@@ -1,3 +1,4 @@
+import { load_pack_rig } from '../../../library/PackRigSource.ts'
 import { Group, type Object3D, type Object3DEventMap, type Scene } from 'three'
 import { type GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type GLTFResult from './interfaces/GLTFResult'
@@ -27,7 +28,7 @@ export async function add_preview_skeleton (
     // Read previous skeleton info from userData
     const previous_file_path = preview_skeleton_group.userData.skeleton_type
     const previous_hand_type = preview_skeleton_group.userData.hand_skeleton_type
-    if (previous_file_path === skeleton_type && previous_hand_type === effective_hand_type) {
+    if (previous_file_path === skeleton_type && previous_hand_type === effective_hand_type && preview_skeleton_group.children.length > 0) {
       // Only update scale
       preview_skeleton_group.scale.set(skeleton_scale, skeleton_scale, skeleton_scale)
 
@@ -62,7 +63,10 @@ export async function add_preview_skeleton (
   }
 
   // Load and customize skeleton
-  const loaded_scene: Object3D<Object3DEventMap> = await load_skeleton(rig_file)
+  const pack = RigConfig.by_key(skeleton_type)?.pack_source
+  const loaded_scene: Object3D<Object3DEventMap> = pack ? (await load_pack_rig(pack)).armature.clone() : await load_skeleton(rig_file)
+  if (root.getObjectByName(skeleton_group_name) !== preview_skeleton_group) return loaded_scene
+  preview_skeleton_group.add(loaded_scene)
   if (is_humanoid_skeleton_type(skeleton_type)) {
     const helper = new HandHelper()
     helper.modify_hand_skeleton(loaded_scene, effective_hand_type)

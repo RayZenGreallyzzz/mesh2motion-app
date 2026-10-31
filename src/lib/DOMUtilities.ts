@@ -1,3 +1,4 @@
+import { builtin_models } from '../library/BuiltinModels.ts'
 import { RigConfig } from './RigConfig.ts'
 import {
   BoneNamingStructure,
@@ -453,12 +454,13 @@ export class DOMUtilities {
 
     // combine all the rigs with the custom models needed
     const model_options = [
-      ...RigConfig.all.map((rig) => {
+      ...RigConfig.all.filter(rig => !rig.pack_source).map((rig) => {
         return {
           model_file: rig.model_file,
           display_name: rig.rig_display_name
         }
       }),
+      ...builtin_models.map(model => ({model_file: model.path, display_name: model.title + ' · Phoenix'})),
       ...custom_models
     ]
 
@@ -477,6 +479,7 @@ export class DOMUtilities {
    * Existing options are replaced.
    */
   static populate_skeleton_select (select: HTMLSelectElement, include_placeholder = true): void {
+    const marker_labels = new Map([...select.options].filter(o => o.dataset.markerOriginalLabel).map(o => [o.value, { text: o.textContent ?? '', original: o.dataset.markerOriginalLabel! }]))
     select.innerHTML = ''
     if (include_placeholder) {
       const placeholder = document.createElement('option')
@@ -488,7 +491,13 @@ export class DOMUtilities {
       const option = document.createElement('option')
       option.value = rig.skeleton_type
       option.textContent = rig.rig_display_name
-      select.appendChild(option)
+      const marker_label = marker_labels.get(option.value)
+      if (marker_label) { option.textContent = marker_label.text; option.dataset.markerOriginalLabel = marker_label.original }
+      if (rig.pack_category) {
+        let group = [...select.querySelectorAll('optgroup')].find(item => item.label === rig.pack_category)
+        if (!group) { group = document.createElement('optgroup'); group.label = rig.pack_category; select.append(group) }
+        group.append(option)
+      } else select.appendChild(option)
     }
   }
 

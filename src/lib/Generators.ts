@@ -240,7 +240,8 @@ export class Generators {
     skin_indices: number[],
     orig_geometry: BufferGeometry,
     skin_weights: number[] = [],
-    selected_bone_index: number | null = null
+    selected_bone_index: number | null = null,
+    region_mask?: Float32Array
   ): Mesh {
     // Clone the geometry to avoid modifying the original
     const cloned_geometry = orig_geometry.clone()
@@ -257,34 +258,20 @@ export class Generators {
     // deterministic per-bone colors used by the general weight preview.
     const colors = new Float32Array(vertex_count * 3)
     for (let i = 0; i < vertex_count; i++) {
-      if (selected_bone_index !== null && skin_weights.length >= (i + 1) * 4) {
+      if (region_mask && region_mask.length === vertex_count) {
+        const amount = Math.max(0, Math.min(1, region_mask[i]))
+        colors[i * 3] = .16 + .84 * amount
+        colors[i * 3 + 1] = .25 + .33 * amount
+        colors[i * 3 + 2] = .35 - .25 * amount
+      } else if (selected_bone_index !== null && skin_weights.length >= (i + 1) * 4) {
         let selected_weight = 0
         for (let slot = 0; slot < 4; slot++) {
           if (skin_indices[i * 4 + slot] === selected_bone_index) {
             selected_weight += skin_weights[i * 4 + slot] ?? 0
           }
         }
-        selected_weight = Math.max(0, Math.min(1, selected_weight))
-
-        // Diagnostic heatmap for one selected bone:
-        // 0% navy -> 25% blue -> 50% green -> 75% yellow -> 100% red.
-        let r = 0; let g = 0; let b = 0
-        if (selected_weight < 0.25) {
-          const t = selected_weight / 0.25
-          r = 0.02 * (1 - t); g = 0.04 + 0.21 * t; b = 0.15 + 0.85 * t
-        } else if (selected_weight < 0.5) {
-          const t = (selected_weight - 0.25) / 0.25
-          r = 0; g = 0.25 + 0.75 * t; b = 1.0 - 0.70 * t
-        } else if (selected_weight < 0.75) {
-          const t = (selected_weight - 0.5) / 0.25
-          r = t; g = 1.0; b = 0.30 * (1 - t)
-        } else {
-          const t = (selected_weight - 0.75) / 0.25
-          r = 1.0; g = 1.0 - 0.95 * t; b = 0
-        }
-        colors[i * 3] = r
-        colors[i * 3 + 1] = g
-        colors[i * 3 + 2] = b
+        const [r,g,b] = Generators.weight_heat_color(selected_weight)
+        colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b
       } else {
         const bone_index = skin_indices[i * 4] // Primary bone assignment
         let color = bone_colors[bone_index]
@@ -301,6 +288,14 @@ export class Generators {
     // Create a mesh with vertex colors
     const material = new MeshBasicMaterial({ vertexColors: true, wireframe: false, opacity: 1.0, transparent: false })
     return new Mesh(cloned_geometry, material)
+  }
+
+  static weight_heat_color(weight: number): [number,number,number] {
+    const w=Math.max(0,Math.min(1,weight))
+    if(w<.25){const t=w/.25;return [.02*(1-t),.04+.21*t,.15+.85*t]}
+    if(w<.5){const t=(w-.25)/.25;return [0,.25+.75*t,1-.7*t]}
+    if(w<.75){const t=(w-.5)/.25;return [t,1,.3*(1-t)]}
+    return [1,1-.95*(w-.75)/.25,0]
   }
 
   static generate_deterministic_bone_colors (count: number): Vector3[] {

@@ -2,8 +2,13 @@ import * as THREE from 'three'
 import type { Bone, Object3D, Skeleton } from 'three'
 import { estimate_arm_pose } from './AutoRigArmPoseEstimator.ts'
 import { capture_hand_shape, place_hand_shape } from './HandPose.ts'
+import { refine_woman_rig } from './WomanBodyFit.ts'
+import { fit_humanoid_head } from './HumanoidHeadFit.ts'
 
-export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void): 'T-pose' | 'A-pose' | null {
+// Refits must use template proportions, not feed the prior fitted offsets back.
+const woman_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
+
+export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human'): 'T-pose' | 'A-pose' | null {
     const bones = skeleton.bones
     if (bones.length === 0) return null
 
@@ -46,6 +51,17 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     const depth = maxZ - minZ
     if (!Number.isFinite(height) || height <= 0.0001 || width <= 0.0001) return null
 
+    if (profile === 'woman') {
+      // Capture undo before restoring offsets; preserve rotations/setup frame.
+      before_apply()
+      const template = woman_templates.get(skeleton)
+      if (template && template.bones.length === bones.length && template.bones.every((b,i)=>b===bones[i])) {
+        bones.forEach((bone,i)=>bone.position.copy(template.offsets[i]))
+      } else {
+        woman_templates.set(skeleton, { bones: bones.slice(), offsets: bones.map(b=>b.position.clone()) })
+      }
+      bones[0]?.updateWorldMatrix(true, true)
+    }
     const centerX = (minX + maxX) * 0.5
     const centerZ = (minZ + maxZ) * 0.5
     const yAt = (ratio: number): number => minY + height * ratio
@@ -91,7 +107,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
 
     const pelvis = byAliases(['pelvis', 'hips', 'mixamorighips'])
-    const neck = byAliases(['neck', 'mixamorigneck'])
+    const neck = byAliases(['neck', 'neck_01', 'mixamorigneck'])
     const head = byAliases(['head', 'mixamorighead'])
     const hand_shapes = new Map((['l', 'r'] as const).flatMap(side => {
       const hand = sideBone('hand', side), forearm = sideBone('forearm', side)
@@ -109,7 +125,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
     const boneHeight = Math.max(0.0001, boneMaxY - boneMinY)
     const uniformScale = height / boneHeight
-    before_apply()
+    if (profile !== 'woman') before_apply()
     bones.forEach((bone, index) => {
       if (index === 0) return
       bone.position.multiplyScalar(uniformScale)
@@ -293,10 +309,9 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
 
     // Legs.
-    const legCenterAt = (sign: number, ratio: number, fallback: number, anchor?: number): number => {
+    const legCenterAt = (sign: number, ratio: number, fallback: number): number => {
       const xs = points.filter(p => Math.abs(p.y - yAt(ratio)) < height * 0.025 &&
-        (p.x - centerX) * sign > height * 0.01 &&
-        (anchor === undefined || Math.abs(p.x - anchor) < height * 0.09))
+        (p.x - centerX) * sign > height * 0.01)
         .map(p => p.x).sort((a, b) => a - b)
       if (xs.length < 8) return fallback
       return (xs[Math.floor((xs.length - 1) * 0.15)] + xs[Math.floor((xs.length - 1) * 0.85)]) * 0.5
@@ -307,11 +322,13 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       const shin = sideBone('shin', side)
       const foot = sideBone('foot', side)
       const toe = sideBone('toe', side)
-      // Feet are an observable pair, not a fixed fraction of a skirt/hip slice.
-      // Follow each leg separately so wide stances do not collapse toward root.
+      // Each height has its own leg cross-section. In a wide stance the old
+      // ankle-centred knee search clipped away the inner knee, or found too few
+      // samples and used the ankle itself. Inferring the hip from that knee
+      // then moved the thigh outside the pelvis. Sample each level separately.
       const xFoot = legCenterAt(sign, 0.07, centerX + sign * hipHalf)
-      const xKnee = legCenterAt(sign, 0.285, xFoot, xFoot)
-      const xHip = centerX + (xKnee - centerX) * 0.75 + sign * hipHalf * 0.25
+      const xHip = legCenterAt(sign, 0.50, centerX + sign * hipHalf)
+      const xKnee = legCenterAt(sign, 0.285, (xHip + xFoot) * 0.5)
 
       const hipY = yAt(0.50)
       const kneeY = yAt(0.285)
@@ -328,5 +345,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
 
     bones[0]?.updateWorldMatrix(true, true)
+    if (profile === 'woman') refine_woman_rig(points, bones, frame)
+    fit_humanoid_head(points, bones, frame)
     return tPose ? 'T-pose' : 'A-pose'
 }

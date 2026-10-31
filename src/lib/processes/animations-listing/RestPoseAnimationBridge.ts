@@ -1,3 +1,4 @@
+import { load_pack_rig } from '../../../library/PackRigSource.ts'
 import { CreatureAnimationLibrary } from './CreatureAnimationLibrary.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { type AnimationClip, type Bone, Quaternion, type Skeleton, Vector3 } from 'three'
@@ -5,12 +6,14 @@ import { RigConfig } from '../../RigConfig.ts'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
 import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 import { HumanoidClipCalibration } from './HumanoidClipCalibration.ts'
+import { MarkerClipCalibration } from './MarkerClipCalibration.ts'
 import { type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 
 export interface AnimationRestTransform {
   quaternion: Quaternion
   position: Vector3
   parent_name?: string
+  scale?: Vector3
 }
 
 /**
@@ -35,7 +38,8 @@ export class RestPoseAnimationBridge {
     skeleton_type: SkeletonType,
     skeleton_scale: number = 1
   ): Promise<void> {
-    if (skeleton_type === SkeletonType.Dragon && CreatureAnimationLibrary.supports(target_skeleton)) {
+    const marked_animal = target_skeleton.bones.some(b => b.userData.rigMarkerProfile && b.userData.rigMarkerKind !== 'humanoid')
+    if (!marked_animal && skeleton_type === SkeletonType.Dragon && CreatureAnimationLibrary.supports(target_skeleton)) {
       const generated = CreatureAnimationLibrary.generate(target_skeleton)
       animation_pairs.splice(0, animation_pairs.length, ...generated.map(clip => ({
         original_animation_clip: clip,
@@ -47,6 +51,11 @@ export class RestPoseAnimationBridge {
     // Target rest is authoritative regardless of manual or automatic fitting.
     const source_rest_pose = await this.load_source_rest_pose(skeleton_type)
     const target_rest_pose = this.capture_rest_pose(target_skeleton)
+    if (marked_animal) {
+      const calibration = new MarkerClipCalibration(source_rest_pose, target_rest_pose)
+      for (const pair of animation_pairs) { calibration.apply(pair.original_animation_clip, skeleton_scale); calibration.apply(pair.display_animation_clip, skeleton_scale) }
+      return
+    }
 
     const common = [...source_rest_pose.keys()]
       .filter(name => target_rest_pose.has(name))
@@ -56,13 +65,15 @@ export class RestPoseAnimationBridge {
       )
     }
 
-    const humanoid = is_humanoid_skeleton_type(skeleton_type)
+    const humanoid = (is_humanoid_skeleton_type(skeleton_type) || (RigConfig.by_key(skeleton_type)?.pack_source && source_rest_pose.has('upperarm_l') && source_rest_pose.has('thigh_l') && source_rest_pose.has('pelvis')))
       ? new HumanoidClipCalibration(source_rest_pose, target_rest_pose) : null
 
     for (const pair of animation_pairs) {
       if (humanoid) {
         humanoid.apply(pair.original_animation_clip, skeleton_scale)
         humanoid.apply(pair.display_animation_clip, skeleton_scale)
+        this.rebase_scale(pair.original_animation_clip, source_rest_pose, target_rest_pose)
+        this.rebase_scale(pair.display_animation_clip, source_rest_pose, target_rest_pose)
         continue
       }
       // Run this once per clip pair. Both original and display tracks must be
@@ -96,6 +107,7 @@ export class RestPoseAnimationBridge {
     if (rig_file === undefined) {
       throw new Error('No animation reference rig configured for ' + skeleton_type)
     }
+    if (RigConfig.by_key(skeleton_type)?.pack_source) return (await load_pack_rig(rig_file)).rest
     let loading = this.source_rest_pose_cache.get(rig_file)
     if (loading === undefined) {
       loading = (async () => {
@@ -107,6 +119,7 @@ export class RestPoseAnimationBridge {
           poses.set(bone.name, {
             quaternion: bone.quaternion.clone(),
             position: bone.position.clone(),
+        scale: bone.scale.clone(),
             parent_name: bone.parent?.type === 'Bone' ? bone.parent.name : undefined
           })
         })
@@ -132,6 +145,7 @@ export class RestPoseAnimationBridge {
       result.set(bone.name, {
         quaternion: bone.quaternion.clone(),
         position: bone.position.clone(),
+        scale: bone.scale.clone(),
         parent_name: bone.parent?.type === 'Bone' ? bone.parent.name : undefined
       })
     })
@@ -151,6 +165,7 @@ export class RestPoseAnimationBridge {
     target_rest_pose: ReadonlyMap<string, AnimationRestTransform>,
     skeleton_scale: number = 1
   ): void {
+    this.rebase_scale(clip, source_rest_pose, target_rest_pose)
     const source_inverse = new Quaternion()
     const source_animation = new Quaternion()
     const target_animation = new Quaternion()
@@ -193,6 +208,17 @@ export class RestPoseAnimationBridge {
           track.values[i + 2] = target_rest.position.z + track.values[i + 2] - source_rest.position.z * skeleton_scale
         }
       }
+    }
+  }
+
+  private static rebase_scale (clip: AnimationClip, source: ReadonlyMap<string, AnimationRestTransform>, target: ReadonlyMap<string, AnimationRestTransform>): void {
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.scale')) continue
+      const name = track.name.slice(0, -6), a = source.get(name)?.scale, b = target.get(name)?.scale
+      if (!a || !b) continue
+      const from = a.toArray(), to = b.toArray()
+      if (from.some(value => Math.abs(value) < 1e-8)) throw new Error('Нулевой масштаб исходной кости')
+      for (let i = 0; i < track.values.length; i++) track.values[i] *= to[i % 3] / from[i % 3]
     }
   }
 

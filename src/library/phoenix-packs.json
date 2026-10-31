@@ -1,0 +1,506 @@
+[
+  {
+    "id": "ual2-root-motion",
+    "title": "Человек UAL2 · RootMotion",
+    "category": "Гуманоиды",
+    "clips": 43,
+    "bones": 65,
+    "path": "packs/phoenix/ual2-root-motion.glb"
+  },
+  {
+    "id": "ual2-standard",
+    "title": "Человек UAL2 · Standard",
+    "category": "Гуманоиды",
+    "clips": 43,
+    "bones": 65,
+    "path": "packs/phoenix/ual2-standard.glb"
+  },
+  {
+    "id": "alpaca",
+    "title": "Альпака",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 46,
+    "path": "packs/phoenix/monsters/alpaca.glb"
+  },
+  {
+    "id": "bull",
+    "title": "Бык",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 42,
+    "path": "packs/phoenix/monsters/bull.glb"
+  },
+  {
+    "id": "cow",
+    "title": "Корова",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 42,
+    "path": "packs/phoenix/monsters/cow.glb"
+  },
+  {
+    "id": "deer",
+    "title": "Олень",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 46,
+    "path": "packs/phoenix/monsters/deer.glb"
+  },
+  {
+    "id": "donkey",
+    "title": "Осёл",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 50,
+    "path": "packs/phoenix/monsters/donkey.glb"
+  },
+  {
+    "id": "fox",
+    "title": "Лиса",
+    "category": "Четвероногие",
+    "clips": 12,
+    "bones": 51,
+    "path": "packs/phoenix/monsters/fox.glb"
+  },
+  {
+    "id": "horse",
+    "title": "Лошадь",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 50,
+    "path": "packs/phoenix/monsters/horse.glb"
+  },
+  {
+    "id": "horse_white",
+    "title": "Белая лошадь",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 50,
+    "path": "packs/phoenix/monsters/horse_white.glb"
+  },
+  {
+    "id": "husky",
+    "title": "Хаски",
+    "category": "Четвероногие",
+    "clips": 12,
+    "bones": 49,
+    "path": "packs/phoenix/monsters/husky.glb"
+  },
+  {
+    "id": "shibainu",
+    "title": "Сиба-ину",
+    "category": "Четвероногие",
+    "clips": 12,
+    "bones": 46,
+    "path": "packs/phoenix/monsters/shibainu.glb"
+  },
+  {
+    "id": "stag",
+    "title": "Олень-самец (рога)",
+    "category": "Четвероногие",
+    "clips": 13,
+    "bones": 38,
+    "path": "packs/phoenix/monsters/stag.glb"
+  },
+  {
+    "id": "wolf",
+    "title": "Волк",
+    "category": "Четвероногие",
+    "clips": 12,
+    "bones": 51,
+    "path": "packs/phoenix/monsters/wolf.glb"
+  },
+  {
+    "id": "alien",
+    "title": "Инопланетянин",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/alien.glb"
+  },
+  {
+    "id": "birb",
+    "title": "Птицечеловек",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/birb.glb"
+  },
+  {
+    "id": "bluedemon",
+    "title": "Синий демон",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/bluedemon.glb"
+  },
+  {
+    "id": "bunny",
+    "title": "Кролик",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 49,
+    "path": "packs/phoenix/monsters/bunny.glb"
+  },
+  {
+    "id": "cactoro",
+    "title": "Кактусовый монстр",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/cactoro.glb"
+  },
+  {
+    "id": "demon",
+    "title": "Демон",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/demon.glb"
+  },
+  {
+    "id": "dino",
+    "title": "Динозаврик",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/dino.glb"
+  },
+  {
+    "id": "fish",
+    "title": "Рыболюд",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/fish.glb"
+  },
+  {
+    "id": "frog",
+    "title": "Лягушонок",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/frog.glb"
+  },
+  {
+    "id": "monkroose",
+    "title": "Мангуст-монах",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/monkroose.glb"
+  },
+  {
+    "id": "mushroomking",
+    "title": "Грибной король",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/mushroomking.glb"
+  },
+  {
+    "id": "ninja",
+    "title": "Ниндзя",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/ninja.glb"
+  },
+  {
+    "id": "orc",
+    "title": "Орк",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/orc.glb"
+  },
+  {
+    "id": "orc_skull",
+    "title": "Орк с черепом",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/orc_skull.glb"
+  },
+  {
+    "id": "tribal",
+    "title": "Племенной воин",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/tribal.glb"
+  },
+  {
+    "id": "yeti",
+    "title": "Йети",
+    "category": "Гуманоиды",
+    "clips": 14,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/yeti.glb"
+  },
+  {
+    "id": "alien (1)",
+    "title": "Мини-пришелец",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/alien (1).glb"
+  },
+  {
+    "id": "birb (1)",
+    "title": "Мини-птица",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/birb (1).glb"
+  },
+  {
+    "id": "cactoro (1)",
+    "title": "Мини-кактус",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/cactoro (1).glb"
+  },
+  {
+    "id": "cat",
+    "title": "Кошка",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/cat.glb"
+  },
+  {
+    "id": "chicken",
+    "title": "Курица",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/chicken.glb"
+  },
+  {
+    "id": "dog",
+    "title": "Собака",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/dog.glb"
+  },
+  {
+    "id": "fish (1)",
+    "title": "Мини-рыба",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/fish (1).glb"
+  },
+  {
+    "id": "greenblob",
+    "title": "Зелёный слайм",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/greenblob.glb"
+  },
+  {
+    "id": "greenspikyblob",
+    "title": "Колючий слайм",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/greenspikyblob.glb"
+  },
+  {
+    "id": "mushnub",
+    "title": "Маленький гриб",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/mushnub.glb"
+  },
+  {
+    "id": "mushnub_evolved",
+    "title": "Гриб — эволюция",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/mushnub_evolved.glb"
+  },
+  {
+    "id": "ninja (1)",
+    "title": "Мини-ниндзя",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/ninja (1).glb"
+  },
+  {
+    "id": "orc (1)",
+    "title": "Мини-орк",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/orc (1).glb"
+  },
+  {
+    "id": "pigeon",
+    "title": "Голубь",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/pigeon.glb"
+  },
+  {
+    "id": "pinkblob",
+    "title": "Розовый слайм",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/pinkblob.glb"
+  },
+  {
+    "id": "yeti (1)",
+    "title": "Мини-йети",
+    "category": "Простые",
+    "clips": 9,
+    "bones": 4,
+    "path": "packs/phoenix/monsters/yeti (1).glb"
+  },
+  {
+    "id": "alpaking",
+    "title": "Альпакинг",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/alpaking.glb"
+  },
+  {
+    "id": "alpaking_evolved",
+    "title": "Альпакинг — эволюция",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/alpaking_evolved.glb"
+  },
+  {
+    "id": "armabee",
+    "title": "Армапчела",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/armabee.glb"
+  },
+  {
+    "id": "armabee_evolved",
+    "title": "Армапчела — эволюция",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/armabee_evolved.glb"
+  },
+  {
+    "id": "demon (1)",
+    "title": "Летающий демон",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/demon (1).glb"
+  },
+  {
+    "id": "dragon",
+    "title": "Дракон",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/dragon.glb"
+  },
+  {
+    "id": "dragon_evolved",
+    "title": "Дракон — эволюция",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 46,
+    "path": "packs/phoenix/monsters/dragon_evolved.glb"
+  },
+  {
+    "id": "ghost",
+    "title": "Призрак",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 38,
+    "path": "packs/phoenix/monsters/ghost.glb"
+  },
+  {
+    "id": "ghost_skull",
+    "title": "Призрачный череп",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 38,
+    "path": "packs/phoenix/monsters/ghost_skull.glb"
+  },
+  {
+    "id": "glub",
+    "title": "Глуб",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/glub.glb"
+  },
+  {
+    "id": "glub_evolved",
+    "title": "Глуб — эволюция",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/glub_evolved.glb"
+  },
+  {
+    "id": "goleling",
+    "title": "Големчик",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/goleling.glb"
+  },
+  {
+    "id": "goleling_evolved",
+    "title": "Големчик — эволюция",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/goleling_evolved.glb"
+  },
+  {
+    "id": "hywirl",
+    "title": "Хайвирл (магическое существо)",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 38,
+    "path": "packs/phoenix/monsters/hywirl.glb"
+  },
+  {
+    "id": "pigeon (1)",
+    "title": "Летающий голубь",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 13,
+    "path": "packs/phoenix/monsters/pigeon (1).glb"
+  },
+  {
+    "id": "squidle",
+    "title": "Щупальцевое существо",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 43,
+    "path": "packs/phoenix/monsters/squidle.glb"
+  },
+  {
+    "id": "tribal (1)",
+    "title": "Летающий племенной дух",
+    "category": "Летающие",
+    "clips": 8,
+    "bones": 38,
+    "path": "packs/phoenix/monsters/tribal (1).glb"
+  }
+]

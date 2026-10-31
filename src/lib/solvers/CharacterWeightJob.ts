@@ -6,13 +6,13 @@ export interface WeightConfig {
   type: SkeletonType
   head: boolean
   height: number
-  bones: Array<{ name: string, parent: number, position: number[] }>
+  bones: Array<{ name: string, parent: number, position: number[], non_deforming?: boolean }>
 }
 export interface WeightJob extends WeightConfig { positions: number[], triangles: number[] }
 
 export function solve_weight_job (job: WeightJob): number[][] {
   // Surface solver uses world endpoints/topology, not quaternion rest axes.
-  const bones = job.bones.map(item => { const b = new Bone(); b.name = item.name; return b })
+  const bones = job.bones.map(item => { const b = new Bone(); b.name = item.name; b.userData.rigNonDeforming = item.non_deforming; return b })
   const group = new Group()
   job.bones.forEach((item, i) => {
     bones[i].position.fromArray(item.position)

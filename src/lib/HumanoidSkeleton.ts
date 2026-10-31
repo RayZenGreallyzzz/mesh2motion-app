@@ -5,7 +5,7 @@ import { HandSkeletonType, SkeletonType } from './enums/SkeletonType'
  * (pelvis weighting, A-pose tools, hand pruning, human retargeting/export).
  */
 export function is_humanoid_skeleton_type (type: SkeletonType | null | undefined): boolean {
-  return type === SkeletonType.Human || type === SkeletonType.MobileFemale
+  return type === SkeletonType.Human || type === SkeletonType.Woman || type === SkeletonType.MobileFemale
 }
 
 /**

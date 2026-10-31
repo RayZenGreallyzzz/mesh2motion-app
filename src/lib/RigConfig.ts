@@ -1,3 +1,4 @@
+import packs from '../library/phoenix-packs.json'
 import { SkeletonType } from './enums/SkeletonType'
 import { humanVariations, foxVariations, birdVariations, kaijuVariations, 
   fishVariations, ModelVariation } from './RigModelVariations'
@@ -12,6 +13,8 @@ export interface RigConfigEntry {
   skeleton_template_image_url: string
   position_tracking_bone_name: string 
   model_variations?: ModelVariation[]
+  pack_source?: string
+  pack_category?: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
@@ -22,6 +25,21 @@ export class RigConfig {
       model_file: 'models/model-human.glb',
       rig_file: 'rigs/rig-human.glb',
       rig_display_name: 'Human',
+      animation_files: [
+        '../animations/human-base-animations.glb', 
+        '../animations/human-addon-animations.glb',
+        '../animations/human-mocap-animations.glb'
+      ],
+      animation_preview_folder: 'human',
+      position_tracking_bone_name: 'pelvis',
+      skeleton_template_image_url: 'rigs/reference/human.png',
+      model_variations: humanVariations
+    } satisfies RigConfigEntry,
+    {
+      skeleton_type: SkeletonType.Woman,
+      model_file: 'models/model-human.glb',
+      rig_file: 'rigs/rig-human.glb',
+      rig_display_name: 'Woman',
       animation_files: [
         '../animations/human-base-animations.glb', 
         '../animations/human-addon-animations.glb',
@@ -131,6 +149,16 @@ export class RigConfig {
       skeleton_template_image_url: 'rigs/reference/horse.png',
     } satisfies RigConfigEntry
   ]
+
+  static { for (const pack of packs) this.register_pack(pack.id, pack.title, pack.path, pack.category, 'pack:') }
+
+  static register_pack (id: string, title: string, path = 'library-entry:' + id, category = 'Мои наборы', prefix = 'library:'): void {
+    const key = (prefix + id) as SkeletonType
+    if (this.by_key(key)) return
+    this.all.push({ skeleton_type: key, model_file: path, rig_file: path, rig_display_name: title,
+      animation_files: [path], animation_preview_folder: '', skeleton_template_image_url: '',
+      position_tracking_bone_name: '', pack_source: path, pack_category: category })
+  }
 
   static by_key (rig_key: string): RigConfigEntry | undefined {
     return this.all.find(r => r.skeleton_type === rig_key as SkeletonType)

@@ -1,4 +1,6 @@
 export interface LibraryEntry {
+  source_pack?: string
+  source_path?: string
   id: string
   title: string
   created_at: number

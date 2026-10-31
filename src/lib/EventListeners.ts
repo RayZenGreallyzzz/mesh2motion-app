@@ -5,7 +5,6 @@ import { TransformSpace } from './enums/TransformSpace'
 import { Utility } from './Utilities'
 import { ModelCleanupUtility } from './processes/load-model/ModelCleanupUtility'
 import { ModelAnalysisReport } from './processes/load-model/ModelAnalysisReport'
-import { find_meshy_marker_bone } from './processes/edit-skeleton/MeshyMarkerGuide.ts'
 import { ExportNotice } from './components/ExportNotice.ts'
 import { ExportCancelledError, ExportFileSaver } from './processes/export-to-file/ExportFileSaver.ts'
 import { ModalDialog } from './ModalDialog.ts'
@@ -68,6 +67,11 @@ export class EventListeners {
     document.getElementById('manual-weight-reset')?.addEventListener('click', () => {
       this.bootstrap.reset_manual_weight_overrides()
     })
+    for (const action of ['undo','redo'] as const) document.getElementById('manual-weight-'+action)?.addEventListener('click',()=>this.bootstrap.change_manual_weight_history(action))
+    document.getElementById('manual-weight-focus')?.addEventListener('click',()=>this.bootstrap.set_manual_weight_focus(true))
+    document.getElementById('manual-weight-focus-back')?.addEventListener('click',()=>this.bootstrap.set_manual_weight_focus(false))
+    document.getElementById('manual-weight-focus-mode')?.addEventListener('click',()=>this.bootstrap.toggle_manual_weight_focus_mode())
+    for(const action of ['undo','redo'] as const)document.getElementById('manual-weight-focus-'+action)?.addEventListener('click',()=>this.bootstrap.change_manual_weight_history(action))
     document.getElementById('clothing-weight-guard')?.addEventListener('change', () => {
       this.bootstrap.sync_clothing_weight_guard()
     })
@@ -165,12 +169,15 @@ export class EventListeners {
 
     this.bootstrap.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
       if (this.bootstrap.is_manual_weight_editor_enabled()) {
-        this.active_canvas_pointer_id = event.pointerId
-        this.bootstrap.renderer.domElement.setPointerCapture(event.pointerId)
-        event.preventDefault()
-        this.bootstrap.begin_manual_weight_stroke(event)
+        event.preventDefault(); event.stopImmediatePropagation()
+        if (event.button !== 0 || !event.isPrimary || this.active_canvas_pointer_id !== null) return
+        if (this.bootstrap.begin_manual_weight_stroke(event)) {
+          this.active_canvas_pointer_id = event.pointerId
+          this.bootstrap.renderer.domElement.setPointerCapture(event.pointerId)
+        }
         return
       }
+      if (this.active_canvas_pointer_id !== null && event.pointerId !== this.active_canvas_pointer_id) return
 
       const use_mesh_drag_mode =
         this.bootstrap.process_step === ProcessStep.EditSkeleton &&
@@ -193,14 +200,14 @@ export class EventListeners {
         this.bootstrap.ui.show_selected_bone_overlay(selected_bone.name)
         this.bootstrap.renderer.domElement.style.cursor = 'grabbing'
       }
-    }, false)
+    }, true)
 
     document.addEventListener('pointerup', (event: PointerEvent) => {
       if (this.active_canvas_pointer_id !== null && event.pointerId !== this.active_canvas_pointer_id) {
         return
       }
 
-      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke()
+      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke(event)
       if (!finished_weight_stroke) this.bootstrap.handle_mesh_drag_mode_mouse_up()
 
       if (this.active_canvas_pointer_id !== null &&
@@ -218,7 +225,7 @@ export class EventListeners {
         return
       }
 
-      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke()
+      const finished_weight_stroke = this.bootstrap.end_manual_weight_stroke(undefined, true)
       if (!finished_weight_stroke) this.bootstrap.handle_mesh_drag_mode_mouse_up()
 
       if (this.active_canvas_pointer_id !== null &&
@@ -229,6 +236,16 @@ export class EventListeners {
       this.active_canvas_pointer_id = null
       this.bootstrap.ui.hide_selected_bone_overlay()
       this.bootstrap.renderer.domElement.style.cursor = ''
+    })
+
+    this.bootstrap.renderer.domElement.addEventListener('lostpointercapture', (event: PointerEvent) => {
+      if (event.pointerId !== this.active_canvas_pointer_id) return
+      this.bootstrap.end_manual_weight_stroke(undefined, true)
+      this.active_canvas_pointer_id = null
+    })
+    window.addEventListener('blur', () => {
+      this.bootstrap.end_manual_weight_stroke(undefined, true)
+      this.active_canvas_pointer_id = null
     })
 
     // custom event listeners for the transform controls.
@@ -341,43 +358,6 @@ export class EventListeners {
       if (py !== 0) {
         ModelCleanupUtility.translate_model_vertices(mesh_data, 0, py, 0)
         mesh_data.position.setY(0)
-      }
-    })
-
-    document.querySelector<HTMLInputElement>('#meshy-joint-visuals')?.addEventListener('change', (event: Event) => {
-      const enabled = (event.target as HTMLInputElement).checked
-      this.bootstrap.set_meshy_joint_visuals_enabled(enabled)
-    })
-
-    // Guided anatomical-point selection, inspired by Meshy's marker workflow.
-    // Never updates Bone matrices/weight attributes on its own.
-    document.getElementById('meshy-marker-guide')?.addEventListener('click', (event: MouseEvent) => {
-      const button = event.target instanceof HTMLElement
-        ? event.target.closest<HTMLButtonElement>('button[data-meshy-marker]')
-        : null
-      if (button === null) return
-      const status = document.getElementById('meshy-marker-guide-status')
-      if (this.bootstrap.process_step !== ProcessStep.EditSkeleton) {
-        if (status !== null) status.textContent = 'Сначала открой редактирование скелета.'
-        return
-      }
-      const marker = button.dataset.meshyMarker ?? ''
-      const editor = this.bootstrap.edit_skeleton_step
-      const bone = find_meshy_marker_bone(editor.skeleton().bones, marker)
-      if (bone === null || !editor.is_bone_selectable(bone)) {
-        if (status !== null) status.textContent = 'Кость не найдена или скрыта зеркальным режимом. Проверь тип скелета и настройку зеркала.'
-        return
-      }
-      editor.set_currently_selected_bone(bone)
-      const toggle = document.querySelector<HTMLInputElement>('#meshy-joint-visuals')
-      if (toggle !== null) toggle.checked = true
-      this.bootstrap.set_meshy_joint_visuals_enabled(true)
-      this.bootstrap.skeleton_helper?.setHighlightedJoint(bone.name)
-      if (!editor.is_mesh_drag_placement_enabled() && this.bootstrap.is_rig_setup_locked()) {
-        this.bootstrap.transform_controls.attach(bone)
-      }
-      if (status !== null) {
-        status.textContent = 'Выбрана кость ' + bone.name + '. Найди жёлтый шарнир на модели и поправь его положение вручную.'
       }
     })
 

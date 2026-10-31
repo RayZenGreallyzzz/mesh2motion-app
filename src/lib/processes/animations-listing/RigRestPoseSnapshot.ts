@@ -20,6 +20,12 @@ interface SkeletonRestPose {
  * Manual and AutoRig now share this same saved local-pose reset.
  */
 export class RigRestPoseSnapshot {
+  private static readonly local_poses = new WeakMap<Object3D, LocalPose>()
+  public static restore_copy_pose (original: Object3D, copy: Object3D): void {
+    const pose = this.local_poses.get(original)
+    if (!pose) return
+    copy.position.copy(pose.position); copy.quaternion.copy(pose.quaternion); copy.scale.copy(pose.scale); copy.updateMatrix()
+  }
   private readonly snapshots = new WeakMap<Skeleton, SkeletonRestPose>()
 
   public remember (skeleton: Skeleton): void {
@@ -31,6 +37,7 @@ export class RigRestPoseSnapshot {
           quaternion: obj.quaternion.clone(),
           scale: obj.scale.clone()
         })
+        RigRestPoseSnapshot.local_poses.set(obj, localByObject.get(obj)!)
       }
     }
 

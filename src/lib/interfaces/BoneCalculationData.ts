@@ -1,15 +1,2 @@
-import { type Bone } from 'three'
-
-export default class BoneCalculationData
-{
-  public name: string = ''
-  public bone_object: Bone
-  public has_child_bone: boolean = false
-  assigned_vertices: any
-
-  constructor (bone: Bone) {
-    this.name = bone.name || ''
-    this.bone_object = bone
-    this.has_child_bone = bone.children.length > 0
-  }
-}
+import type { Bone } from 'three'
+export default interface BoneCalculationData { bone_object: Bone; has_child_bone: boolean }

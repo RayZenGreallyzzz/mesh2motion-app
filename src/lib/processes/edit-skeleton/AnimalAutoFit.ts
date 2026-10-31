@@ -1,3 +1,4 @@
+import { load_pack_rig } from '../../../library/PackRigSource.ts'
 import { WingedCreatureAutoFit } from './WingedCreatureAutoFit.ts'
 import { AnimalCrossSection } from './AnimalCrossSection.ts'
 import { Box3, Matrix4, Object3D, Quaternion, Skeleton, Vector3, type Bone, type Mesh } from 'three'
@@ -44,6 +45,8 @@ export class AnimalAutoFit {
   }
 
   public static async load_reference (type: SkeletonType): Promise<AnimalRigReference> {
+    const pack = RigConfig.by_key(type)?.pack_source
+    if (pack) return (await load_pack_rig(pack)).reference
     let promise = this.references.get(type)
     if (!promise) {
       promise = (async () => {

@@ -1,3 +1,6 @@
+import { builtin_models } from '../../../library/BuiltinModels.ts'
+import { RigLibrary } from '../../../my-rigs/RigLibrary.ts'
+import { open_glb_pack, show_pack_import } from '../../../library/GlbPack.ts'
 import { UI } from '../../UI.ts'
 import { ModelZipLoader } from './ModelZipLoader.ts'
 import { CustomFBXLoader, type FBXResults } from './CustomFBXLoader.ts'
@@ -8,7 +11,7 @@ import { DOMUtilities } from '../../DOMUtilities.ts'
 
 import { Scene } from 'three/src/scenes/Scene.js'
 import { Mesh } from 'three/src/objects/Mesh.js'
-import { BufferGeometry, Group, type Material, type Object3D } from 'three'
+import { Box3, Vector3, BufferGeometry, Group, type Material, type Object3D } from 'three'
 import { ModalDialog } from '../../ModalDialog.ts'
 import { Utility } from '../../Utilities.ts'
 import { ModelCleanupUtility } from './ModelCleanupUtility.ts'
@@ -19,6 +22,8 @@ import { PlatformUtils } from '../../PlatformUtils.ts'
 export class StepLoadModel extends EventTarget {
   private readonly draco_loader = new DRACOLoader()
   private readonly gltf_loader = new GLTFLoader()
+  private builtin_visual = false
+  private query_loaded = false
   private pending_glb_object_url: string | null = null
   private readonly custom_fbx_loader: CustomFBXLoader = new CustomFBXLoader()
   private readonly ui: UI = UI.getInstance()
@@ -118,6 +123,14 @@ export class StepLoadModel extends EventTarget {
       this.add_event_listeners()
       this._added_event_listeners = true
     }
+    if (!this.query_loaded) {
+      this.query_loaded = true
+      const query = new URLSearchParams(location.search), model = builtin_models.find(item => item.id === query.get('builtin'))
+      if (model) { this.builtin_visual = true; this.source_file_name = model.title; this.load_model_file(model.path, 'glb') }
+      else if (query.get('library')) void new RigLibrary().read(query.get('library')!).then(bytes => {
+        this.pending_glb_object_url = URL.createObjectURL(new Blob([bytes])); this.load_model_file(this.pending_glb_object_url, 'glb')
+      }).catch(error => this.show_glb_load_error(error))
+    }
   }
 
   public add_event_listeners (): void {
@@ -173,7 +186,10 @@ export class StepLoadModel extends EventTarget {
         }
 
         const reader = new FileReader()
-        reader.readAsDataURL(file)
+        if (file_extension === 'zip') {
+          if (file.size > 128 * 1048576) { new ModalDialog('ZIP слишком большой', 'Максимальный размер 128 МБ.').show(); return }
+          reader.readAsArrayBuffer(file)
+        } else reader.readAsDataURL(file)
         reader.onload = () => {
           this.load_model_file(reader.result, file_extension)
         }
@@ -199,6 +215,7 @@ export class StepLoadModel extends EventTarget {
           const file_name = model_selection.options[model_selection.selectedIndex].value
           const file_extension: string = Utility.get_file_extension(file_name)
           this.source_file_name = file_name.split('/').pop() ?? file_name
+          this.builtin_visual = builtin_models.some(item => item.path === file_name)
           this.load_model_file(file_name, file_extension)
         }
       })
@@ -336,6 +353,8 @@ export class StepLoadModel extends EventTarget {
     // internal async function that loads the ZIP from an ArrayBuffer
     const handle_zip = async (buffer: ArrayBuffer): Promise<void> => {
       try {
+        const pack = await open_glb_pack(buffer)
+        if (pack.entries.length) { show_pack_import(pack, this.source_file_name, () => { location.href = '/my-rigs/index.html?tab=library' }); return }
         const scene = await zip_loader.loadModelFromZip(buffer)
         console.log('Model loaded from ZIP:', scene)
         this.process_loaded_scene(scene)
@@ -347,7 +366,8 @@ export class StepLoadModel extends EventTarget {
     }
 
     // load in the zip and send the array buffer data to the loader
-    if (typeof model_file_path === 'string' && model_file_path.startsWith('data:')) {
+    if (model_file_path instanceof ArrayBuffer) { void handle_zip(model_file_path) }
+    else if (typeof model_file_path === 'string' && model_file_path.startsWith('data:')) {
       fetch(model_file_path)
         .then(async res => await res.arrayBuffer()) // convert to ArrayBuffer for processing
         .then(buffer => handle_zip(buffer).catch((err) => {
@@ -435,6 +455,16 @@ export class StepLoadModel extends EventTarget {
     // Some objects come in very large, which makes it harder to work with
     // scale everything down to a max height. mutate the clean scene object
     ModelCleanupUtility.scale_model_on_import_if_extreme(clean_scene_with_only_models)
+    if (this.builtin_visual) {
+      const box = new Box3().setFromObject(clean_scene_with_only_models), center = box.getCenter(new Vector3()), height = box.max.y - box.min.y
+      if (Number.isFinite(height) && height > 1e-8) clean_scene_with_only_models.traverse(object => {
+        const mesh = object as Mesh
+        if (!mesh.isMesh) return
+        mesh.geometry.translate(-center.x, -box.min.y, -center.z); mesh.geometry.scale(2 / height, 2 / height, 2 / height)
+        mesh.geometry.computeBoundingBox(); mesh.geometry.computeBoundingSphere()
+      })
+      this.builtin_visual = false
+    }
 
     // preserved skinned meshes shouldn't be breaking apart mesh data
     // breaking apart skinned meshes converts it to a regular mesh which we don't want.

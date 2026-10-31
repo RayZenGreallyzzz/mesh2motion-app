@@ -1,3 +1,5 @@
+import { ManualWeightEdits, setSelectedWeight, selectedWeight, type VertexWeights, type WeightEdit, type ChangedVertices } from '../../weight-paint/ManualWeightEdits.ts'
+import { ChestWeightGuard, default_chest_guard, type ChestGuardOptions, type ChestGuardStats } from '../../solvers/ChestWeightGuard.ts'
 import { CharacterWeightField } from '../../solvers/CharacterWeightField.ts'
 import { UI } from '../../UI.ts'
 import SkinningAlgorithm from '../../solvers/SkinningAlgorithm.ts'
@@ -7,7 +9,7 @@ import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
 
 import { Generators } from '../../Generators.ts'
 
-import { Bone, type BufferGeometry, type Material, type Object3D, type Skeleton, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute, Vector3 } from 'three'
+import { Bone, type BufferGeometry, type Material, type Object3D, type Skeleton, Mesh, SkinnedMesh, Group, Uint16BufferAttribute, Float32BufferAttribute, Vector3 } from 'three'
 import { SkeletonType } from '../../enums/SkeletonType.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
@@ -20,6 +22,14 @@ export class StepWeightSkin extends EventTarget {
   private skinning_bone_names: string[] = []
   private readonly weight_field = new CharacterWeightField()
   private joint_volume_enabled = true
+  private chest_guard = default_chest_guard()
+  private chest_preview = false
+  private chest_stats?: ChestGuardStats
+  public set_chest_guard(options: ChestGuardOptions, preview: boolean): void { this.chest_guard = { ...options }; this.chest_preview = preview }
+  public hide_chest_guard_preview(): void { this.chest_preview = false }
+  public get_chest_guard_stats(): ChestGuardStats | undefined { return this.chest_stats }
+  public is_chest_guard_preview(): boolean { return this.chest_guard.enabled && this.chest_preview && (this.chest_stats?.available ?? false) }
+
   private skinned_meshes: SkinnedMesh[] = []
 
   // stores the geometry data for meshes we will skin
@@ -29,10 +39,7 @@ export class StepWeightSkin extends EventTarget {
   // weight painted mesh actually has multiple meshes that will go in a group
   private readonly weight_painted_mesh_preview: Group = new Group()
 
-  // Manual weight paint is stored as additive deltas on top of the automatic
-  // solver. Geometry order and vertex order stay stable while editing a model,
-  // so these survive preview rebuilds and are applied again at Bind.
-  private readonly manual_weight_deltas = new Map<number, Map<number, Map<number, number>>>()
+  private readonly manual_edits = new ManualWeightEdits()
   private manual_weight_preview_bone_index: number | null = null
   private clothing_weight_guard_enabled: boolean = false
   private rigid_skin_test_enabled: boolean = false
@@ -127,7 +134,9 @@ export class StepWeightSkin extends EventTarget {
     this.skinning_armature.children[0].traverse((object) => {
       if (object instanceof Bone) solverBones.push(object)
     })
-    this.skinning_bone_names = solverBones.map((bone) => bone.name)
+    const names = solverBones.map((bone) => bone.name)
+    if (this.skinning_bone_names.length && names.join('\0') !== this.skinning_bone_names.join('\0')) this.manual_edits.clear()
+    this.skinning_bone_names = names
 
     this.bone_skinning_formula = new SkinningAlgorithm(this.skinning_armature.children[0], skeleton_type)
   }
@@ -371,80 +380,62 @@ export class StepWeightSkin extends EventTarget {
     return { boneName, influenced, total, average: influenced === 0 ? 0 : weightSum / influenced, max }
   }
 
-  public clear_manual_weight_overrides (): void {
-    this.manual_weight_deltas.clear()
+  public clear_manual_weight_overrides (): void { this.manual_edits.clear() }
+  public manual_weight_history (): { undo: boolean, redo: boolean } { return { undo: this.manual_edits.canUndo, redo: this.manual_edits.canRedo } }
+  public read_vertex_weights(mesh: number, vertex: number): VertexWeights | undefined {
+    const g = this.all_mesh_geometry[mesh], ii = g?.getAttribute('skinIndex'), ww = g?.getAttribute('skinWeight')
+    if (!ii || !ww || vertex < 0 || vertex >= ii.count) return undefined
+    return { indices: [ii.getX(vertex),ii.getY(vertex),ii.getZ(vertex),ii.getW(vertex)], weights: [ww.getX(vertex),ww.getY(vertex),ww.getZ(vertex),ww.getW(vertex)] }
   }
-
-  public add_manual_weight_adjustment (
-    mesh_index: number,
-    vertex_indices: number[],
-    bone_index: number,
-    delta: number
-  ): void {
-    if (!Number.isInteger(mesh_index) || !Number.isInteger(bone_index) || !Number.isFinite(delta) || delta === 0) return
-
-    let mesh_map = this.manual_weight_deltas.get(mesh_index)
-    if (mesh_map === undefined) {
-      mesh_map = new Map<number, Map<number, number>>()
-      this.manual_weight_deltas.set(mesh_index, mesh_map)
+  public paint_manual_weights(stroke: Map<number, Map<number, { amount: number, target?: number }>>, bone: number, strength: number, mode: 'add' | 'remove' | 'smooth'): number {
+    if (!Number.isInteger(bone) || !this.binding_skeleton?.bones[bone] || !Number.isFinite(strength)) return 0
+    const parent = this.binding_skeleton.bones[bone].parent
+    const parentIndex = this.binding_skeleton.bones.findIndex(b => b === parent)
+    const fallback = parentIndex >= 0 ? parentIndex : bone
+    const edits: WeightEdit[] = []
+    for (const [mesh, vertices] of stroke) for (const [vertex, sample] of vertices) {
+      const base = this.read_vertex_weights(mesh,vertex)
+      if (!base || !Number.isFinite(sample.amount)) continue
+      const old = selectedWeight(base,bone), amount = Math.max(0,Math.min(1,strength*sample.amount))
+      const target = mode === 'smooth' ? old + ((sample.target ?? old) - old)*amount : old + amount*(mode === 'remove'?-1:1)
+      if (!Number.isFinite(target)) continue
+      edits.push({mesh,vertex,base,next:setSelectedWeight(base,bone,target,fallback)})
     }
-
-    for (const vertex_index of vertex_indices) {
-      if (!Number.isInteger(vertex_index) || vertex_index < 0) continue
-      let vertex_map = mesh_map.get(vertex_index)
-      if (vertex_map === undefined) {
-        vertex_map = new Map<number, number>()
-        mesh_map.set(vertex_index, vertex_map)
-      }
-
-      const next_delta = Math.max(-1, Math.min(1, (vertex_map.get(bone_index) ?? 0) + delta))
-      if (Math.abs(next_delta) < 0.00001) vertex_map.delete(bone_index)
-      else vertex_map.set(bone_index, next_delta)
-
-      if (vertex_map.size === 0) mesh_map.delete(vertex_index)
-    }
-
-    if (mesh_map.size === 0) this.manual_weight_deltas.delete(mesh_index)
+    return this.update_manual_attributes(this.manual_edits.commit(edits))
   }
-
-  private apply_manual_weight_adjustments (mesh_index: number, skin_indices: number[], skin_weights: number[]): void {
-    const mesh_map = this.manual_weight_deltas.get(mesh_index)
-    if (mesh_map === undefined) return
-
-    for (const [vertex_index, bone_deltas] of mesh_map) {
-      const offset = vertex_index * 4
-      if (offset + 3 >= skin_indices.length || offset + 3 >= skin_weights.length) continue
-
-      const fallback_bone = skin_indices[offset]
-      const weights = new Map<number, number>()
-      for (let slot = 0; slot < 4; slot++) {
-        const weight = skin_weights[offset + slot] ?? 0
-        if (weight <= 0) continue
-        const bone = skin_indices[offset + slot]
-        weights.set(bone, (weights.get(bone) ?? 0) + weight)
-      }
-
-      for (const [bone_index, delta] of bone_deltas) {
-        const next = Math.max(0, Math.min(1, (weights.get(bone_index) ?? 0) + delta))
-        if (next <= 0.00001) weights.delete(bone_index)
-        else weights.set(bone_index, next)
-      }
-
-      let entries = [...weights.entries()]
-        .filter(([, weight]) => weight > 0.00001)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-
-      if (entries.length === 0) entries = [[fallback_bone, 1]]
-      const total = entries.reduce((sum, [, weight]) => sum + weight, 0) || 1
-
-      for (let slot = 0; slot < 4; slot++) {
-        const entry = entries[slot]
-        skin_indices[offset + slot] = entry?.[0] ?? fallback_bone
-        skin_weights[offset + slot] = entry === undefined ? 0 : entry[1] / total
-      }
+  public add_manual_weight_adjustment(mesh: number, vertices: number[], bone: number, delta: number): void {
+    if(!Number.isFinite(delta) || delta===0)return
+    this.paint_manual_weights(new Map([[mesh,new Map(vertices.map(v=>[v,{amount:1}]))]]),bone,Math.abs(delta),delta<0?'remove':'add')
+  }
+  public undo_manual_weights(): number { return this.update_manual_attributes(this.manual_edits.undo()) }
+  public redo_manual_weights(): number { return this.update_manual_attributes(this.manual_edits.redo()) }
+  public reset_manual_weights(): number { return this.update_manual_attributes(this.manual_edits.reset()) }
+  private update_manual_attributes(changed: ChangedVertices): number {
+    let count = 0
+    for (const [mesh,vertices] of changed) {
+      const g=this.all_mesh_geometry[mesh],ii=g?.getAttribute('skinIndex'),ww=g?.getAttribute('skinWeight')
+      if(!ii || !ww)continue
+      for(const vertex of vertices){const v=this.manual_edits.current(mesh,vertex);if(!v)continue;ii.setXYZW(vertex,...v.indices as [number,number,number,number]);ww.setXYZW(vertex,...v.weights as [number,number,number,number]);count++}
+      ii.needsUpdate=true;ww.needsUpdate=true
+    }
+    this.refresh_manual_weight_colors(changed)
+    return count
+  }
+  public refresh_manual_weight_colors(changed?: ChangedVertices): void {
+    const bone=this.manual_weight_preview_bone_index
+    if(bone===null)return
+    for(const object of this.weight_painted_mesh_preview.children){
+      if(!object.userData.manualWeightSurface){object.visible=false;continue}
+      const mesh=object as Mesh,index=Number(object.userData.weightMeshIndex),color=mesh.geometry.getAttribute('color'),g=this.all_mesh_geometry[index],ii=g?.getAttribute('skinIndex'),ww=g?.getAttribute('skinWeight')
+      if(!color||!ii||!ww)continue
+      const vertices=changed?.get(index)
+      if(changed&&!vertices)continue
+      const paint=(i:number)=>{let w=0;for(let k=0;k<4;k++)if(ii.array[i*4+k]===bone)w+=ww.array[i*4+k];const c=Generators.weight_heat_color(w);color.setXYZ(i,c[0],c[1],c[2])}
+      if(vertices)vertices.forEach(paint);else for(let i=0;i<color.count;i++)paint(i)
+      color.needsUpdate=true
     }
   }
+  private apply_manual_weight_adjustments(mesh: number, indices: number[], weights: number[]): void { this.manual_edits.apply(mesh,indices,weights) }
 
   private bone_weight_family (bone_index: number): string {
     const raw = this.binding_skeleton?.bones[bone_index]?.name ?? ''
@@ -568,16 +559,19 @@ export class StepWeightSkin extends EventTarget {
     if (this.bone_skinning_formula === undefined) return
 
     const shared = this.weight_field.calculate(this.all_mesh_geometry, this.bone_skinning_formula)
+    const chest = this.chest_guard.enabled && this.binding_skeleton ? new ChestWeightGuard(this.binding_skeleton.bones, this.all_mesh_geometry, this.chest_guard) : undefined
+    this.chest_stats = chest?.stats
     // Split the shared field back into the original meshes without changing indices.
     this.all_mesh_geometry.forEach((geometry_data: BufferGeometry, idx: number) => {
       const [final_skin_indices, final_skin_weights] = shared[idx]
       this.apply_clothing_component_guard(geometry_data, final_skin_indices, final_skin_weights)
+      const chest_mask = chest?.apply(geometry_data, final_skin_indices, final_skin_weights, this.chest_preview)
       // Manual paint stays available for normal builds, but v5.5 deliberately
       // collapses the final result to one bone per vertex AFTER every adjustment.
-      this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)
       if (this.joint_volume_enabled && !this.rigid_skin_test_enabled && this.binding_skeleton !== undefined) {
         JointVolumeSupport.applyWeights(geometry_data, this.binding_skeleton, final_skin_indices, final_skin_weights)
       }
+      this.apply_manual_weight_adjustments(idx, final_skin_indices, final_skin_weights)
       this.apply_rigid_skin_test(final_skin_indices, final_skin_weights)
 
       geometry_data.setAttribute('skinIndex', new Uint16BufferAttribute(final_skin_indices, 4))
@@ -592,15 +586,19 @@ export class StepWeightSkin extends EventTarget {
       // re-generate the weight painted mesh display if needed
       if (regenerate_weight_painted_mesh) {
         const weight_painted_mesh = Generators.create_weight_painted_mesh(
-          final_skin_indices, geometry_data, final_skin_weights, this.manual_weight_preview_bone_index
+          final_skin_indices, geometry_data, final_skin_weights, this.manual_weight_preview_bone_index, chest_mask
         )
         weight_painted_mesh.name = `Weight Painted Mesh ${idx}`
         weight_painted_mesh.userData.weightMeshIndex = idx
         weight_painted_mesh.userData.manualWeightSurface = true
 
-        const wireframe_mesh = Generators.create_wireframe_mesh_from_geometry(geometry_data)
-        wireframe_mesh.userData.manualWeightSurface = false
-        this.weight_painted_mesh_preview?.add(weight_painted_mesh, wireframe_mesh)
+        this.weight_painted_mesh_preview.add(weight_painted_mesh)
+        // Dense triangle edges obscure the anatomical mask on high-poly models.
+        if (!chest_mask) {
+          const wireframe_mesh = Generators.create_wireframe_mesh_from_geometry(geometry_data)
+          wireframe_mesh.userData.manualWeightSurface = false
+          this.weight_painted_mesh_preview.add(wireframe_mesh)
+        }
       }
     })
 

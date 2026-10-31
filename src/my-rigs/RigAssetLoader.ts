@@ -1,3 +1,4 @@
+import { write_clips_glb } from './GlbClipWriter.ts'
 import { LoadingManager, Scene, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
@@ -32,6 +33,8 @@ export async function load_rig_asset (bytes: ArrayBuffer, name: string): Promise
 
 // Export a private hierarchy: an active animation must never become the bind pose.
 export async function export_rig_asset (asset: RigAsset, clip_indices?: number[]): Promise<ArrayBuffer> {
+  const preserved = write_clips_glb(asset, clip_indices ?? asset.clips.map((_, i) => i))
+  if (preserved) return preserved
   const copy = clone(asset.scene)
   const objects = new Map<Object3D, Object3D>(), uuids = new Map<string, string>()
   const pair = (source: Object3D, target: Object3D): void => {

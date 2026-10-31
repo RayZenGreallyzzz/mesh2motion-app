@@ -1,3 +1,6 @@
+import { load_pack_rig } from '../../../library/PackRigSource.ts'
+import { RigLibrary } from '../../../my-rigs/RigLibrary.ts'
+import { ModalDialog } from '../../ModalDialog.ts'
 import { UI } from '../../UI.ts'
 import { Object3D, type Scene, type Object3DEventMap } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -14,6 +17,8 @@ import { effective_hand_skeleton_type, is_humanoid_skeleton_type } from '../../H
 export class StepLoadSkeleton extends EventTarget {
   private readonly loader: GLTFLoader = new GLTFLoader()
   private readonly ui: UI = UI.getInstance()
+  private preview_revision = 0
+  private library_initialized = false
   private loaded_armature: Object3D = new Object3D()
 
   private _added_event_listeners: boolean = false
@@ -67,6 +72,20 @@ export class StepLoadSkeleton extends EventTarget {
       this._added_event_listeners = true
     }
 
+    if (!this.library_initialized) {
+      this.library_initialized = true
+      void new RigLibrary().list().then(entries => {
+        const select = this.ui.dom_skeleton_drop_type
+        if (!select) return
+        const previous = select.value
+        for (const entry of entries) if (entry.skeleton_count > 0) RigConfig.register_pack(entry.id, entry.title)
+        DOMUtilities.populate_skeleton_select(select)
+        const requested = new URLSearchParams(location.search).get('rig')
+        select.value = requested && RigConfig.by_key(requested) ? requested : previous
+        if (select.value && select.value !== 'select-skeleton') select.dispatchEvent(new Event('change'))
+      }).catch(console.error)
+    }
+
     // when we come back to this step, there is a good chance we already selected a skeleton
     // so just use that and load the preview right when we enter this step
     if (!this.has_select_skeleton_ui_option()) {
@@ -78,6 +97,7 @@ export class StepLoadSkeleton extends EventTarget {
 
     // Initialize hand skeleton hand options visibility
     this.toggle_ui_hand_skeleton_options()
+    this.update_body_profile_tabs()
 
     // add origin markers for debugging model loading issues
     add_origin_markers(this._main_scene)
@@ -87,7 +107,7 @@ export class StepLoadSkeleton extends EventTarget {
     if (this.has_select_skeleton_ui_option()) {
       this.allow_proceeding_to_next_step(false)
     } else {
-      this.allow_proceeding_to_next_step(true)
+      this.allow_proceeding_to_next_step(false)
     }
   }
 
@@ -127,12 +147,21 @@ export class StepLoadSkeleton extends EventTarget {
       DOMUtilities.populate_skeleton_select(this.ui.dom_skeleton_drop_type)
     }
 
+    document.querySelectorAll<HTMLButtonElement>('[data-body-profile]').forEach(button => {
+      button.addEventListener('click', () => {
+        const select = this.ui.dom_skeleton_drop_type
+        if (!select) return
+        select.value = button.dataset.bodyProfile ?? 'human'
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+    })
+
     // Add event listener for skeleton type changes to show/hide hand options
     if (this.ui.dom_skeleton_drop_type !== null) {
       this.ui.dom_skeleton_drop_type.addEventListener('change', () => {
-        // hand options only apply to the stock Human preset. Mobile Female uses
-        // SingleBone automatically so there is nothing to configure in the UI.
+        // Human and Woman expose the same explicit finger selection.
         this.toggle_ui_hand_skeleton_options()
+        this.update_body_profile_tabs()
 
         // remove the "select a skeleton" option if we picked something else
         if (this.has_select_skeleton_ui_option()) {
@@ -146,12 +175,7 @@ export class StepLoadSkeleton extends EventTarget {
         // load the preview skeleton
         // need to get the file name for the correct skeleton
         // we pass the skeleton scale in the case where we set a skeleton, change scale, then change the skeleton
-        this.refresh_preview_skeleton().then(() => {
-          // enable the ability to progress to next step
-          this.allow_proceeding_to_next_step(true)
-        }).catch((err) => {
-          console.error('error loading preview skeleton: ', err)
-        })
+        void this.refresh_preview_skeleton().catch(console.error)
       })
     }
 
@@ -209,11 +233,31 @@ export class StepLoadSkeleton extends EventTarget {
   // the preview here is display only. The skeleton cannot be edited until the
   // edit skeleton step, so the joint points are turned off for every rebuild
   private async refresh_preview_skeleton (): Promise<Object3D<Object3DEventMap>> {
-    return await add_preview_skeleton(this._main_scene, this.skeleton_file_path(),
-      this.hand_skeleton_type(), this.skeleton_scale(), false)
+    const revision = ++this.preview_revision
+    this.allow_proceeding_to_next_step(false)
+    try {
+      const result = await add_preview_skeleton(this._main_scene, this.skeleton_file_path(), this.hand_skeleton_type(), this.skeleton_scale(), false)
+      if (revision === this.preview_revision) this.allow_proceeding_to_next_step(true)
+      return result
+    } catch (error) {
+      if (revision === this.preview_revision) new ModalDialog('Скелет не загружен', String(error).replace(/[<>&]/g, ' ')).show()
+      throw error
+    }
   }
 
   public load_skeleton_file (file_path: string): void {
+    const type = this.skeleton_file_path(), revision = this.preview_revision
+    const pack = RigConfig.by_key(type)?.pack_source
+    if (pack) {
+      this.allow_proceeding_to_next_step(false)
+      void load_pack_rig(pack).then(source => {
+        if (revision !== this.preview_revision || type !== this.skeleton_file_path()) return
+        this.loaded_armature = source.armature.clone()
+        this.loaded_armature.scale.setScalar(this.skeleton_scale())
+        this.dispatchEvent(new CustomEvent('skeletonLoaded', { detail: this.loaded_armature }))
+      }).catch(error => new ModalDialog('Скелет не загружен', String(error).replace(/[<>&]/g, ' ')).show())
+      return
+    }
     // load skeleton from GLB file
     this.loader.load(file_path, (gltf: GLTFResult) => {
       // traverse scene and find first bone object
@@ -304,10 +348,22 @@ export class StepLoadSkeleton extends EventTarget {
 
     // Regular Human keeps the choice. Mobile Female intentionally forces the
     // single-bone mobile hand setup and hides this control.
-    if (this.skeleton_file_path() === SkeletonType.Human) {
+    if ([SkeletonType.Human, SkeletonType.Woman].includes(this.skeleton_file_path())) {
       this.ui.dom_hand_skeleton_options.style.display = 'flex'
     } else {
       this.ui.dom_hand_skeleton_options.style.display = 'none'
     }
   }
+  private update_body_profile_tabs (): void {
+    const type = this.skeleton_file_path()
+    document.querySelectorAll<HTMLButtonElement>('[data-body-profile]').forEach(button => {
+      const selected = button.dataset.bodyProfile === type
+      button.setAttribute('aria-pressed', String(selected))
+      button.style.outline = selected ? '2px solid #68b8ff' : ''
+      button.style.outlineOffset = '-2px'
+    })
+    const hint = document.getElementById('woman-profile-hint')
+    if (hint) hint.hidden = type !== SkeletonType.Woman
+  }
+
 }

@@ -5,6 +5,7 @@ import {
 } from 'three'
 
 import { Utility } from '../Utilities.js'
+import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 
 interface HeapEntry {
   node: number
@@ -181,7 +182,7 @@ export class SurfaceGeodesicWeightCalculator {
       bonePositions.push(bonePosition)
 
       const name = bone.name.toLowerCase()
-      if (name === 'root' || name.endsWith(':root') || Utility.is_leaf_bone(bone)) return
+      if (bone.userData.rigNonDeforming || name === 'root' || name.endsWith(':root') || Utility.is_leaf_bone(bone)) return
 
       const childBones = bone.children.filter(child => child.type === 'Bone' && this.bones.includes(child as Bone)) as Bone[]
       const segments: Array<[Vector3, Vector3]> = []
@@ -368,15 +369,12 @@ export class SurfaceGeodesicWeightCalculator {
         const relativeDistance = Math.max(0, distances[slot] - minDistance) +
           2 * Math.max(0, local_distances[slot] - local_min)
         const weight = Math.exp(-relativeDistance / sigma)
-        if (slot === 0 || weight >= 0.02) weighted.push({ bone: bones[slot], weight })
+        weighted.push({ bone: bones[slot], weight })
       }
 
-      weighted.sort((a, b) => b.weight - a.weight)
-      const top = weighted.slice(0, this.outputInfluenceCount)
-      const sum = top.reduce((value, influence) => value + influence.weight, 0)
-
-      resultBones[node] = top.map(influence => influence.bone)
-      resultWeights[node] = top.map(influence => influence.weight / Math.max(sum, 1e-8))
+      const top = continuous_skin_weights(weighted.map(v=>[v.bone,v.weight]), this.outputInfluenceCount)
+      resultBones[node] = top.map(([bone]) => bone)
+      resultWeights[node] = top.map(([,weight]) => weight)
     }
   }
 
@@ -602,9 +600,7 @@ export class SurfaceGeodesicWeightCalculator {
           }
         }
 
-        const sorted = [...accumulated.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, this.outputInfluenceCount)
+        const sorted = continuous_skin_weights([...accumulated.entries()], this.outputInfluenceCount)
         const sum = sorted.reduce((value, entry) => value + entry[1], 0)
 
         if (sum <= 1e-8) {

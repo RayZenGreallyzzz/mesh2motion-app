@@ -10,6 +10,8 @@ import { Utility } from '../Utilities.js'
 import { SkeletonType } from '../enums/SkeletonType.js'
 import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
 import { HeadWeightCorrector } from './HeadWeightCorrector.js'
+import { protect_humanoid_head } from './HumanoidHeadWeights.ts'
+import { protect_humanoid_torso } from './HumanoidTorsoWeights.ts'
 import { WeightNormalizer } from './WeightNormalizer.js'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 
@@ -32,13 +34,13 @@ export default class SkinningAlgorithm {
   public cache_key (): string {
     this.bones_master_data.forEach(bone => bone.updateWorldMatrix(true, false))
     return JSON.stringify([this.skeleton_type, this.use_head_weight_correction, this.preview_plane_height,
-      this.bones_master_data.map(bone => [bone.name, bone.matrixWorld.elements])])
+      this.bones_master_data.map(bone => [bone.name, bone.matrixWorld.elements, bone.userData.rigNonDeforming])])
   }
 
   public worker_config (): WeightConfig {
     return {
       type: this.skeleton_type!, head: this.use_head_weight_correction, height: this.preview_plane_height,
-      bones: this.bones_master_data.map(bone => ({ name: bone.name,
+      bones: this.bones_master_data.map(bone => ({ name: bone.name, non_deforming: bone.userData.rigNonDeforming === true,
         parent: this.bones_master_data.indexOf(bone.parent as Bone),
         position: bone.getWorldPosition(new Vector3()).toArray() }))
     }
@@ -78,9 +80,8 @@ export default class SkinningAlgorithm {
       const weight_normalizer = new WeightNormalizer(this.geometry)
       weight_normalizer.normalize_weights(skin_weights)
 
-      // Keep the optional head divider as a user-requested override. The old arm
-      // plane correction is deliberately not applied: surface propagation already
-      // prevents arm influences from teleporting across empty space into the torso.
+      // Keep the optional head divider as a user-requested override. An arm
+      // height plane cannot distinguish a descending arm from the adjacent waist.
       if (is_humanoid_skeleton_type(this.skeleton_type) && this.use_head_weight_correction) {
         const head_weight_corrector = new HeadWeightCorrector(
           this.geometry,
@@ -91,6 +92,10 @@ export default class SkinningAlgorithm {
         weight_normalizer.normalize_weights(skin_weights)
       }
 
+      if (is_humanoid_skeleton_type(this.skeleton_type)) {
+        protect_humanoid_torso(this.geometry, this.bones_master_data, skin_indices, skin_weights)
+        protect_humanoid_head(this.geometry, this.bones_master_data, skin_indices, skin_weights)
+      }
       return [skin_indices, skin_weights]
     }
 
