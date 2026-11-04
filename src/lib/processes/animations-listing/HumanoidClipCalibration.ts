@@ -26,7 +26,11 @@ export class HumanoidClipCalibration {
   ) {
     this.has_authored_rotations = [...source].some(([name, joint]) => {
       const fitted = target.get(name)
-      return fitted !== undefined && 1 - Math.abs(joint.quaternion.dot(fitted.quaternion)) > 1e-8
+      if (!fitted) return false
+      // GLB stores float32 quaternions, so even an exact copy may have a norm just below one.
+      const cosine = Math.abs(joint.quaternion.dot(fitted.quaternion)) /
+        Math.sqrt(joint.quaternion.lengthSq() * fitted.quaternion.lengthSq())
+      return cosine < 1 - 1e-8
     })
     if (this.has_authored_rotations) {
       const source_world = rest_world_rotations(source)
@@ -120,7 +124,7 @@ function rest_world_rotations (rest: ReadonlyMap<string, HumanoidRestJoint>): Ma
     const world = joint.parent_name && rest.has(joint.parent_name)
       ? visit(joint.parent_name).clone().multiply(joint.quaternion)
       : joint.quaternion.clone()
-    rotations.set(name, world)
+    rotations.set(name, world.normalize())
     return world
   }
   for (const name of rest.keys()) visit(name)

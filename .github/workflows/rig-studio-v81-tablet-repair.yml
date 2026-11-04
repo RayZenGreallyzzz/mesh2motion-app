@@ -73,6 +73,22 @@ jobs:
           path: Rig-Animation-Studio-v8.1-Test.apk
           if-no-files-found: error
           retention-days: 14
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build offline editor for browser test
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          npm run build
       - name: Verify offline tablet flow in Chromium
         run: |
           npm install --no-save --package-lock=false playwright
