@@ -16,7 +16,15 @@ describe('Humanoid fitting against real geometry', () => {
     const bones: Bone[] = []
     rig.traverse(b => { if (b instanceof Bone) bones.push(b) })
     const box = new Box3().setFromObject(clean), size = box.getSize(new Vector3())
-    fit_humanoid_rig(clean, new Skeleton(bones), null, () => {})
+    const skeleton = new Skeleton(bones)
+    fit_humanoid_rig(clean, skeleton, null, () => {})
+    const fitted = bones.map(b => b.position.clone())
+    for (let repeat = 0; repeat < 3; repeat++) {
+      fit_humanoid_rig(clean, skeleton, null, () => {
+        bones.forEach((b, i) => expect(b.position.distanceTo(fitted[i])).toBeLessThan(1e-6))
+      })
+      bones.forEach((b, i) => expect(b.position.distanceTo(fitted[i])).toBeLessThan(1e-6))
+    }
     const at = (name: string) => bones.find(b => b.name === name)!.getWorldPosition(new Vector3())
     for (const side of ['l', 'r']) {
       const shoulder = at('upperarm_' + side), elbow = at('lowerarm_' + side), wrist = at('hand_' + side)

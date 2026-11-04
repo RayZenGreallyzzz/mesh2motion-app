@@ -7,6 +7,8 @@ export class SurfaceWeightBrush {
   private readonly heads=new Map<number,number>()
   private readonly next:Int32Array
   private readonly components:Int32Array
+  private readonly coincident: Int32Array
+  private readonly seams = new Map<number, number[]>()
   private readonly cell:number
   private readonly origin:Vector3
   private readonly nx:number
@@ -18,11 +20,20 @@ export class SurfaceWeightBrush {
     this.origin=box.min.clone();this.nx=Math.ceil(size.x/this.cell)+1;this.ny=Math.ceil(size.y/this.cell)+1;this.nz=Math.ceil(size.z/this.cell)+1
     const p=geometry.getAttribute('position');this.next=new Int32Array(p.count);this.next.fill(-1)
     for(let i=0;i<p.count;i++){const x=Math.floor((p.getX(i)-this.origin.x)/this.cell),y=Math.floor((p.getY(i)-this.origin.y)/this.cell),z=Math.floor((p.getZ(i)-this.origin.z)/this.cell),key=this.key(x,y,z);this.next[i]=this.heads.get(key)??-1;this.heads.set(key,i)}
-    this.components=welded_surface_components(geometry).componentByVertex
+    this.coincident = new Int32Array(p.count)
+    this.components = welded_surface_components(geometry, this.coincident).componentByVertex
+    for (let i = 0; i < p.count; i++) {
+      const first = this.coincident[i]
+      if (first === i) continue
+      const seam = this.seams.get(first)
+      if (seam) seam.push(i)
+      else this.seams.set(first, [first, i])
+    }
   }
   private key(x:number,y:number,z:number){return (z*this.ny+y)*this.nx+x}
   /** Front facing normals + a shallow slab reject the far side and nearby
-   * disconnected clothes. This is surface selection, not X-ray painting. */
+   * disconnected clothes. A visible side of a UV seam updates its duplicates
+   * so both sides keep moving together when the bone is posed. */
   query(point:Vector3,radius:number,seed:number,view:Vector3,frontOnly=true,limit=Infinity):Map<number,number>{
     const out=new Map<number,number>(),p=this.geometry.getAttribute('position'),normal=this.geometry.getAttribute('normal'),r2=radius*radius,component=this.components[seed]
     const a=point.clone().subScalar(radius).sub(this.origin).divideScalar(this.cell).floor(),b=point.clone().addScalar(radius).sub(this.origin).divideScalar(this.cell).floor()
@@ -34,10 +45,15 @@ export class SurfaceWeightBrush {
         const dx=p.getX(i)-point.x,dy=p.getY(i)-point.y,dz=p.getZ(i)-point.z,d2=dx*dx+dy*dy+dz*dz
         if(d2>=r2)continue
         if(frontOnly&&(Math.abs(dx*view.x+dy*view.y+dz*view.z)>radius*.35 || normal&&normal.getX(i)*view.x+normal.getY(i)*view.y+normal.getZ(i)*view.z<=.05))continue
-        const t=1-Math.sqrt(d2)/radius;out.set(i,t*t*(3-2*t))
-        if(out.size>=limit)return out
+        const t = 1 - Math.sqrt(d2) / radius
+        const weight = t * t * (3 - 2 * t)
+        const seam = this.seams.get(this.coincident[i])
+        if (seam) {
+          for (const vertex of seam) out.set(vertex, Math.max(weight, out.get(vertex) ?? 0))
+        } else out.set(i, weight)
       }
     }
-    return out
+    // The smoothing neighborhood is bounded by distance, not grid order.
+    return out.size <= limit ? out : new Map([...out].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, limit))
   }
 }

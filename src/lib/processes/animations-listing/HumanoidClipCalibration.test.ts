@@ -17,6 +17,31 @@ const capture = (root: Group): Map<string, HumanoidRestJoint> => {
 const direction = (a: Bone, b: Bone): Vector3 => b.getWorldPosition(new Vector3()).sub(a.getWorldPosition(new Vector3())).normalize()
 
 describe('Humanoid motion after joint fitting', () => {
+  it('preserves authored bone roll, including children without keys', () => {
+    const source = new Group()
+    const upper = new Bone(), lower = new Bone(), hand = new Bone()
+    upper.name = 'upperarm_l'; lower.name = 'lowerarm_l'; hand.name = 'hand_l'
+    source.add(upper); upper.add(lower); lower.add(hand)
+    lower.position.x = 1; hand.position.x = 0.8
+    const target = source.clone()
+    const target_upper = target.getObjectByName(upper.name) as Bone
+    const target_lower = target.getObjectByName(lower.name) as Bone
+    const target_hand = target.getObjectByName(hand.name) as Bone
+    target_upper.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 3)
+    target_lower.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 6)
+    target_hand.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 5)
+    const roll = target_lower.quaternion.clone()
+    const bend = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), 1)
+    const expected_bend = target_upper.quaternion.clone().invert().multiply(bend)
+      .multiply(target_upper.quaternion).multiply(roll)
+    const clip = new AnimationClip('bend', 1, [new QuaternionKeyframeTrack('lowerarm_l.quaternion',
+      [0, 1], [0, 0, 0, 1, ...bend.toArray()])])
+    new HumanoidClipCalibration(capture(source), capture(target)).apply(clip, 1)
+    expect(clip.tracks.map(track => track.name)).toEqual(['lowerarm_l.quaternion'])
+    expect(new Quaternion().fromArray(clip.tracks[0].values).normalize().angleTo(roll)).toBeLessThan(1e-6)
+    expect(new Quaternion().fromArray(clip.tracks[0].values, 4).normalize().angleTo(expected_bend)).toBeLessThan(1e-6)
+  })
+
   it('keeps the source arm direction after changing T to A, including an unanimated hand', () => {
     const source = new Group()
     const upper = new Bone(), lower = new Bone(), hand = new Bone(), digit = new Bone()

@@ -16,13 +16,31 @@ export interface HumanoidRestJoint {
  */
 export class HumanoidClipCalibration {
   private readonly corrections = new Map<string, Quaternion>()
+  private readonly rest_rotations = new Map<string, { left: Quaternion, right: Quaternion }>()
+  private readonly has_authored_rotations: boolean
   private readonly motion_scale: number
 
   public constructor (
     private readonly source: ReadonlyMap<string, HumanoidRestJoint>,
     private readonly target: ReadonlyMap<string, HumanoidRestJoint>
   ) {
-    for (const name of target.keys()) {
+    this.has_authored_rotations = [...source].some(([name, joint]) => {
+      const fitted = target.get(name)
+      return fitted !== undefined && 1 - Math.abs(joint.quaternion.dot(fitted.quaternion)) > 1e-8
+    })
+    if (this.has_authored_rotations) {
+      const source_world = rest_world_rotations(source)
+      const target_world = rest_world_rotations(target)
+      for (const [name, fitted] of target) {
+        const original = source.get(name)
+        if (!original) continue
+        const left = (target_world.get(fitted.parent_name ?? '')?.clone() ?? new Quaternion()).invert()
+          .multiply(source_world.get(original.parent_name ?? '') ?? new Quaternion())
+        const right = source_world.get(name)!.clone().invert().multiply(target_world.get(name)!)
+        this.rest_rotations.set(name, { left, right })
+      }
+    }
+    for (const name of this.has_authored_rotations ? [] : target.keys()) {
       const children = [...source.entries()].filter(([child, rest]) => rest.parent_name === name && target.has(child))
       const preferred = children.find(([child]) => /^(spine_01|neck|middle_01_[lr])$/.test(child))
         ?? children.find(([child]) => !/clavicle|thumb|thigh/.test(child)) ?? children[0]
@@ -51,8 +69,9 @@ export class HumanoidClipCalibration {
       const name = match[1] ?? match[2], property = match[3]
       const source = this.source.get(name), target = this.target.get(name)
       if (!source || !target) continue
-      const left = this.parent_correction(name).invert()
-      const right = this.corrections.get(name) ?? new Quaternion()
+      const rest_rotation = this.rest_rotations.get(name)
+      const left = rest_rotation?.left ?? this.parent_correction(name).invert()
+      const right = rest_rotation?.right ?? this.corrections.get(name) ?? new Quaternion()
       const stride = property === 'quaternion' ? 4 : 3
       const cubic = track.values.length === track.times.length * stride * 3
       if (property === 'quaternion') animated.add(name)
@@ -71,6 +90,7 @@ export class HumanoidClipCalibration {
         }
       }
     }
+    if (this.has_authored_rotations) return
     // An unanimated child still needs its parent's basis change cancelled.
     // Otherwise fixing an upper arm rotates the wrist/fingers a second time.
     for (const [name, target] of this.target) {
@@ -88,4 +108,21 @@ export class HumanoidClipCalibration {
   private parent_correction (name: string): Quaternion {
     return this.corrections.get(this.source.get(name)?.parent_name ?? '')?.clone() ?? new Quaternion()
   }
+}
+
+// Transfer each animated change in world rest space while preserving the target's bone roll.
+function rest_world_rotations (rest: ReadonlyMap<string, HumanoidRestJoint>): Map<string, Quaternion> {
+  const rotations = new Map<string, Quaternion>()
+  const visit = (name: string): Quaternion => {
+    const cached = rotations.get(name)
+    if (cached) return cached
+    const joint = rest.get(name)!
+    const world = joint.parent_name && rest.has(joint.parent_name)
+      ? visit(joint.parent_name).clone().multiply(joint.quaternion)
+      : joint.quaternion.clone()
+    rotations.set(name, world)
+    return world
+  }
+  for (const name of rest.keys()) visit(name)
+  return rotations
 }

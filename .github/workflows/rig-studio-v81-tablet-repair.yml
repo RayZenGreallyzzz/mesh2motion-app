@@ -1,0 +1,75 @@
+name: Rig Studio v8.1 Tablet Repair APK
+
+on:
+  push:
+    branches: [fix/rig-studio-v81-tablet-repair]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check fitting, weight painting and humanoid motions
+        run: |
+          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts
+      - name: Build offline editor
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          npm run build
+          test -s dist/index.html
+          test -s dist/create.html
+          test -s dist/my-rigs/index.html
+          test -s dist/models/model-human.glb
+          test -s dist/rigs/rig-human.glb
+          test -s dist/animations/human-base-animations.glb
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Prepare Android test app alongside the installed studio
+        run: |
+          npm install --no-save --package-lock=false @capacitor/cli@8.5.3 @capacitor/android@8.5.3
+          npx cap add android
+          npx cap sync android
+          node scripts/apply-rig-studio-branding.mjs
+          node scripts/apply-rig-studio-file-export.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('android/app/build.gradle')
+          config = gradle.read_text()
+          app = 'applicationId "com.rayzen.riganimationstudio"'
+          assert config.count(app) == 1
+          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v81repairtest"'))
+          names = Path('android/app/src/main/res/values/strings.xml')
+          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1 Test'))
+          PY
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile and verify APK
+        working-directory: android
+        run: |
+          ./gradlew assembleDebug --no-daemon --max-workers=2
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v81repairtest'"
+          unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb
+          cp "$apk" ../Rig-Animation-Studio-v8.1-Test.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Animation-Studio-v8.1-Test-APK
+          path: Rig-Animation-Studio-v8.1-Test.apk
+          if-no-files-found: error
+          retention-days: 14

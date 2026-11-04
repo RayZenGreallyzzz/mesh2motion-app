@@ -33,6 +33,24 @@ describe('manual weights',()=>{
  })
 })
 describe('surface brush',()=>{
+ it('paints both copies of a seam and keeps the closest vertex when smoothing is capped', () => {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute([
+   -.15, 0, 0, 0, 0, 0, 0, .15, 0,
+   0, 0, 0, .15, 0, 0, 0, 0, .15
+  ], 3))
+  geometry.setAttribute('normal', new Float32BufferAttribute([
+   0, 0, 1, 0, 0, 1, 0, 0, 1,
+   0, 1, 0, 0, 1, 0, 0, 1, 0
+  ], 3))
+  const brush = new SurfaceWeightBrush(geometry)
+  const point = new Vector3(), view = new Vector3(0, 0, 1)
+  const stroke = brush.query(point, .2, 1, view)
+  expect(stroke.get(1)).toBe(1)
+  expect(stroke.get(3)).toBe(1)
+  expect(stroke.has(5)).toBe(false)
+  expect([...brush.query(point, .2, 1, view, true, 1)]).toEqual([[1, 1]])
+ })
  it('excludes disconnected nearby layers and the far side while retaining UV seam vertices',()=>{
   const g=new BoxGeometry(1,1,.1,8,8,1),brush=new SurfaceWeightBrush(g),p=g.getAttribute('position'),n=g.getAttribute('normal')
   const seed=Array.from({length:p.count},(_,i)=>i).find(i=>p.getZ(i)>.049 && n.getZ(i)>.5)!

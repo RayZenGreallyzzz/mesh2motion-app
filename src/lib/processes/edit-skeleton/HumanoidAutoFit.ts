@@ -6,7 +6,7 @@ import { refine_woman_rig } from './WomanBodyFit.ts'
 import { fit_humanoid_head } from './HumanoidHeadFit.ts'
 
 // Refits must use template proportions, not feed the prior fitted offsets back.
-const woman_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
+const fit_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
 
 export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human'): 'T-pose' | 'A-pose' | null {
     const bones = skeleton.bones
@@ -51,17 +51,16 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     const depth = maxZ - minZ
     if (!Number.isFinite(height) || height <= 0.0001 || width <= 0.0001) return null
 
-    if (profile === 'woman') {
-      // Capture undo before restoring offsets; preserve rotations/setup frame.
-      before_apply()
-      const template = woman_templates.get(skeleton)
-      if (template && template.bones.length === bones.length && template.bones.every((b,i)=>b===bones[i])) {
-        bones.forEach((bone,i)=>bone.position.copy(template.offsets[i]))
-      } else {
-        woman_templates.set(skeleton, { bones: bones.slice(), offsets: bones.map(b=>b.position.clone()) })
-      }
-      bones[0]?.updateWorldMatrix(true, true)
+    // Save the current editable state for Undo before restoring the template.
+    // Restore offsets only, keeping the user's rotations and setup frame.
+    before_apply()
+    const template = fit_templates.get(skeleton)
+    if (template && template.bones.length === bones.length && template.bones.every((bone, i) => bone === bones[i])) {
+      bones.forEach((bone, i) => bone.position.copy(template.offsets[i]))
+    } else {
+      fit_templates.set(skeleton, { bones: bones.slice(), offsets: bones.map(bone => bone.position.clone()) })
     }
+    bones[0]?.updateWorldMatrix(true, true)
     const centerX = (minX + maxX) * 0.5
     const centerZ = (minZ + maxZ) * 0.5
     const yAt = (ratio: number): number => minY + height * ratio
@@ -125,7 +124,6 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
     const boneHeight = Math.max(0.0001, boneMaxY - boneMinY)
     const uniformScale = height / boneHeight
-    if (profile !== 'woman') before_apply()
     bones.forEach((bone, index) => {
       if (index === 0) return
       bone.position.multiplyScalar(uniformScale)

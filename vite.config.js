@@ -1,10 +1,25 @@
-import {defineConfig} from 'vite';
-import {resolve} from 'node:path';
-import fs from 'node:fs';
+import { defineConfig } from 'vite'
+import { resolve } from 'node:path'
+
 export default defineConfig({
- root:'src',base:'./',publicDir:false,
- define:{'PROCESS_ENV.WORKERS_CI_COMMIT_SHA':JSON.stringify('rig80'),'PROCESS_ENV.WORKERS_CI_BRANCH':JSON.stringify('combined-regression')},
- plugins:[{name:'preserve-legacy-styles',closeBundle(){const p=resolve('built/create.html');if(fs.existsSync(p))fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace(/<!--LEGACY_STYLE:([^>]+)-->/g,'<link rel="stylesheet" href="$1">'))}}],
- build:{outDir:'../built',emptyOutDir:true,sourcemap:true,rollupOptions:{input:{my_rigs:resolve('src/my-rigs/index.html'),create:resolve('src/create.html')}}},
- server:{host:'127.0.0.1'}
-});
+  root: 'src',
+  base: './',
+  publicDir: resolve('static'),
+  define: {
+    'PROCESS_ENV.WORKERS_CI_COMMIT_SHA': JSON.stringify(process.env.GITHUB_SHA ?? 'local'),
+    'PROCESS_ENV.WORKERS_CI_BRANCH': JSON.stringify(process.env.GITHUB_REF_NAME ?? 'local')
+  },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    rollupOptions: {
+      input: {
+        index: resolve('src/index.html'),
+        my_rigs: resolve('src/my-rigs/index.html'),
+        create: resolve('src/create.html')
+      }
+    }
+  },
+  server: { host: '127.0.0.1' }
+})

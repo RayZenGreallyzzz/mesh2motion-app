@@ -9,7 +9,8 @@ import { type BufferGeometry, Vector3 } from 'three'
  * position-welding principle as SurfaceGeodesicWeightCalculator.
  */
 export function welded_surface_components (
-  geometry: BufferGeometry
+  geometry: BufferGeometry,
+  coincidentByVertex?: Int32Array
 ): { componentByVertex: Int32Array, componentSizes: Map<number, number> } {
   const positions = geometry.getAttribute('position')
   const vertexCount = positions?.count ?? 0
@@ -40,6 +41,7 @@ export function welded_surface_components (
       Math.round(positions.getY(vertex) * inverse) + ':' +
       Math.round(positions.getZ(vertex) * inverse)
     const other = firstAtPosition.get(key)
+    if (coincidentByVertex) coincidentByVertex[vertex] = other ?? vertex
     if (other !== undefined) union(vertex, other)
     else firstAtPosition.set(key, vertex)
   }
