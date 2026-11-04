@@ -1,1 +1,1 @@
-import {defineConfig} from 'vitest/config';export default defineConfig({test:{environment:'jsdom',include:['tests/**/*.test.ts'],testTimeout:30000}});
+import {defineConfig} from 'vitest/config';export default defineConfig({test:{environment:'jsdom',include:['tests/**/*.test.ts','src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts','src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts'],testTimeout:30000}});
