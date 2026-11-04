@@ -1,0 +1,95 @@
+name: Rig Studio v8.1 animal and monster checks
+on:
+  push:
+    branches: [qa/rig-studio-v81-animals]
+permissions:
+  contents: read
+jobs:
+  rig-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check template positions, repeated fitting and weight sums
+        run: |
+          mkdir -p checks
+          ln -s static baseline
+          npm test -- tests/animal-templates.test.ts tests/creature-retarget.test.ts
+          cat checks/v80-animal-templates.json
+      - name: Bind and sample motions on animals and monsters bundled in the test APK
+        if: success() || failure()
+        shell: bash
+        run: |
+          npm exec --yes --package=esbuild@0.28.1 -- esbuild scripts/check-rig-studio-animals.ts --bundle --platform=node --format=esm --packages=external --outfile=scripts/check-rig-studio-animals.mjs
+          mkdir -p artifacts/animal-results
+          failed=0
+          while read -r name file type; do
+            casefile=artifacts/animal-results/"$name".json
+            printf '[{"name":"%s","file":"static/%s","type":"%s"}]\n' "$name" "$file" "$type" > "$casefile"
+            echo "::group::$name"
+            if ! RIG_CHECK_OUTPUT="artifacts/animal-results/$name" node scripts/check-rig-studio-animals.mjs "$casefile"; then
+              echo "::error::Rig check failed for $name"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done <<'CASES'
+          fox models/model-fox.glb fox
+          dog models-variation/fox/dog.glb fox
+          cat models-variation/fox/cat.glb fox
+          horse models/model-horse.glb horse
+          bird models/model-bird.glb bird
+          eagle models-variation/bird/eagle.glb bird
+          snake models/model-snake.glb snake
+          spider models/model-spider.glb spider
+          shark models/model-shark.glb fish
+          whale models-variation/fish/whale.glb fish
+          dragon models/model-dragon.glb dragon
+          kaiju models/model-kaiju.glb kaiju
+          t-rex models-variation/kaiju/t-rex.glb kaiju
+          lizard models-variation/kaiju/lizard.glb kaiju
+          monster models-variation/human/monster.glb human-mobile-female
+          monster-3 models-variation/human/monster_3.glb human-mobile-female
+          monster-4 models-variation/human/monster_4.glb human-mobile-female
+          monster-5 models-variation/human/monster_5.glb human-mobile-female
+          CASES
+          exit "$failed"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rig-numerical-results
+          path: |
+            checks/v80-animal-templates.json
+            artifacts/animal-results/*/results.json
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [flow, creature]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false playwright
+      - run: npx playwright install --with-deps chromium
+      - name: Check offline auto-fit, weights, animation and GLB round trip
+        env:
+          TEST_CASE: ${{ matrix.check }}
+        run: |
+          mkdir -p static/draco
+          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
+          node "scripts/check-rig-studio-$TEST_CASE.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rig-browser-${{ matrix.check }}
+          path: artifacts/
