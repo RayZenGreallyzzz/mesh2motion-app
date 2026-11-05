@@ -17,6 +17,8 @@ export class AnimationSearch extends EventTarget {
   private readonly theme_manager: ThemeManager
   private readonly skeleton_type: SkeletonType
 
+  private readonly listeners: Array<() => void> = []
+  private preview_observer: IntersectionObserver | null = null
   private custom_event: CustomEvent | null = null
   private show_selected_only: boolean = false
 
@@ -36,6 +38,18 @@ export class AnimationSearch extends EventTarget {
     this.skeleton_type = skeleton_type
     this.setup_event_listeners()
     AnimationRequestDialog.enable_request_links()
+  }
+
+  private listen (target: EventTarget, type: string, callback: EventListener): void {
+    target.addEventListener(type, callback)
+    this.listeners.push(() => target.removeEventListener(type, callback))
+  }
+
+  public dispose (): void {
+    this.listeners.forEach(remove => remove())
+    this.listeners.length = 0
+    this.preview_observer?.disconnect()
+    this.preview_observer = null
   }
 
   public initialize_animations (animations: TransformedAnimationClipPair[]): void {
@@ -77,7 +91,7 @@ export class AnimationSearch extends EventTarget {
 
   private setup_theme_change_listener (): void {
     // rebuild animation previews so we have the correct theme
-    this.theme_manager.addEventListener('theme-changed', (new_theme) => {
+    this.listen(this.theme_manager, 'theme-changed', (new_theme) => {
       this.render_filtered_animations(this.filter_input?.value ?? '')
     })
   }
@@ -88,7 +102,7 @@ export class AnimationSearch extends EventTarget {
     }
 
     // Add the filter event listener
-    this.filter_input.addEventListener('input', (event) => {
+    this.listen(this.filter_input, 'input', (event) => {
       const filter_text = (event.target as HTMLInputElement).value.toLowerCase()
       this.render_filtered_animations(filter_text)
 
@@ -104,7 +118,7 @@ export class AnimationSearch extends EventTarget {
     }
 
     // Add event listener to the container for checkbox changes (event delegation)
-    this.animation_list_container.addEventListener('change', (event) => {
+    this.listen(this.animation_list_container, 'change', (event) => {
       const target = event.target as HTMLInputElement
       if (target?.type === 'checkbox') {
         const row_element = target.closest('.anim-item, .anim-custom-item') as HTMLElement | null
@@ -146,7 +160,7 @@ export class AnimationSearch extends EventTarget {
     })
 
     // Add event listener for tri-state mirror toggle button clicks.
-    this.animation_list_container.addEventListener('click', (event) => {
+    this.listen(this.animation_list_container, 'click', (event) => {
       const target = event.target as HTMLElement
       const toggle_button = target.closest('button[data-action="cycle-mirror-mode"]') as HTMLButtonElement | null
       if (toggle_button === null) {
@@ -253,6 +267,9 @@ export class AnimationSearch extends EventTarget {
     if (this.animation_list_container === null) {
       return
     }
+
+    this.preview_observer?.disconnect()
+    this.preview_observer = null
 
     // Filter animations based on search text and selected-only mode
     this.filtered_animations_list = this.all_animations.filter(animation => {
@@ -399,6 +416,8 @@ export class AnimationSearch extends EventTarget {
         placeholder.appendChild(video)
       })
     }, { rootMargin: '300px' }) // rootMargin pre-loads videos before they scroll into view to reduce popping
+
+    this.preview_observer = observer
 
     // grabs all the animation list elements and tells the observer to start watching them for processing
     const placeholders = this.animation_list_container?.querySelectorAll('.anim-preview-placeholder[data-src]')
