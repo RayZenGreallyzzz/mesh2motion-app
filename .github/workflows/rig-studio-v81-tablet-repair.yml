@@ -1,4 +1,4 @@
-name: Rig Studio v8.1.4 KTX2 and Compressed GLB APK
+name: Rig Studio v8.1.5 source and public shell checks
 
 on:
   push:
@@ -22,6 +22,9 @@ jobs:
       - name: Check fitting, weight painting and humanoid motions
         run: |
           npm test -- src/lib/processes/animations-listing/AnimationSearch.test.ts src/my-rigs/OwnRigs.test.ts src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
+      - name: Check the built-in animal fitting and motion paths
+        run: |
+          npm run test:library -- src/test/AnimalCrossSection.test.ts src/test/CreatureRig.test.ts tests/animal-templates.test.ts tests/creature-retarget.test.ts
       - name: Build offline editor
         run: |
           npm run build
@@ -70,12 +73,9 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v814test'"
           unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb assets/public/basis/basis_transcoder.wasm assets/public/draco/draco_decoder.wasm
           cp "$apk" ../Rig-Animation-Studio-v8.1.4-Test.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Rig-Animation-Studio-v8.1.4-Test-APK
-          path: Rig-Animation-Studio-v8.1.4-Test.apk
-          if-no-files-found: error
-          retention-days: 14
+      - name: Keep private-library APK assembly local
+        run: |
+          echo "The public native shell compiled and verified. A full-library APK requires local private assets, npm run test:library, npm run build:library and final APK catalog verification." >> "$GITHUB_STEP_SUMMARY"
 
   browser-smoke:
     runs-on: ubuntu-latest
@@ -142,3 +142,4 @@ jobs:
           path: artifacts/compression-*
           if-no-files-found: ignore
           retention-days: 14
+

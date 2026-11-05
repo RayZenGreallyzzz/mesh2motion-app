@@ -12,7 +12,7 @@ import SkinningAlgorithm from '../src/lib/solvers/SkinningAlgorithm.ts'
 const report:unknown[]=[]
 afterAll(()=>fs.writeFileSync('checks/v80-animal-templates.json',JSON.stringify(report,null,2)))
 for(const config of RigConfig.all.filter(c=>!c.pack_source&&!is_humanoid_skeleton_type(c.skeleton_type)))it('fits and weights the '+config.rig_display_name+' template without changing its joint topology',async()=>{
- const model=(await load_without_textures('baseline/'+config.model_file)).scene,rig=(await load_without_textures('baseline/'+config.rig_file)).scene
+ const model=(await load_without_textures('static/'+config.model_file)).scene,rig=(await load_without_textures('static/'+config.rig_file)).scene
  const bones=Utility.bone_list_from_hierarchy(rig),skeleton=new Skeleton(bones),reference=AnimalAutoFit.reference(model,rig),parents=bones.map(b=>b.parent)
  // The editor's shared scene transform must not be folded into the fitting.
  const frame=new Group();frame.add(model,rig);frame.position.set(3,-1,5);frame.quaternion.setFromAxisAngle(new Vector3(1,2,3).normalize(),.7);frame.scale.setScalar(1.4)

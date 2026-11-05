@@ -1,2 +1,8 @@
 **/node_modules/**
 dist/**
+# Private library inputs, converted paid assets and native signing material.
+static/packs/phoenix/**
+checks/**
+.phoenix-restore-*/
+*.apk
+*.jks

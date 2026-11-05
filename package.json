@@ -1,13 +1,15 @@
 {
   "name": "rig-animation-studio-v74-retarget",
-  "version": "8.1.0",
+  "version": "8.1.5",
   "private": true,
   "type": "module",
   "scripts": {
     "prebuild": "node scripts/prepare-offline-codecs.mjs",
     "build": "vite build",
     "test": "vitest run --maxWorkers=1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:library": "node scripts/verify-phoenix-catalog.mjs static && npm run build && node scripts/verify-phoenix-catalog.mjs dist",
+    "test:library": "vitest run --config vitest.library.config.ts"
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",

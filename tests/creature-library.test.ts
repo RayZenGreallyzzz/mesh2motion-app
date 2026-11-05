@@ -9,7 +9,7 @@ import { inspect_transfer, suggest_mapping, transfer_clips } from '../src/my-rig
 const reports:unknown[]=[]
 afterAll(()=>fs.writeFileSync('checks/v80-creature-library.json',JSON.stringify(reports,null,2)))
 for(const pack of packs)it('validates every native clip of '+pack.title,async()=>{
- const asset=await library_asset('baseline/'+pack.path)
+ const asset=await library_asset('static/'+pack.path)
  try {
   expect(asset.clips.length).toBe(pack.clips)
   expect([...asset.nodes.values()].filter(n=>n.is_joint).length).toBe(pack.bones)
@@ -33,7 +33,7 @@ for(const pack of packs)it('validates every native clip of '+pack.title,async()=
  }finally{dispose_rig_scene(asset.scene)}
 },60000)
 for(const [from,to] of [['wolf','fox'],['bull','cow'],['dragon','dragon_evolved'],['greenblob','pinkblob'],['demon','bluedemon']])it('audits cross-creature transfer '+from+' → '+to,async()=>{
- const source=await library_asset('baseline/packs/phoenix/monsters/'+from+'.glb'),target=await library_asset('baseline/packs/phoenix/monsters/'+to+'.glb')
+ const source=await library_asset('static/packs/phoenix/monsters/'+from+'.glb'),target=await library_asset('static/packs/phoenix/monsters/'+to+'.glb')
  try{
   const map=suggest_mapping(source,target),report=inspect_transfer(source,target,map,[0]),clips=transfer_clips(source,target,map,[0]),mixer=new AnimationMixer(target.scene)
   const action=mixer.clipAction(clips[0]).play();for(const f of [0,.2,.5,.9]){action.time=clips[0].duration*f;mixer.update(0);target.scene.updateMatrixWorld(true);expect([...target.nodes.values()].every(n=>n.object.matrixWorld.elements.every(Number.isFinite))).toBe(true)}
@@ -42,7 +42,7 @@ for(const [from,to] of [['wolf','fox'],['bull','cow'],['dragon','dragon_evolved'
 })
 
 it('retains squash and stretch in all nine real slime clips on a compatible second slime rig',async()=>{
- const source=await library_asset('baseline/packs/phoenix/monsters/greenblob.glb'),target=await library_asset('baseline/packs/phoenix/monsters/pinkblob.glb')
+ const source=await library_asset('static/packs/phoenix/monsters/greenblob.glb'),target=await library_asset('static/packs/phoenix/monsters/pinkblob.glb')
  try{
   const map=suggest_mapping(source,target),clips=transfer_clips(source,target,map,source.clips.map((_,i)=>i),{deformation:true}),mixer=new AnimationMixer(target.scene)
   expect(clips).toHaveLength(9);let scales=0
