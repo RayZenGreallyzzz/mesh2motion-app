@@ -3,6 +3,16 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import JSZip from 'jszip'
 import { MixamoMapper } from '../retarget/bone-automap/MixamoMapper.ts'
+import { joint_character } from './HumanoidJointFixture.ts'
+
+export async function joint_fit_import_fixtures (): Promise<Array<{ profile: string, pose: string, knee: number, elbow: number, model: number[] }>> {
+  const result = []
+  for (const [profile, pose, knee, elbow] of [['human', 'T', .40, .68], ['woman', 'A', .64, .58]] as const) {
+    const model = await new GLTFExporter().parseAsync(joint_character(knee, elbow, pose), { binary: true }) as ArrayBuffer
+    result.push({ profile, pose, knee, elbow, model: Array.from(new Uint8Array(model)) })
+  }
+  return result
+}
 
 export async function mixamo_import_fixture (): Promise<{ zip: number[], model: number[] }> {
   const loaded = await new GLTFLoader().loadAsync('/rigs/rig-human.glb')

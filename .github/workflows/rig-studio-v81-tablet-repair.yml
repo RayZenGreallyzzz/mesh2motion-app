@@ -1,4 +1,4 @@
-name: Rig Studio v8.1.2 Mixamo Import APK
+name: Rig Studio v8.1.3 Joint Fitting and Mixamo APK
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - name: Check fitting, weight painting and humanoid motions
         run: |
-          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
+          npm test -- src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
       - name: Build offline editor
         run: |
           mkdir -p static/draco
@@ -53,11 +53,11 @@ jobs:
           config = gradle.read_text()
           app = 'applicationId "com.rayzen.riganimationstudio"'
           assert config.count(app) == 1
-          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v812test"'))
-          config = gradle.read_text().replace('versionCode 1', 'versionCode 812').replace('versionName "1.0"', 'versionName "8.1.2"')
+          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v813test"'))
+          config = gradle.read_text().replace('versionCode 1', 'versionCode 813').replace('versionName "1.0"', 'versionName "8.1.3"')
           gradle.write_text(config)
           names = Path('android/app/src/main/res/values/strings.xml')
-          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.2 Test'))
+          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.3 Test'))
           PY
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile and verify APK
@@ -66,13 +66,13 @@ jobs:
           ./gradlew assembleDebug --no-daemon --max-workers=2
           apk=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v812test'"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v813test'"
           unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb
-          cp "$apk" ../Rig-Animation-Studio-v8.1.2-Test.apk
+          cp "$apk" ../Rig-Animation-Studio-v8.1.3-Test.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v8.1.2-Test-APK
-          path: Rig-Animation-Studio-v8.1.2-Test.apk
+          name: Rig-Animation-Studio-v8.1.3-Test-APK
+          path: Rig-Animation-Studio-v8.1.3-Test.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -104,10 +104,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Rig-Studio-v8.1.2-Tablet-Checks
+          name: Rig-Studio-v8.1.3-Tablet-Checks
           path: |
             artifacts/offline-*
             artifacts/joint-ui-*
             artifacts/mixamo-*
+            artifacts/joint-fit-*
           if-no-files-found: ignore
           retention-days: 14

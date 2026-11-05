@@ -4,6 +4,7 @@ import { estimate_arm_pose } from './AutoRigArmPoseEstimator.ts'
 import { capture_hand_shape, place_hand_shape } from './HandPose.ts'
 import { refine_woman_rig } from './WomanBodyFit.ts'
 import { fit_humanoid_head } from './HumanoidHeadFit.ts'
+import { refine_humanoid_joints, visit_fit_geometry, type LimbChain } from './HumanoidJointFit.ts'
 
 // Refits must use template proportions, not feed the prior fitted offsets back.
 const fit_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
@@ -21,9 +22,8 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     // Sample the actual visible geometry instead of trusting only the bounding
     // box. High-poly characters are capped per mesh so this remains tablet-safe.
     const points: THREE.Vector3[] = []
-    model.traverse((child: THREE.Object3D) => {
-      const geometry = (child as any).geometry as THREE.BufferGeometry | undefined
-      const positions = geometry?.getAttribute('position')
+    visit_fit_geometry(model, (child, geometry) => {
+      const positions = geometry.getAttribute('position')
       if (positions === undefined) return
 
       const stride = Math.max(1, Math.ceil(positions.count / 7000))
@@ -345,5 +345,15 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     bones[0]?.updateWorldMatrix(true, true)
     if (profile === 'woman') refine_woman_rig(points, bones, frame)
     fit_humanoid_head(points, bones, frame)
+    const chains: LimbChain[] = []
+    for (const side of ['l', 'r'] as const) {
+      for (const [startRole, jointRole, endRole, kind] of [
+        ['upperarm', 'forearm', 'hand', 'elbow'], ['thigh', 'shin', 'foot', 'knee']
+      ] as const) {
+        const start = sideBone(startRole, side), joint = sideBone(jointRole, side), end = sideBone(endRole, side)
+        if (start && joint && end) chains.push({ start, joint, end, kind })
+      }
+    }
+    refine_humanoid_joints(model, chains, frame, centerX)
     return tPose ? 'T-pose' : 'A-pose'
 }
