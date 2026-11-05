@@ -1,0 +1,54 @@
+name: Prepare local library restoration tools
+on:
+  push:
+    branches: [test/rig-library-local-tools-20261105]
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Package exact source and JavaScript dependencies
+        run: |
+          mkdir -p local-tools
+          tar -czf local-tools/rig-source-tools.tgz src static scripts tests node_modules package.json package-lock.json vite.config.js vitest.config.ts tsconfig.json .nvmrc
+      - name: Download the official Blender runtime
+        run: |
+          curl --fail --location --retry 3 --output local-tools/blender-3.6.23-linux-x64.tar.xz https://download.blender.org/release/Blender3.6/blender-3.6.23-linux-x64.tar.xz
+          curl --fail --location --retry 3 --output local-tools/blender-3.6.23.sha256 https://download.blender.org/release/Blender3.6/blender-3.6.23.sha256
+          cd local-tools
+          grep 'blender-3.6.23-linux-x64.tar.xz' blender-3.6.23.sha256 | sha256sum --check -
+      - name: Package public Android signing tools
+        run: |
+          sdk=/usr/local/lib/android/sdk
+          bt="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -s "$bt/lib/apksigner.jar"
+          tar -czf local-tools/android-signing-tools.tgz -C "$bt" apksigner zipalign aapt aapt2 lib lib64 NOTICE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rig-Source-Tools
+          path: local-tools/rig-source-tools.tgz
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blender-3.6.23-Local-Tools
+          path: |
+            local-tools/blender-3.6.23-linux-x64.tar.xz
+            local-tools/blender-3.6.23.sha256
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-Local-Signing-Tools
+          path: local-tools/android-signing-tools.tgz
+          compression-level: 0
+          retention-days: 7
