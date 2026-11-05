@@ -3,7 +3,8 @@ import { LoadingManager, Scene, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import { export_plain_glb } from '../lib/processes/export-to-file/PlainGlbExporter.ts'
+import { asset_decoder_path, with_ktx2_textures } from '../lib/AssetCodecs.ts'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { inspect_glb } from './GlbEnvelope.ts'
 import { build_rig_asset, dispose_rig_scene, type RigAsset } from './RigAsset.ts'
@@ -11,7 +12,7 @@ import { build_rig_asset, dispose_rig_scene, type RigAsset } from './RigAsset.ts
 export async function load_rig_asset (bytes: ArrayBuffer, name: string): Promise<RigAsset> {
   const document = inspect_glb(bytes)
   const manager = new LoadingManager()
-  const decoder_url = new URL('../draco/', globalThis.location?.href ?? 'http://localhost/my-rigs/').href
+  const decoder_url = asset_decoder_path('draco')
   manager.setURLModifier(url => {
     if (/^(blob:|data:)/i.test(url) || url.startsWith(decoder_url)) return url
     throw new Error('Внешние ресурсы запрещены: загрузите GLB со встроенными текстурами')
@@ -19,6 +20,7 @@ export async function load_rig_asset (bytes: ArrayBuffer, name: string): Promise
   const draco = new DRACOLoader(manager).setDecoderPath(decoder_url)
   draco.setWorkerLimit(1)
   const loader = new GLTFLoader(manager).setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder)
+  with_ktx2_textures(loader)
   let gltf
   try {
     gltf = await loader.parseAsync(bytes, '')
@@ -71,7 +73,7 @@ export async function export_rig_asset (asset: RigAsset, clip_indices?: number[]
     })
     return result
   })
-  const result = await new GLTFExporter().parseAsync(export_scene, {
+  const result = await export_plain_glb(export_scene, {
     binary: true, animations: clips, onlyVisible: false
   })
   if (!(result instanceof ArrayBuffer)) throw new Error('Экспорт не вернул GLB')

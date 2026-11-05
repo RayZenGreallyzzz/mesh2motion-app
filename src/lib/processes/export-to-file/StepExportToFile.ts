@@ -1,6 +1,7 @@
 import { copy_rigs_for_export } from './ExportRigCopy.ts'
 import { ExportFileSaver } from './ExportFileSaver.ts'
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import { export_plain_glb } from './PlainGlbExporter.ts'
+import { TextureReadback } from './TextureReadback.ts'
 import { FBXExporter } from '@comfyorg/fbx-exporter-three'
 import { type AnimationClip, Scene, type SkinnedMesh, type Object3D } from 'three'
 import { type DownloadSettings, ExportContents, ExportFormat, type FbxExportPreset } from './DownloadSettings.ts'
@@ -145,7 +146,7 @@ export class StepExportToFile extends EventTarget {
   }
 
   public async export_glb (exported_scene: Scene, animations_to_export: AnimationClip[], file_name: string): Promise<void> {
-    const result = await new GLTFExporter().parseAsync(exported_scene, {
+    const result = await export_plain_glb(exported_scene, {
       binary: true, onlyVisible: false, animations: animations_to_export
     })
     if (!(result instanceof ArrayBuffer)) throw new Error('Export result is not an ArrayBuffer')
@@ -160,9 +161,12 @@ export class StepExportToFile extends EventTarget {
     fbx_export_preset: FbxExportPreset
   ): Promise<void> {
     exported_scene.animations = animations_to_export
-    const texture_compatibility_session = new FbxTextureCompatibilityService(exported_scene)
+    const texture_readback = new TextureReadback()
+    let texture_compatibility_session: FbxTextureCompatibilityService | undefined
 
     try {
+      texture_readback.prepare_fbx(exported_scene)
+      texture_compatibility_session = new FbxTextureCompatibilityService(exported_scene)
       const result = await this.fbx_exporter.parseAsync(exported_scene, {
         preset: fbx_export_preset,
         includeAnimations: true,
@@ -173,7 +177,8 @@ export class StepExportToFile extends EventTarget {
 
       await this.save_uint8_array(result, `${file_name}.fbx`)
     } finally {
-      texture_compatibility_session.restore()
+      texture_compatibility_session?.restore()
+      texture_readback.restore()
       exported_scene.animations = []
     }
   }

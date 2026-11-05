@@ -1,4 +1,4 @@
-name: Rig Studio v8.1.3 Joint Fitting and Mixamo APK
+name: Rig Studio v8.1.4 KTX2 and Compressed GLB APK
 
 on:
   push:
@@ -21,12 +21,13 @@ jobs:
       - run: npm ci
       - name: Check fitting, weight painting and humanoid motions
         run: |
-          npm test -- src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
+          npm test -- src/my-rigs/OwnRigs.test.ts src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
       - name: Build offline editor
         run: |
-          mkdir -p static/draco
-          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
           npm run build
+          test -s dist/basis/basis_transcoder.wasm
+          test -s dist/basis/basis_transcoder.js
+          test -s dist/draco/draco_decoder.wasm
           test -s dist/index.html
           test -s dist/create.html
           test -s dist/my-rigs/index.html
@@ -53,11 +54,11 @@ jobs:
           config = gradle.read_text()
           app = 'applicationId "com.rayzen.riganimationstudio"'
           assert config.count(app) == 1
-          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v813test"'))
-          config = gradle.read_text().replace('versionCode 1', 'versionCode 813').replace('versionName "1.0"', 'versionName "8.1.3"')
+          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v814test"'))
+          config = gradle.read_text().replace('versionCode 1', 'versionCode 814').replace('versionName "1.0"', 'versionName "8.1.4"')
           gradle.write_text(config)
           names = Path('android/app/src/main/res/values/strings.xml')
-          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.3 Test'))
+          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.4 Test'))
           PY
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile and verify APK
@@ -66,13 +67,13 @@ jobs:
           ./gradlew assembleDebug --no-daemon --max-workers=2
           apk=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v813test'"
-          unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb
-          cp "$apk" ../Rig-Animation-Studio-v8.1.3-Test.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v814test'"
+          unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb assets/public/basis/basis_transcoder.wasm assets/public/draco/draco_decoder.wasm
+          cp "$apk" ../Rig-Animation-Studio-v8.1.4-Test.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v8.1.3-Test-APK
-          path: Rig-Animation-Studio-v8.1.3-Test.apk
+          name: Rig-Animation-Studio-v8.1.4-Test-APK
+          path: Rig-Animation-Studio-v8.1.4-Test.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -88,8 +89,6 @@ jobs:
       - run: npm ci
       - name: Build offline editor for browser test
         run: |
-          mkdir -p static/draco
-          cp -R node_modules/three/examples/jsm/libs/draco/. static/draco/
           npm run build
       - name: Verify offline tablet flow in Chromium
         run: |
@@ -104,11 +103,42 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Rig-Studio-v8.1.3-Tablet-Checks
+          name: Rig-Studio-v8.1.4-Tablet-Checks
           path: |
             artifacts/offline-*
             artifacts/joint-ui-*
             artifacts/mixamo-*
             artifacts/joint-fit-*
+          if-no-files-found: ignore
+          retention-days: 14
+
+
+  compressed-assets-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Prepare compression test tools and Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright @gltf-transform/core@4.2.1 @gltf-transform/extensions@4.2.1 meshoptimizer@0.25.0 draco3dgltf@1.5.7
+          npx playwright install --with-deps chromium
+          mkdir -p artifacts
+          curl --fail --location --retry 3 --output artifacts/2d_etc1s.ktx2 https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/textures/ktx2/2d_etc1s.ktx2
+          curl --fail --location --retry 3 --output artifacts/2d_uastc.ktx2 https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/textures/ktx2/2d_uastc.ktx2
+          test "$(git hash-object artifacts/2d_etc1s.ktx2)" = d6c1b00739c3b2a21743eea32b512d924d925d14
+          test "$(git hash-object artifacts/2d_uastc.ktx2)" = bb4092178a6e99763a0f8eff0bd43a3575a49847
+      - name: Verify compressed GLB import and textured exports without internet
+        run: node scripts/check-rig-studio-compression.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Rig-Studio-v8.1.4-Compression-Checks
+          path: artifacts/compression-*
           if-no-files-found: ignore
           retention-days: 14

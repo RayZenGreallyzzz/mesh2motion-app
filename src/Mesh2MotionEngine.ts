@@ -1,4 +1,5 @@
 import { SurfaceWeightBrush } from './lib/weight-paint/SurfaceWeightBrush.ts'
+import { register_asset_renderer } from './lib/AssetCodecs.ts'
 import { selectedWeight } from './lib/weight-paint/ManualWeightEdits.ts'
 import { default_chest_guard } from './lib/solvers/ChestWeightGuard.ts'
 import { RigConfig } from './lib/RigConfig.ts'
@@ -100,6 +101,7 @@ export class Mesh2MotionEngine {
   private readonly camera_shake: CameraShake
 
   constructor () {
+    register_asset_renderer(this.renderer)
     this.initialize_shared_dom_mounts()
 
     // this will add a platform CSS file if we are running our desktop app

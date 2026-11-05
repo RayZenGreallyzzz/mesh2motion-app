@@ -2,6 +2,7 @@ import { builtin_models } from '../../../library/BuiltinModels.ts'
 import { RigLibrary } from '../../../my-rigs/RigLibrary.ts'
 import { open_glb_pack, show_pack_import } from '../../../library/GlbPack.ts'
 import { UI } from '../../UI.ts'
+import { asset_decoder_path, with_ktx2_textures } from '../../AssetCodecs.ts'
 import { ModelZipLoader } from './ModelZipLoader.ts'
 import { CustomFBXLoader, type FBXResults } from './CustomFBXLoader.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -64,9 +65,10 @@ export class StepLoadModel extends EventTarget {
 
   constructor () {
     super()
-    this.draco_loader.setDecoderPath('/draco/')
+    this.draco_loader.setDecoderPath(asset_decoder_path('draco'))
     this.gltf_loader.setDRACOLoader(this.draco_loader)
     this.gltf_loader.setMeshoptDecoder(MeshoptDecoder)
+    with_ktx2_textures(this.gltf_loader)
   }
 
   /**

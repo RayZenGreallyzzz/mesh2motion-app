@@ -43,6 +43,10 @@ describe('Own rigs import and offline envelope', () => {
     expect(() => inspect_glb(document_glb({ ...base, nodes: [{ children: [1] }, { children: [0] }] }))).toThrow(/Цикл/)
     expect(() => inspect_glb(document_glb({ ...base, meshes: [{ primitives: [{ attributes: { JOINTS_1: 0 } }] }] }))).toThrow(/четырёх/)
     expect(() => inspect_glb(document_glb({ ...base, extensionsRequired: ['KHR_animation_pointer'] }))).toThrow(/расширение/)
+    expect(() => inspect_glb(document_glb({ ...base, extensionsRequired: ['KHR_texture_basisu', 'KHR_meshopt_compression'],
+      images: [{ uri: 'data:image/ktx2;base64,q0tUWCAyMLs=' }] }))).not.toThrow()
+    expect(() => inspect_glb(document_glb({ ...base, extensionsRequired: ['KHR_texture_basisu'],
+      images: [{ uri: 'https://example.org/albedo.ktx2' }] }))).toThrow(/внешний/)
   })
 
   it('preserves both skins, partial clips, position, scale and morph channels', async () => {

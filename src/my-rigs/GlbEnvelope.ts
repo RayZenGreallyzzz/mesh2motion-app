@@ -27,7 +27,7 @@ export interface GlbDocument {
 export const MAX_GLB_BYTES = 128 * 1024 * 1024
 const supported_extensions = new Set([
   'KHR_mesh_quantization', 'KHR_texture_transform', 'EXT_texture_webp',
-  'KHR_draco_mesh_compression', 'EXT_meshopt_compression',
+  'KHR_draco_mesh_compression', 'EXT_meshopt_compression', 'KHR_meshopt_compression', 'KHR_texture_basisu',
   'KHR_materials_unlit', 'KHR_materials_clearcoat', 'KHR_materials_ior',
   'KHR_materials_specular', 'KHR_materials_transmission', 'KHR_materials_volume',
   'KHR_materials_sheen', 'KHR_materials_emissive_strength',
@@ -59,7 +59,7 @@ export function inspect_glb (buffer: ArrayBuffer): GlbDocument {
     throw new Error('В файле несколько сцен. Экспортируйте нужную сцену отдельно; все скелеты внутри одной сцены поддерживаются.')
   }
   for (const entry of [...(json.buffers ?? []), ...(json.images ?? [])]) {
-    if (entry.uri && !/^data:(?:image\/(?:png|jpeg|webp)|application\/(?:octet-stream|gltf-buffer));base64,/i.test(entry.uri)) {
+    if (entry.uri && !/^data:(?:image\/(?:png|jpeg|webp|ktx2)|application\/(?:octet-stream|gltf-buffer));base64,/i.test(entry.uri)) {
       throw new Error('GLB ссылается на внешний файл. Встройте текстуры и данные в GLB для работы офлайн.')
     }
   }

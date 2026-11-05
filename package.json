@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/prepare-offline-codecs.mjs",
     "build": "vite build",
     "test": "vitest run --maxWorkers=1",
     "typecheck": "tsc --noEmit"

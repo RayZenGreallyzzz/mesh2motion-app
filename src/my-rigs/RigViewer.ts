@@ -6,6 +6,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { restore_rig_pose, type RigAsset } from './RigAsset.ts'
+import { register_asset_renderer } from '../lib/AssetCodecs.ts'
 import { joint_roles } from './RigBoneMapping.ts'
 import { BoneSlot } from '../retarget/bone-automap/BoneTypes.ts'
 
@@ -31,6 +32,7 @@ export class RigViewer {
 
   constructor (container: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, alpha: false })
+    register_asset_renderer(this.renderer)
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     container.append(this.renderer.domElement)
     this.renderer.domElement.setAttribute('aria-label', 'Предпросмотр персонажа; поворот одним пальцем, масштаб двумя')

@@ -9,7 +9,11 @@ export function write_clips_glb (asset: RigAsset, indices: number[]): ArrayBuffe
   inspect_glb(original)
   const jsonLength = view.getUint32(12, true)
   const doc = JSON.parse(new TextDecoder().decode(new Uint8Array(original, 20, jsonLength)))
-  if (doc.buffers?.length !== 1 || doc.buffers[0].uri) return undefined
+  if (!doc.buffers?.length || doc.buffers[0].uri) return undefined
+  // Meshopt may declare a virtual fallback buffer with no physical bytes. Keep
+  // it, and all original compressed views/images, while appending keys to BIN.
+  if (doc.buffers.slice(1).some((buffer: any) => buffer.uri ||
+    !(buffer.extensions?.EXT_meshopt_compression?.fallback === true || buffer.extensions?.KHR_meshopt_compression?.fallback === true))) return undefined
   let binary: Uint8Array | undefined
   const other: Uint8Array[] = []
   for (let at = 20 + jsonLength; at < original.byteLength;) {
