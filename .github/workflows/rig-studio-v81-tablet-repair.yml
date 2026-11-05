@@ -1,8 +1,8 @@
-name: Rig Studio v8.1.1 Joints and Tablet Controls APK
+name: Rig Studio v8.1.2 Mixamo Import APK
 
 on:
   push:
-    branches: [fix/rig-studio-v811-joints-ui]
+    branches: [feature/rig-studio-v812-mixamo]
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - name: Check fitting, weight painting and humanoid motions
         run: |
-          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts
+          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts
       - name: Build offline editor
         run: |
           mkdir -p static/draco
@@ -53,11 +53,11 @@ jobs:
           config = gradle.read_text()
           app = 'applicationId "com.rayzen.riganimationstudio"'
           assert config.count(app) == 1
-          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v811test"'))
-          config = gradle.read_text().replace('versionCode 1', 'versionCode 811').replace('versionName "1.0"', 'versionName "8.1.1"')
+          gradle.write_text(config.replace(app, 'applicationId "com.rayzen.riganimationstudio.v812test"'))
+          config = gradle.read_text().replace('versionCode 1', 'versionCode 812').replace('versionName "1.0"', 'versionName "8.1.2"')
           gradle.write_text(config)
           names = Path('android/app/src/main/res/values/strings.xml')
-          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.1 Test'))
+          names.write_text(names.read_text().replace('Rig Animation Studio', 'Rig Studio v8.1.2 Test'))
           PY
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile and verify APK
@@ -66,19 +66,19 @@ jobs:
           ./gradlew assembleDebug --no-daemon --max-workers=2
           apk=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v811test'"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.rayzen.riganimationstudio.v812test'"
           unzip -tq "$apk" assets/public/index.html assets/public/create.html assets/public/rigs/rig-human.glb
-          cp "$apk" ../Rig-Animation-Studio-v8.1.1-Test.apk
+          cp "$apk" ../Rig-Animation-Studio-v8.1.2-Test.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Rig-Animation-Studio-v8.1.1-Test-APK
-          path: Rig-Animation-Studio-v8.1.1-Test.apk
+          name: Rig-Animation-Studio-v8.1.2-Test-APK
+          path: Rig-Animation-Studio-v8.1.2-Test.apk
           if-no-files-found: error
           retention-days: 14
 
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,14 +95,19 @@ jobs:
         run: |
           npm install --no-save --package-lock=false playwright
           npx playwright install --with-deps chromium
+          mkdir -p artifacts
+          curl --fail --location --retry 3 --output 'artifacts/Samba Dancing.fbx' 'https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/models/fbx/Samba%20Dancing.fbx'
+          test "$(git hash-object 'artifacts/Samba Dancing.fbx')" = '2e070813defad38b2fd7aac7ba6d17b79b6b0657'
+          node scripts/check-rig-studio-mixamo.mjs
           node scripts/check-rig-studio-joint-ui.mjs
           node scripts/check-rig-studio-offline.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Rig-Studio-v8.1.1-Tablet-Checks
+          name: Rig-Studio-v8.1.2-Tablet-Checks
           path: |
             artifacts/offline-*
             artifacts/joint-ui-*
+            artifacts/mixamo-*
           if-no-files-found: ignore
           retention-days: 14

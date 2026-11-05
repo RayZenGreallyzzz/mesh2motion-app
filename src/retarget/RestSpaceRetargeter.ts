@@ -1,6 +1,7 @@
 import { AnimationClip, Object3D, Quaternion, Vector3, type KeyframeTrack } from 'three'
 
 export interface BoneRestSpace {
+  parent_name?: string
   position: Vector3
   scale: Vector3
   world_rotation: Quaternion
@@ -15,6 +16,7 @@ export class RestSpaceRetargeter {
     root.traverse(object => {
       if (!object.name) return
       result.set(object.name, {
+        parent_name: object.parent?.name || undefined,
         position: object.position.clone(), scale: object.scale.clone(),
         world_rotation: object.getWorldQuaternion(new Quaternion()).normalize(),
         parent_rotation: object.parent?.getWorldQuaternion(new Quaternion()).normalize() ?? new Quaternion()

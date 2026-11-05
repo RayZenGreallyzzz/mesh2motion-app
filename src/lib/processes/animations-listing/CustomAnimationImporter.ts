@@ -2,22 +2,24 @@ import { RestSpaceRetargeter, type BoneRestSpace } from '../../../retarget/RestS
 import { UI } from '../../UI.ts'
 import { ModalDialog } from '../../ModalDialog.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
-import { type AnimationClip, type Skeleton, type SkinnedMesh } from 'three'
+import { type Skeleton, type SkinnedMesh } from 'three'
+import { archive_input, input_format, open_motion_archive, type MotionInput } from '../../../my-rigs/MotionArchive.ts'
 import { type AnimationLoader } from './AnimationLoader.ts'
 import CustomAnimationValidation from './CustomAnimationValidation.ts'
-import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
+import { type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 
 /**
- * Handles the importing of custom animations from GLB files.
+ * Imports GLB/FBX animations and ZIP batches with the active target rest pose.
  * This class encapsulates the UI and logic for the import process.
  */
 export class CustomAnimationImporter extends EventTarget {
   private readonly rest_spaces = new WeakMap<Skeleton, Map<string, BoneRestSpace>>()
+  private known_ids: string[] = []
   private readonly ui: UI
   private readonly animation_loader: AnimationLoader
   private skinned_meshes_to_animate: SkinnedMesh[] = []
   private skeleton_scale: number = 1.0
-  private import_context_provider: (() => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }) | null = null
+  private import_context_provider: (() => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number, known_ids?: string[] }) | null = null
   private enabled: boolean = true
   private has_added_event_listeners: boolean = false
 
@@ -44,7 +46,7 @@ export class CustomAnimationImporter extends EventTarget {
     this.skeleton_scale = skeleton_scale
   }
 
-  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number }): void {
+  public set_import_context_provider (provider: () => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number, known_ids?: string[] }): void {
     this.import_context_provider = provider
   }
 
@@ -64,10 +66,10 @@ export class CustomAnimationImporter extends EventTarget {
     if (button !== null && button.querySelector('.ras-import-animation-label') === null) {
       const label = document.createElement('span')
       label.className = 'ras-import-animation-label'
-      label.textContent = 'Импорт GLB'
+      label.textContent = 'Импорт движений'
       button.appendChild(label)
-      button.title = 'Импортировать свою анимацию GLB'
-      button.setAttribute('aria-label', 'Импортировать свою анимацию GLB')
+      button.title = 'Импортировать анимации GLB, FBX или ZIP с Mixamo'
+      button.setAttribute('aria-label', 'Импортировать анимации GLB, FBX или ZIP с Mixamo')
     }
 
     // Android document providers report GLB files under several different MIME
@@ -113,15 +115,50 @@ export class CustomAnimationImporter extends EventTarget {
 
     this.set_enabled(false) // disable to prevent double-clicks during processing
 
+    const skeleton = this.skinned_meshes_to_animate[0]?.skeleton
+    const target_rest = skeleton ? this.rest_spaces.get(skeleton) : undefined
+    const known = new Set(this.known_ids)
+    let imported = 0, duplicates = 0
+    const errors: string[] = []
+    const consume = async (motion: MotionInput): Promise<void> => {
+      this.sync_import_context_from_provider()
+      if (this.skinned_meshes_to_animate[0]?.skeleton !== skeleton) throw new Error('Персонаж изменился. Повторите импорт для выбранного персонажа.')
+      const pairs = await this.animation_loader.load_animations_from_input(motion, this.skeleton_scale,
+        { source_type: 'custom-import', tags: [] }, target_rest, [...known])
+      if (!pairs.length) { duplicates++; return }
+      this.sync_import_context_from_provider()
+      if (this.skinned_meshes_to_animate[0]?.skeleton !== skeleton) throw new Error('Персонаж изменился. Повторите импорт для выбранного персонажа.')
+      CustomAnimationValidation.validate_animation_bones_match(pairs.map(pair => pair.display_animation_clip), this.skinned_meshes_to_animate)
+      this.dispatchEvent(new CustomEvent<TransformedAnimationClipPair[]>('import-success', { detail: pairs }))
+      for (const tag of pairs[0].metadata.tags) if (tag.startsWith('sha256-')) known.add(tag)
+      imported += pairs.length
+    }
     try {
       for (const file of Array.from(files)) {
-        const file_name = file.name.toLowerCase()
-        if (!file_name.endsWith('.glb')) {
-          new ModalDialog('Анимация', 'Сейчас для своих анимаций поддерживается GLB.').show()
-          continue
-        }
-        await this.import_animation_glb(file)
+        try {
+          if (file.name.toLowerCase().endsWith('.zip')) {
+            const archive = await open_motion_archive(file)
+            archive.entries = archive.entries.filter(entry => entry.format === 'glb' || entry.format === 'fbx')
+            errors.push(...archive.issues)
+            if (!archive.entries.length) throw new Error('В ZIP нет анимаций GLB или FBX')
+            for (const entry of archive.entries) {
+              try { await consume(await archive_input(file, entry)) }
+              catch (error) { errors.push(entry.path + ': ' + (error instanceof Error ? error.message : String(error))) }
+              await new Promise<void>(resolve => setTimeout(resolve, 0))
+            }
+          } else {
+            const format = input_format(file.name)
+            if (format !== 'glb' && format !== 'fbx') throw new Error('Выберите GLB, FBX или ZIP с анимациями')
+            await consume({ blob: file, name: file.name, size: file.size, format })
+          }
+        } catch (error) { errors.push(file.name + ': ' + (error instanceof Error ? error.message : String(error))) }
       }
+      const summary = ['Добавлено анимаций: ' + imported]
+      if (duplicates) summary.push('Уже импортировано файлов: ' + duplicates)
+      if (errors.length) summary.push('Ошибки (' + errors.length + '): ' + errors.slice(0, 3).join('\n'))
+      const message = document.createElement('div')
+      message.textContent = summary.join('\n')
+      new ModalDialog('Импорт движений', message.innerHTML.replaceAll('\n', '<br>')).show()
     } finally {
       input.value = ''
       this.set_enabled(true)
@@ -133,45 +170,9 @@ export class CustomAnimationImporter extends EventTarget {
       return
     }
 
-    const { skinned_meshes_to_animate, skeleton_scale } = this.import_context_provider()
+    const { skinned_meshes_to_animate, skeleton_scale, known_ids } = this.import_context_provider()
+    this.known_ids = known_ids ?? []
     this.set_import_context(skinned_meshes_to_animate, skeleton_scale)
   }
 
-  private async import_animation_glb (file: File): Promise<{ success: boolean, clipCount: number }> {
-    // tell the animation data these are custom animations to help differentiate for custom video previews
-    // tags are unused right now, but I want to eventually use them to help filtering
-    const metadata_override: Partial<AnimationClipMetadata> = {
-      source_type: 'custom-import',
-      tags: []
-    }
-
-    try {
-      const new_animation_clips = await this.animation_loader.load_animations_from_file(
-        file,
-        this.skeleton_scale,
-        metadata_override,
-        this.skinned_meshes_to_animate[0] ? this.rest_spaces.get(this.skinned_meshes_to_animate[0].skeleton) : undefined
-      )
-
-      // Validate custom animations against our target skeleton
-      const animation_clip_names_imported = new_animation_clips.map(clip_pair => clip_pair.display_animation_clip.name).join(', ')
-      const clips_to_validate: AnimationClip[] = new_animation_clips.map((clip_pair) => clip_pair.display_animation_clip)
-      CustomAnimationValidation.validate_animation_bones_match(clips_to_validate, this.skinned_meshes_to_animate)
-
-      this.dispatchEvent(new CustomEvent<TransformedAnimationClipPair[]>('import-success', {
-        detail: new_animation_clips
-      }))
-
-      const animation_count = new_animation_clips.length
-      const animation_word = animation_count === 1 ? 'animation' : 'animations'
-      new ModalDialog(
-        'Import Success',
-        `${animation_count} ${animation_word} Imported successfully: ${animation_clip_names_imported}`
-      ).show()
-
-      return { success: true, clipCount: new_animation_clips.length }
-    } catch (error) {
-      return CustomAnimationValidation.handle_import_error(error)
-    }
-  }
 }

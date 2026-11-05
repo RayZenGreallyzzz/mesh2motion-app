@@ -84,7 +84,8 @@ export class StepAnimationsListing extends EventTarget {
     this.custom_animation_importer.set_import_context_provider(() => {
       return {
         skinned_meshes_to_animate: this.skinned_meshes_to_animate,
-        skeleton_scale: this.skeleton_scale
+        skeleton_scale: this.skeleton_scale,
+        known_ids: this.animation_clips_loaded.flatMap(pair => pair.metadata.tags.filter(tag => tag.startsWith('sha256-')))
       }
     })
 

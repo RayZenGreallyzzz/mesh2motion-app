@@ -8,6 +8,13 @@ import { RigConfig } from '../../RigConfig.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { LoadError, NoAnimationsError } from './AnimationImportErrors.ts'
 import { type SkinnedMesh } from 'three'
+import { is_humanoid_skeleton_type } from '../../HumanoidSkeleton.ts'
+import { load_rig_asset } from '../../../my-rigs/RigAssetLoader.ts'
+import { asset_from_motion } from '../../../my-rigs/MotionDocument.ts'
+import { dispose_rig_scene } from '../../../my-rigs/RigAsset.ts'
+import { MotionImportClient } from '../../../my-rigs/MotionImportClient.ts'
+import { input_format, type MotionInput } from '../../../my-rigs/MotionArchive.ts'
+import { is_mixamo_source, retarget_imported_clips } from './ImportedAnimationRetargeter.ts'
 
 export interface AnimationLoadProgress {
   loaded: number
@@ -23,6 +30,8 @@ export interface AnimationLoadProgress {
 
 export class AnimationLoader extends EventTarget {
   private readonly gltf_loader: GLTFLoader = new GLTFLoader()
+  private readonly motion_import = new MotionImportClient()
+  private human_reference?: Promise<Map<string, BoneRestSpace>>
   private animations_file_path: string = 'animations/'
   private readonly file_progress_map = new Map<string, { loaded: number, total: number }>()
   private completed_files: number = 0
@@ -179,82 +188,72 @@ export class AnimationLoader extends EventTarget {
     metadata_override: Partial<AnimationClipMetadata> = {},
     target_rest?: ReadonlyMap<string, BoneRestSpace>
   ): Promise<TransformedAnimationClipPair[]> {
-    const file_url = URL.createObjectURL(file)
-    const file_total = file.size > 0 ? file.size : 1
+    const format = input_format(file.name)
+    if (!format) throw new LoadError('Поддерживаются анимации GLB и FBX')
+    return this.load_animations_from_input({ blob: file, name: file.name, format, size: file.size },
+      skeleton_scale, metadata_override, target_rest)
+  }
 
+  public async load_animations_from_input (
+    input: MotionInput, skeleton_scale: number = 1,
+    metadata_override: Partial<AnimationClipMetadata> = {}, target_rest?: ReadonlyMap<string, BoneRestSpace>, known_ids: string[] = []
+  ): Promise<TransformedAnimationClipPair[]> {
     this.file_progress_map.clear()
     this.completed_files = 0
     this.total_files = 1
-    this.file_progress_map.set(file.name, { loaded: 0, total: file_total })
-    this.emit_enhanced_progress(file.name, 0, file_total)
-
-    return await new Promise((resolve, reject) => {
-      this.gltf_loader.load(
-        file_url,
-        (gltf: any) => {
-          URL.revokeObjectURL(file_url)
-
-          try {
-            let animations = gltf.animations as AnimationClip[]
-            if (animations === null || animations === undefined || animations.length === 0) {
-              this.file_progress_map.set(file.name, { loaded: file_total, total: file_total })
-              this.completed_files = 1
-              this.emit_enhanced_progress(file.name, file_total, file_total)
-              throw new NoAnimationsError('No animations found in the GLB file.')
-            }
-
-            this.file_progress_map.set(file.name, { loaded: file_total, total: file_total })
-            this.completed_files = 1
-            this.emit_enhanced_progress(file.name, file_total, file_total)
-
-            if (target_rest?.size) {
-              const source_rest = RestSpaceRetargeter.capture(gltf.scene)
-              const mappings = new Map([...target_rest.keys()].filter(name => source_rest.has(name)).map(name => [name, name]))
-              animations = animations.map(clip => {
-                const converted = RestSpaceRetargeter.retarget(clip, source_rest, target_rest, mappings)
-                const converted_names = new Set(converted.tracks.map(track => track.name))
-                // Keep unmatched tracks visible to the import validator.
-                for (const track of clip.tracks) {
-                  const normalized_name = track.name.replace(/^.*\.bones\[([^\]]+)\]\./, '$1.')
-                  if (!converted_names.has(normalized_name)) converted.tracks.push(track.clone())
-                }
-                return converted
-              })
-            }
-            const processed_clips = this.process_loaded_animations(
-              animations,
-              target_rest?.size ? 1 : skeleton_scale,
-              metadata_override
-            )
-            resolve(processed_clips)
-          } catch (error) {
-            // Emit final progress to hide the loader UI
-            this.file_progress_map.set(file.name, { loaded: file_total, total: file_total })
-            this.completed_files = 1
-            this.emit_enhanced_progress(file.name, file_total, file_total)
-
-            const error_message = error instanceof Error ? error.message : String(error)
-            if (error instanceof NoAnimationsError) {
-              reject(error)
-            } else {
-              reject(new LoadError(`Failed to process animations from ${file.name}: ${error_message}`))
-            }
-          }
-        },
-        (progress_event) => {
-          if (progress_event.lengthComputable) {
-            const total_bytes = progress_event.total > 0 ? progress_event.total : file_total
-            this.file_progress_map.set(file.name, { loaded: progress_event.loaded, total: total_bytes })
-            this.emit_enhanced_progress(file.name, progress_event.loaded, total_bytes)
-          }
-        },
-        (error) => {
-          URL.revokeObjectURL(file_url)
-          const error_message = error instanceof Error ? error.message : String(error)
-          reject(new LoadError(`Failed to load animation file ${file.name}: ${error_message}`))
+    this.file_progress_map.set(input.name, { loaded: 0, total: input.size })
+    this.emit_enhanced_progress(input.name, 0, input.size)
+    let asset
+    try {
+      const parsed = await this.motion_import.read(input, known_ids)
+      if (parsed.kind === 'duplicate') return []
+      asset = parsed.kind === 'glb' ? await load_rig_asset(parsed.bytes, input.name) : asset_from_motion(parsed.document)
+      if (!asset.clips.length) throw new NoAnimationsError('В файле нет анимаций')
+      const source_rest = RestSpaceRetargeter.capture(asset.scene)
+      const mixamo = is_mixamo_source(source_rest)
+      // RigAsset uses UUID bindings internally. Resolve them before name-based retargeting.
+      const node_names = new Map([...asset.nodes.values()].map(node => [node.object.uuid, node.name]))
+      let animations = asset.clips.map(clip => {
+        const result = clip.clone()
+        for (const track of result.tracks) {
+          const separator = track.name.lastIndexOf('.')
+          const name = node_names.get(track.name.slice(0, separator))
+          if (!name) throw new Error('Не найдена кость дорожки ' + track.name)
+          track.name = name + track.name.slice(separator)
         }
-      )
-    })
+        return result
+      })
+      if (target_rest?.size) {
+        const reference = mixamo && this.skeleton_type !== null && is_humanoid_skeleton_type(this.skeleton_type)
+          ? await this.load_human_reference() : undefined
+        animations = retarget_imported_clips(animations, source_rest, target_rest, reference)
+      }
+      return this.process_loaded_animations(animations, target_rest?.size ? 1 : skeleton_scale, {
+        ...metadata_override,
+        tags: [...(metadata_override.tags ?? []), parsed.id, ...(mixamo ? ['mixamo'] : [])]
+      })
+    } catch (error) {
+      if (error instanceof NoAnimationsError) throw error
+      throw new LoadError('Не удалось импортировать ' + input.name + ': ' + (error instanceof Error ? error.message : String(error)))
+    } finally {
+      if (asset) dispose_rig_scene(asset.scene)
+      this.file_progress_map.set(input.name, { loaded: input.size, total: input.size })
+      this.completed_files = 1
+      this.emit_enhanced_progress(input.name, input.size, input.size)
+    }
+  }
+
+  private async load_human_reference (): Promise<Map<string, BoneRestSpace>> {
+    this.human_reference ??= (async () => {
+      const gltf = await this.gltf_loader.loadAsync(RigConfig.rig_file_for(SkeletonType.Human)!)
+      try {
+        const all = RestSpaceRetargeter.capture(gltf.scene)
+        const bones = new Map<string, BoneRestSpace>()
+        gltf.scene.traverse(object => { if (object.type === 'Bone') bones.set(object.name, all.get(object.name)!) })
+        return bones
+      } finally { dispose_rig_scene(gltf.scene) }
+    })()
+    try { return await this.human_reference } catch (error) { this.human_reference = undefined; throw error }
   }
 
   /**
@@ -308,7 +307,9 @@ export class AnimationLoader extends EventTarget {
     RigConfig.by_skeleton_type(this.skeleton_type)?.position_tracking_bone_name
 
     // Clean track data (remove position tracks except for specific cases)
-    if (!RigConfig.by_key(this.skeleton_type)?.pack_source) AnimationUtility.clean_track_data(cloned_animations, position_tracking_bone_name)
+    if (!RigConfig.by_key(this.skeleton_type)?.pack_source && !metadata_override.tags?.includes('mixamo')) {
+      AnimationUtility.clean_track_data(cloned_animations, position_tracking_bone_name)
+    }
 
     // Apply skeleton scaling to position keyframes
     AnimationUtility.apply_skeleton_scale_to_position_keyframes(cloned_animations, skeleton_scale)
