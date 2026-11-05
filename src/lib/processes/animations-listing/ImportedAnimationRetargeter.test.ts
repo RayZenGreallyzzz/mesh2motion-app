@@ -83,6 +83,7 @@ describe('Mixamo import through the existing editor rig', () => {
     const clip = new AnimationClip('bad',1,[new QuaternionKeyframeTrack('mixamorigHips.quaternion',[0],[0,0,0,1])])
     expect(() => retarget_imported_clips([clip],spaces(source),spaces(target))).toThrow(/lowerarm_l/)
     const legacy = new AnimationClip('legacy',1,[new QuaternionKeyframeTrack('foreign.quaternion',[0],[0,0,0,1])])
+    target.name = 'Mixamo_Imported_Model'
     const result = retarget_imported_clips([legacy],spaces(target),spaces(target))[0]
     expect(result.tracks.map(t => t.name)).toEqual(['foreign.quaternion'])
   })

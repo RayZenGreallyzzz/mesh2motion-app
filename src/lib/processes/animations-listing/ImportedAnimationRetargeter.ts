@@ -4,8 +4,13 @@ import { normalized_lookup_key } from '../../../retarget/bone-automap/BoneNameTo
 import { RestSpaceRetargeter, type BoneRestSpace } from '../../../retarget/RestSpaceRetargeter.ts'
 import { HumanoidClipCalibration, type HumanoidRestJoint } from './HumanoidClipCalibration.ts'
 
+const CORE_BONES = ['pelvis', 'head', 'upperarm_l', 'lowerarm_l', 'hand_l',
+  'upperarm_r', 'lowerarm_r', 'hand_r', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r']
+
 export function is_mixamo_source (rest: ReadonlyMap<string, BoneRestSpace>): boolean {
-  return MixamoMapper.is_target_valid_skeleton([...rest.keys()])
+  const keys = new Set([...rest.keys()].map(normalized_lookup_key))
+  const matched = CORE_BONES.filter(name => keys.has(normalized_lookup_key(MixamoMapper.map_source_bone_name_to_mixamo(name)!))).length
+  return matched >= Math.ceil(CORE_BONES.length * .8)
 }
 
 /** Reuse the editor's Mixamo name table and fitted-pose calibration for imported motions. */
@@ -31,9 +36,7 @@ export function retarget_imported_clips (
 
   if (mixamo) {
     // Optional fingers and end markers may differ. Both complete body chains must match.
-    const core = ['pelvis', 'head', 'upperarm_l', 'lowerarm_l', 'hand_l',
-      'upperarm_r', 'lowerarm_r', 'hand_r', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r']
-    for (const name of core) {
+    for (const name of CORE_BONES) {
       const key = normalized_lookup_key(MixamoMapper.map_source_bone_name_to_mixamo(name)!)
       const destination_name = destination.has(name) ? name : [...destination.keys()]
         .find(candidate => normalized_lookup_key(candidate) === key)

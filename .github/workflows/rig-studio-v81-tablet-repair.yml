@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - name: Check fitting, weight painting and humanoid motions
         run: |
-          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts
+          npm test -- src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/animations-listing/HumanoidClipCalibration.test.ts tests/manual-weight-paint.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts src/lib/solvers/JointVolumeSupport.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
       - name: Build offline editor
         run: |
           mkdir -p static/draco

@@ -21,6 +21,7 @@ export class CustomAnimationImporter extends EventTarget {
   private skeleton_scale: number = 1.0
   private import_context_provider: (() => { skinned_meshes_to_animate: SkinnedMesh[], skeleton_scale: number, known_ids?: string[] }) | null = null
   private enabled: boolean = true
+  private importing: boolean = false
   private has_added_event_listeners: boolean = false
 
   constructor (animation_loader: AnimationLoader) {
@@ -53,12 +54,12 @@ export class CustomAnimationImporter extends EventTarget {
   public set_enabled (enabled: boolean): void {
     this.enabled = enabled
     if (this.ui.dom_import_animations_button != null) {
-      this.ui.dom_import_animations_button.disabled = !enabled
+      this.ui.dom_import_animations_button.disabled = !this.is_enabled()
     }
   }
 
   public is_enabled (): boolean {
-    return this.enabled
+    return this.enabled && !this.importing
   }
 
   private prepare_mobile_import_ui (): void {
@@ -113,7 +114,8 @@ export class CustomAnimationImporter extends EventTarget {
       return
     }
 
-    this.set_enabled(false) // disable to prevent double-clicks during processing
+    this.importing = true
+    this.set_enabled(this.enabled)
 
     const skeleton = this.skinned_meshes_to_animate[0]?.skeleton
     const target_rest = skeleton ? this.rest_spaces.get(skeleton) : undefined
@@ -161,7 +163,8 @@ export class CustomAnimationImporter extends EventTarget {
       new ModalDialog('Импорт движений', message.innerHTML.replaceAll('\n', '<br>')).show()
     } finally {
       input.value = ''
-      this.set_enabled(true)
+      this.importing = false
+      this.set_enabled(this.enabled)
     }
   }
 
