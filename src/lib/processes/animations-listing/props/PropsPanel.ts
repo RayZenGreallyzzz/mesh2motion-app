@@ -43,7 +43,7 @@ export class PropsPanel extends EventTarget {
     // keep the floating panel docked beside the tool panel as its width changes
     const tool_panel = document.querySelector<HTMLElement>('#tool-panel')
     const dock = this.ui.dom_props_dock
-    if (tool_panel !== null && dock !== null) {
+    if (tool_panel !== null && dock !== null && !tool_panel.contains(dock)) {
       new ResizeObserver(() => {
         const panel_right = parseFloat(getComputedStyle(tool_panel).right) || 0
         dock.style.right = `calc(${tool_panel.offsetWidth + panel_right}px + 0.5rem)`

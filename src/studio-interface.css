@@ -99,7 +99,7 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 #animation-selection-count { background: #211b1420; color: #211b14; }
 #settings-dropdown-content { border: 1px solid var(--bg-tertiary); border-radius: 14px; background: var(--bg-primary); box-shadow: 0 12px 40px #0005; }
 #animation-player {
-  box-sizing: border-box; left: 24px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: none;
+  box-sizing: border-box; left: 24px; top: calc(var(--navigation-height) + 12px + env(safe-area-inset-top, 0px)); bottom: auto; transform: none;
   width: min(680px, calc(100vw - var(--studio-panel-width) - 72px)); padding: 10px 12px;
   border-radius: 16px; border: 1px solid var(--bg-tertiary); background: var(--ras-panel); align-items: stretch; gap: 6px;
 }
@@ -116,8 +116,8 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
   #tool-panel { width: var(--studio-panel-width) !important; padding: 14px !important; }
 }
 @media (max-width: 600px) {
-  #tool-panel { bottom: 108px !important; max-height: calc(100dvh - 172px) !important; }
-  #animation-player { width: calc(100vw - 48px); left: 24px; bottom: 16px; }
+  #tool-panel { top: calc(var(--navigation-height) + 112px) !important; bottom: 16px !important; max-height: calc(100dvh - var(--navigation-height) - 128px) !important; }
+  #animation-player { width: calc(100vw - 48px); left: 24px; }
   #animations-items, #animations-items.create-page { max-height: 34dvh; }
   .download-settings-panel { padding: 20px; }
   .download-settings-panel .toggle input + label { font-size: 13px; }
@@ -139,4 +139,17 @@ input[type='checkbox'], .styled-checkbox input[type='checkbox'], input[type='ran
 #animations-items .anim-creature-preview small { font-size: 10px; color: var(--text-secondary); }
 #animations-items [data-creature='true'] .anim-preview-label {
   white-space: normal; overflow-wrap: anywhere; line-height: 1.25;
+}
+
+/* Keep the weapon controls and their scrollable picker inside the tool panel. */
+#skinned-step-animation-export-options #props-dock {
+  position: relative; inset: auto; max-width: 100%; margin-bottom: 12px;
+}
+#skinned-step-animation-export-options .props-panel {
+  box-sizing: border-box; width: 100%; max-width: 100%; flex-direction: column; align-items: stretch;
+}
+#skinned-step-animation-export-options .prop-picker { width: 100%; }
+#skinned-step-animation-export-options .prop-picker-trigger { flex: 1; min-width: 0; width: auto; }
+#skinned-step-animation-export-options .prop-picker-popup {
+  box-sizing: border-box; left: 0; right: 0; width: 100%; max-height: min(320px, 40dvh);
 }

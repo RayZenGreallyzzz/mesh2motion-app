@@ -12,7 +12,7 @@ interface JointPair {
 }
 
 /**
- * Refines humanoid shoulder and elbow deformation after surface/geodesic skinning.
+ * Refines humanoid elbow and knee deformation after surface/geodesic skinning.
  *
  * The surface solver is excellent at keeping influence on the correct connected
  * surface, but its exponential distance field can make a joint transition too
@@ -20,7 +20,7 @@ interface JointPair {
  * redistributes the weight that the two bones in a real parent->child pair already
  * own, inside a compact capsule around the joint.
  *
- * That gives predictable shoulder/elbow gradients while preserving geodesic
+ * That gives predictable elbow/knee gradients while preserving geodesic
  * separation, accessories, manual paint, and all unrelated influences.
  */
 export class HumanoidJointWeightCorrector {
@@ -54,67 +54,20 @@ export class HumanoidJointWeightCorrector {
     const result: JointPair[] = []
 
     for (const side of ['l', 'r'] as const) {
-      const upperIndex = this.find_bone_index('upperarm', side)
-      const lowerIndex = this.find_bone_index('lowerarm', side)
-
-      if (upperIndex >= 0 && lowerIndex >= 0) {
-        const upper = this.bones[upperIndex]
-        const lower = this.bones[lowerIndex]
-        const hand = this.first_deform_child(lower)
-
-        if (hand !== null) {
-          const shoulder = Utility.world_position_from_object(upper)
-          const elbow = Utility.world_position_from_object(lower)
-          const wrist = Utility.world_position_from_object(hand)
-
-          const upperLength = shoulder.distanceTo(elbow)
-          const lowerLength = elbow.distanceTo(wrist)
-          const reference = Math.max(0.001, Math.min(upperLength, lowerLength))
-
-          result.push({
-            parentIndex: upperIndex,
-            childIndex: lowerIndex,
-            joint: elbow,
-            parentPoint: shoulder,
-            childPoint: wrist,
-            halfWidth: reference * 0.18,
-            radius: reference * 0.42
-          })
-        }
-      }
-
-      // The actual shoulder transition is clavicle/shoulder -> upperarm.
-      // Prefer the real Bone parent so custom naming still follows hierarchy.
-      if (upperIndex >= 0) {
-        const upper = this.bones[upperIndex]
-        const parent = upper.parent instanceof Object && (upper.parent as any).isBone === true
-          ? upper.parent as Bone
-          : null
-
-        if (parent !== null) {
-          const parentIndex = this.bones.indexOf(parent)
-          const lower = this.first_deform_child(upper)
-
-          if (parentIndex >= 0 && lower !== null) {
-            const parentPoint = Utility.world_position_from_object(parent)
-            const shoulder = Utility.world_position_from_object(upper)
-            const elbow = Utility.world_position_from_object(lower)
-
-            const clavicleLength = Math.max(0.001, parentPoint.distanceTo(shoulder))
-            const upperLength = Math.max(0.001, shoulder.distanceTo(elbow))
-            const reference = Math.min(Math.max(clavicleLength, upperLength * 0.35), upperLength)
-
-            result.push({
-              parentIndex,
-              childIndex: upperIndex,
-              joint: shoulder,
-              parentPoint,
-              childPoint: elbow,
-              halfWidth: Math.max(upperLength * 0.11, reference * 0.22),
-              radius: Math.max(upperLength * 0.30, reference * 0.55)
-            })
-          }
-        }
+      for (const [parentRole, childRole] of [['upperarm', 'lowerarm'], ['thigh', 'calf']] as const) {
+        const parentIndex = this.find_bone_index(parentRole, side)
+        const childIndex = this.find_bone_index(childRole, side)
+        if (parentIndex < 0 || childIndex < 0) continue
+        const parent = this.bones[parentIndex], child = this.bones[childIndex]
+        const tip = this.first_deform_child(child)
+        if (child.parent !== parent || tip === null) continue
+        const parentPoint = Utility.world_position_from_object(parent)
+        const joint = Utility.world_position_from_object(child)
+        const childPoint = Utility.world_position_from_object(tip)
+        const reference = Math.min(parentPoint.distanceTo(joint), joint.distanceTo(childPoint))
+        if (reference <= 1e-5) continue
+        result.push({ parentIndex, childIndex, joint, parentPoint, childPoint,
+          halfWidth: reference * 0.18, radius: reference * 0.42 })
       }
     }
 
@@ -182,18 +135,21 @@ export class HumanoidJointWeightCorrector {
       signed
     )
 
-    const desiredParent = pairWeight * (1 - t)
-    const desiredChild = pairWeight * t
+    const strength = (1 - this.smoothstep(pair.halfWidth, pair.halfWidth * 1.6, Math.abs(signed))) *
+      (1 - this.smoothstep(pair.radius * 0.75, pair.radius, radial))
+    const desiredParent = parentWeight + (pairWeight * (1 - t) - parentWeight) * strength
+    const desiredChild = pairWeight - desiredParent
+    if (Math.abs(desiredParent - parentWeight) < 1e-8) return
 
     // Ensure both slots exist while keeping all unrelated influences untouched.
     if (parentSlot < 0) {
-      parentSlot = this.find_reusable_slot(offset, pair.childIndex, skinIndices, skinWeights)
+      parentSlot = this.find_reusable_slot(offset, skinWeights)
       if (parentSlot < 0) return
       skinIndices[offset + parentSlot] = pair.parentIndex
     }
 
     if (childSlot < 0) {
-      childSlot = this.find_reusable_slot(offset, pair.parentIndex, skinIndices, skinWeights)
+      childSlot = this.find_reusable_slot(offset, skinWeights)
       if (childSlot < 0) return
       skinIndices[offset + childSlot] = pair.childIndex
     }
@@ -206,27 +162,13 @@ export class HumanoidJointWeightCorrector {
 
   private find_reusable_slot (
     offset: number,
-    protectedBone: number,
-    skinIndices: number[],
     skinWeights: number[]
   ): number {
     for (let slot = 0; slot < 4; slot++) {
       if ((skinWeights[offset + slot] ?? 0) <= 1e-6) return slot
     }
 
-    let smallestSlot = -1
-    let smallestWeight = Infinity
-
-    for (let slot = 0; slot < 4; slot++) {
-      if (skinIndices[offset + slot] === protectedBone) continue
-      const weight = skinWeights[offset + slot] ?? 0
-      if (weight < smallestWeight && weight < 0.08) {
-        smallestWeight = weight
-        smallestSlot = slot
-      }
-    }
-
-    return smallestSlot
+    return -1
   }
 
   private normalize_vertex (offset: number, skinWeights: number[]): void {
@@ -242,7 +184,7 @@ export class HumanoidJointWeightCorrector {
     ) as Bone | undefined) ?? null
   }
 
-  private find_bone_index (role: 'upperarm' | 'lowerarm', side: 'l' | 'r'): number {
+  private find_bone_index (role: 'upperarm' | 'lowerarm' | 'thigh' | 'calf', side: 'l' | 'r'): number {
     const aliases: Record<typeof role, Record<typeof side, string[]>> = {
       upperarm: {
         l: ['upperarm_l', 'leftarm', 'leftupperarm', 'mixamorigleftarm'],
@@ -251,6 +193,14 @@ export class HumanoidJointWeightCorrector {
       lowerarm: {
         l: ['lowerarm_l', 'forearm_l', 'leftforearm', 'leftlowerarm', 'mixamorigleftforearm'],
         r: ['lowerarm_r', 'forearm_r', 'rightforearm', 'rightlowerarm', 'mixamorigrightforearm']
+      },
+      thigh: {
+        l: ['thigh_l', 'leftupleg', 'leftupperleg', 'mixamorigleftupleg'],
+        r: ['thigh_r', 'rightupleg', 'rightupperleg', 'mixamorigrightupleg']
+      },
+      calf: {
+        l: ['calf_l', 'shin_l', 'leftleg', 'leftlowerleg', 'mixamorigleftleg'],
+        r: ['calf_r', 'shin_r', 'rightleg', 'rightlowerleg', 'mixamorigrightleg']
       }
     }
 

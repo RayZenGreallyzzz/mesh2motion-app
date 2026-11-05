@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="./radio-button-group.css">
     <link rel="stylesheet" href="./settings-dropdown.css">
     <link rel="stylesheet" href="./animation-player.css">
+    <link rel="stylesheet" href="./lib/processes/animations-listing/props/props.css">
     <link rel="stylesheet" href="./offline.css">
     <link rel="stylesheet" href="./rig-animation-studio.css">
     <link rel="stylesheet" href="./studio-interface.css">
@@ -23,7 +24,7 @@
         <img class="ras-brand-mark ignore-filters" src="./images/branding/hedgehog-icon.png" alt="" width="38" height="38" />
         <span class="ras-brand-copy">
           <strong>Rig Animation Studio</strong>
-          <small>v8.1 TEST · Автоподгонка суставов</small>
+          <small>v8.1.1 TEST · Локти и колени</small>
         </span>
       </div>
       <div style="display: inline-flex; align-items: center;">
@@ -428,6 +429,33 @@
 
         <span id="skinned-step-animation-export-options">
           <header class="studio-panel-heading"><p>Движения вашего персонажа</p></header>
+    <div id="props-dock" style="display: none">
+      <button
+        class="secondary-button"
+        id="props-toggle-button"
+        aria-expanded="false"
+        aria-controls="props-panel"
+        data-tippy-content="Attach props to the hands"
+        aria-label="Attach props to the hands"
+      >
+        <img src="images/icons/props.svg" alt="Props" width="32" height="32" />
+        Props
+      </button>
+      <div id="props-panel" class="props-panel" role="region" aria-label="Props" hidden>
+        <div id="props-left-hand" class="prop-picker"></div>
+        <div id="props-right-hand" class="prop-picker"></div>
+        <button
+          class="secondary-button"
+          id="props-close-button"
+          data-tippy-content="Close props"
+          aria-label="Close props"
+        >
+          <img src="images/icons/props.svg" alt="" width="32" height="32" />
+          Props
+        </button>
+      </div>
+    </div>
+
           <div id="animations-listing">
             <!-- Filter textbox and tab switcher side by side -->
             <div class="animation-filter-row" style="display: flex; gap: 1rem; align-items: flex-start;">
@@ -530,33 +558,6 @@
     </div>
 
     <!-- floating props toggle and panel docked to the left of the tool panel -->
-    <div id="props-dock" style="display: none">
-      <button
-        class="secondary-button"
-        id="props-toggle-button"
-        aria-expanded="false"
-        aria-controls="props-panel"
-        data-tippy-content="Attach props to the hands"
-        aria-label="Attach props to the hands"
-      >
-        <img src="images/icons/props.svg" alt="Props" width="32" height="32" />
-        Props
-      </button>
-      <div id="props-panel" class="props-panel" role="region" aria-label="Props" hidden>
-        <div id="props-left-hand" class="prop-picker"></div>
-        <div id="props-right-hand" class="prop-picker"></div>
-        <button
-          class="secondary-button"
-          id="props-close-button"
-          data-tippy-content="Close props"
-          aria-label="Close props"
-        >
-          <img src="images/icons/props.svg" alt="" width="32" height="32" />
-          Props
-        </button>
-      </div>
-    </div>
-
     <div id="animation-player-mount"></div>
 
     <!-- 3d view controls shown on bottom right. This helps with click events -->
