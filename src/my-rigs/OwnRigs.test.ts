@@ -98,15 +98,23 @@ describe('Own rigs import and offline envelope', () => {
     dispose_rig_scene(target.scene)
   })
 
-  it('rejects missing/duplicate parents and incompatible channels without mutating the target', async () => {
+  it('rejects missing/duplicate mappings and preserves target lengths instead of copying limb translations', async () => {
     const bytes = await own_rig_fixture()
     const source = await load_rig_asset(bytes, 'Source'), target = await load_rig_asset(bytes, 'Target')
     const map = suggest_mapping(source, target)
     const jaw = [...source.nodes.values()].find(node => node.name === 'Jaw')!
     expect(() => transfer_clips(source, target, { ...map, [jaw.id]: '' }, [1])).toThrow(/соответствие/)
     expect(() => transfer_clips(source, target, { ...map, [jaw.id]: map[jaw.parent_id!] }, [1])).toThrow()
-    target.nodes.get(jaw.id)!.position.y = -0.6
-    expect(() => transfer_clips(source, target, map, [0])).toThrow(/position/)
+    const targetJaw = target.nodes.get(jaw.id)!
+    targetJaw.position.y = -0.6
+    restore_rig_pose(target)
+    // Ordinary transfer now preserves limb proportions; positional deformation
+    // is a separate explicit option. The old rejection assertion predates it.
+    const [converted] = transfer_clips(source, target, map, [0])
+    expect(converted.tracks.some(track => track.name === targetJaw.object.uuid + '.position')).toBe(false)
+    const mixer = new AnimationMixer(target.scene)
+    mixer.clipAction(converted).play(); mixer.update(0.5)
+    expect(targetJaw.object.position.y).toBe(-0.6)
     expect(target.clips).toHaveLength(2)
     dispose_rig_scene(source.scene)
     dispose_rig_scene(target.scene)

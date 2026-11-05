@@ -25,7 +25,9 @@ export class TextureReadback {
     // GPU -> canvas readback reverses the image rows. Keep the CanvasTexture's
     // flipY=true from WebGLTextureUtils; copying glTF's false would mirror it.
     result.premultiplyAlpha = texture.premultiplyAlpha
-    result.userData = { ...texture.userData }
+    // GLTFLoader records image/ktx2 here. Readback has changed those bytes to
+    // PNG; preserving that MIME tag would create an invalid GLB image entry.
+    result.userData = { ...texture.userData, mimeType: 'image/png' }
     this.readable.set(texture, result)
     return result
   }
