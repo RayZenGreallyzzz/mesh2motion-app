@@ -75,7 +75,8 @@ export function estimate_limb_joint (
   start: Vector3,
   end: Vector3,
   fallback: Vector3,
-  centerX: number
+  centerX: number,
+  kind: LimbChain['kind'] = 'elbow'
 ): JointEstimate | null {
   const axis = end.clone().sub(start), length = axis.length()
   if (!Number.isFinite(length) || length < 1e-5) return null
@@ -152,10 +153,14 @@ export function estimate_limb_joint (
       median(window.map(s => s.center.x)), median(window.map(s => s.center.y)), median(window.map(s => s.center.z))) }
   })
   const prior = Math.max(.22, Math.min(.88, fallback.clone().sub(start).dot(axis) / length))
+  // The ankle/boot rim is often a stronger constriction than the knee. Exclude
+  // the distal end of a leg and implausibly large shifts of its coarse landmark.
+  // These are search bounds along this limb, never a fixed percentage of height.
+  const maxFraction = kind === 'knee' ? .74 : .88
   let best: JointEstimate | null = null, bestScore = 0
   for (let i = 18; i <= 84; i++) {
     const section = profile[i], fraction = first + i * step
-    if (!section || fraction < .22 || fraction > .88) continue
+    if (!section || fraction < .22 || fraction > maxFraction || (kind === 'knee' && Math.abs(fraction - prior) > .23)) continue
     const before = profile.slice(i - 14, i - 5).filter((s): s is Section => s !== null)
     const after = profile.slice(i + 6, i + 15).filter((s): s is Section => s !== null)
     if (before.length < 6 || after.length < 6) continue
@@ -204,7 +209,7 @@ export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], fr
   }
   for (const chain of chains) {
     const { start, joint, end, kind } = chain
-    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX)
+    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind)
     joint.userData.rigJointFit = estimate ? { source: 'surface', evidence: estimate.evidence, confidence: estimate.confidence } : { source: 'fallback' }
     if (!estimate) { joint.userData.rigFitWarning = true; continue }
     delete joint.userData.rigFitWarning

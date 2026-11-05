@@ -97,6 +97,17 @@ describe('Anatomical elbow and knee fitting', () => {
     expect(duplicated).toEqual(original)
   })
 
+  it('does not mistake a narrow boot rim or ankle for a knee', () => {
+    const leg = new Mesh(new LatheGeometry([
+      new Vector2(.1, 0), new Vector2(.14, .3), new Vector2(.065, .5),
+      new Vector2(.11, .63), new Vector2(.025, .88), new Vector2(.09, 1)
+    ], 24))
+    leg.position.x = .3
+    const surface = joint_fit_surface(leg, null)
+    const fitted = estimate_limb_joint(surface, new Vector3(.3, 0, 0), new Vector3(.3, 1, 0), new Vector3(.3, .48, 0), 0, 'knee')
+    expect(fitted!.point.distanceTo(new Vector3(.3, .5, 0))).toBeLessThan(.025)
+  })
+
   it('keeps wrists, ankles and toe offsets when the parent joints move', async () => {
     const model = joint_character(.64, .58), { bones, skeleton } = await template()
     fit_humanoid_rig(model, skeleton, null, () => {})
