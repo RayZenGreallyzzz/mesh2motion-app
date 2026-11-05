@@ -90,7 +90,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#animations-items .anim-play-button').length >= 178)
   await importMotion(readyVariants[0])
   await page.locator('#animation-filter').fill('Mixamo')
-  await page.waitForFunction(() => document.querySelectorAll('#animations-items .anim-play-button').length === 1 && document.querySelector('#animations-items .anim-play-button')?.textContent.includes('Mixamo'))
+  await page.waitForFunction(() => document.querySelectorAll('#animations-items .anim-play-button').length === 1 && document.querySelector('#animations-items .anim-play-button')?.getAttribute('aria-label')?.includes('Mixamo'))
   await page.locator('#animations-items .anim-play-button').first().click()
   await page.locator('#animations-items input[type="checkbox"]').first().check()
   const download = page.waitForEvent('download'); await page.locator('#export-button').click()
