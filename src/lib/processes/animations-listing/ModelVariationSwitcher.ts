@@ -1,7 +1,8 @@
 import { Skeleton, SkinnedMesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import tippy from 'tippy.js'
-import { RigConfig, type ModelVariation, type RigConfigEntry } from '../../RigConfig'
+import { RigConfig, type RigConfigEntry } from '../../RigConfig'
+import { type ModelVariation } from '../../RigModelVariations'
 import { type SkeletonType } from '../../enums/SkeletonType'
 import { VariationLicenseCatalog } from '../../VariationLicenseInfo'
 

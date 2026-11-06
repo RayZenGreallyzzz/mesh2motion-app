@@ -182,7 +182,7 @@ export class StepWeightSkin extends EventTarget {
     this.binding_scene_root = this.skinning_armature.children[0]
     this.skinning_armature.updateMatrixWorld(true)
     this.binding_skeleton = Generators.create_skeleton(this.binding_scene_root)
-    this.binding_skeleton.name = 'Mesh Binding Skeleton'
+    ;(this.binding_skeleton as Skeleton & { name: string }).name = 'Mesh Binding Skeleton'
 
     // Regression guard: except for the top/root Bone, every tracked Bone must
     // have a Bone parent. A Group/Object3D spacer breaks Skeleton.pose().
@@ -382,6 +382,11 @@ export class StepWeightSkin extends EventTarget {
 
   public clear_manual_weight_overrides (): void { this.manual_edits.clear() }
   public manual_weight_history (): { undo: boolean, redo: boolean } { return { undo: this.manual_edits.canUndo, redo: this.manual_edits.canRedo } }
+  public manual_weight_locks (): Array<Set<number>> {
+    return this.all_mesh_geometry.map((_, mesh) => new Set(
+      [...(this.manual_edits.entries.get(mesh) ?? [])].filter(([, entry]) => entry.value !== null).map(([vertex]) => vertex)
+    ))
+  }
   public read_vertex_weights(mesh: number, vertex: number): VertexWeights | undefined {
     const g = this.all_mesh_geometry[mesh], ii = g?.getAttribute('skinIndex'), ww = g?.getAttribute('skinWeight')
     if (!ii || !ww || vertex < 0 || vertex >= ii.count) return undefined

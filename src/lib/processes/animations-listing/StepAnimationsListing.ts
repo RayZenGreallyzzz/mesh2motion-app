@@ -2,7 +2,7 @@ import { UI } from '../../UI.ts'
 import { AnimationPlayer } from './AnimationPlayer.ts'
 
 import {
-  type AnimationClip, AnimationMixer, type SkinnedMesh, type AnimationAction, Object3D, type Scene
+  type AnimationClip, AnimationMixer, type SkinnedMesh, type AnimationAction, Object3D, type Scene, BufferAttribute
 } from 'three'
 
 import { AnimationUtility } from './AnimationUtility.ts'
@@ -22,6 +22,7 @@ import { AnimationSearch } from './AnimationSearch.ts'
 import { type AnimationClipMetadata, type TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair.ts'
 import { type AnimationExportSelection } from './interfaces/AnimationExportSelection.ts'
 import { PropsManager } from './props/PropsManager.ts'
+import { MotionWeightRepairControl } from './MotionWeightRepair.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepAnimationsListing extends EventTarget {
@@ -30,6 +31,8 @@ export class StepAnimationsListing extends EventTarget {
   private readonly animation_player: AnimationPlayer
   private animation_clips_loaded: TransformedAnimationClipPair[] = []
   private warp_revision = 0
+  private readonly motion_weight_repair: MotionWeightRepairControl
+  private manual_weight_locks_provider: () => Array<Set<number>> = () => []
   private readonly clip_warp_revisions = new WeakMap<TransformedAnimationClipPair, number>()
   private readonly animation_loader: AnimationLoader = new AnimationLoader()
   private readonly rest_pose_snapshots: RigRestPoseSnapshot = new RigRestPoseSnapshot()
@@ -75,6 +78,19 @@ export class StepAnimationsListing extends EventTarget {
     this.ui = UI.getInstance()
     this.animation_player = new AnimationPlayer()
     this.theme_manager = theme_manager
+    this.motion_weight_repair = new MotionWeightRepairControl({
+      meshes: () => this.skinned_meshes_to_animate,
+      clips: () => this.selected_weight_repair_clips(),
+      locks: () => this.manual_weight_locks_provider(),
+      key: () => JSON.stringify([
+        this.warp_revision, this.get_animation_export_selections(),
+        this.skinned_meshes_to_animate.map(mesh => [mesh.uuid, mesh.geometry.uuid,
+          ...['position', 'skinIndex', 'skinWeight'].map(name => {
+            const attribute = mesh.geometry.getAttribute(name)
+            return attribute instanceof BufferAttribute ? attribute.version : attribute?.data.version
+          })])
+      ])
+    })
 
     this.custom_animation_importer = new CustomAnimationImporter(this.animation_loader)
 
@@ -133,6 +149,7 @@ export class StepAnimationsListing extends EventTarget {
   }
 
   public reset_step_data (): void {
+    this.motion_weight_repair.reset()
     // reset previous state if we are re-entering this step
     // this will happen if we are reskinning the mesh after changes
     this.props_manager.detach_all()
@@ -174,6 +191,7 @@ export class StepAnimationsListing extends EventTarget {
   // setup in the bootstrap.ts file and only called if we are actively
   // on this step
   public frame_change (delta_time: number): void {
+    this.motion_weight_repair.checkContext()
     this.mixer().update(delta_time)
     this.animation_player.update(delta_time)
   }
@@ -245,6 +263,7 @@ export class StepAnimationsListing extends EventTarget {
    * and replays the current animation on them.
    */
   public swap_skinned_meshes (scene: Scene, new_skinned_meshes: SkinnedMesh[]): void {
+    this.motion_weight_repair.reset()
     const is_variation_active = this.model_variation_switcher?.is_variation_active ?? false
     this.props_manager.detach_all()
     this.clear_variation_model_from_scene()
@@ -375,6 +394,7 @@ export class StepAnimationsListing extends EventTarget {
     // add event listener to listem for checkbox changes when we change
     // the amount of animations to export
     this.animation_search?.addEventListener('export-options-changed', () => {
+      this.motion_weight_repair.invalidate()
       // update the count for the download button
       if (this.ui.dom_animation_count != null) {
         this.ui.dom_animation_count.innerHTML = this.animation_search?.get_selected_export_animation_count().toString() ?? '0'
@@ -433,6 +453,7 @@ export class StepAnimationsListing extends EventTarget {
    * Rebuilds all of the warped animations by applying the specified warps.
    */
   private rebuild_warped_animations (): void {
+    this.motion_weight_repair.invalidate()
     // A drag must not clone/warp all 178 clips on every input event. Rebuild
     // the visible clip on playback; resolve the remaining clips before export.
     this.warp_revision++
@@ -631,5 +652,22 @@ export class StepAnimationsListing extends EventTarget {
     }
 
     return this.animation_search.get_selected_animation_export_selections()
+  }
+
+  public set_manual_weight_locks_provider (provider: () => Array<Set<number>>): void {
+    this.manual_weight_locks_provider = provider
+  }
+
+  private selected_weight_repair_clips (): AnimationClip[] {
+    const clips: AnimationClip[] = []
+    for (const selection of this.get_animation_export_selections()) {
+      const pair = this.animation_clips_loaded[selection.animation_index]
+      if (!pair) continue
+      this.ensure_warped_animation(pair)
+      if (selection.mirror_export_mode !== 'mirrored') clips.push(pair.display_animation_clip.clone())
+      if (selection.mirror_export_mode !== 'none') clips.push(AnimationUtility.create_mirrored_clip(pair.display_animation_clip))
+      if (clips.length > 8) throw new Error('Выберите до восьми движений, включая зеркальные варианты.')
+    }
+    return clips
   }
 }

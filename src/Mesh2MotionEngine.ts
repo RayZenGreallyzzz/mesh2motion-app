@@ -124,6 +124,7 @@ export class Mesh2MotionEngine {
     this.edit_skeleton_step = new StepEditSkeleton()
     this.weight_skin_step = new StepWeightSkin()
     this.animations_listing_step = new StepAnimationsListing(this.theme_manager)
+    this.animations_listing_step.set_manual_weight_locks_provider(() => this.weight_skin_step.manual_weight_locks())
     this.download_settings = new DownloadSettings()
     this.file_export_step = new StepExportToFile()
     this.mesh_drag_bone_placement = new MeshDragBonePlacement(

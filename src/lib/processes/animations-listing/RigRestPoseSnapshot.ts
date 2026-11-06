@@ -21,10 +21,11 @@ interface SkeletonRestPose {
  */
 export class RigRestPoseSnapshot {
   private static readonly local_poses = new WeakMap<Object3D, LocalPose>()
-  public static restore_copy_pose (original: Object3D, copy: Object3D): void {
+  public static restore_copy_pose (original: Object3D, copy: Object3D): boolean {
     const pose = this.local_poses.get(original)
-    if (!pose) return
+    if (!pose) return false
     copy.position.copy(pose.position); copy.quaternion.copy(pose.quaternion); copy.scale.copy(pose.scale); copy.updateMatrix()
+    return true
   }
   private readonly snapshots = new WeakMap<Skeleton, SkeletonRestPose>()
 

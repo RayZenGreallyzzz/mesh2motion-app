@@ -496,6 +496,16 @@
             <!-- slider to control arm extension. shared with the retarget workflow -->
             <div id="arm-extension-mount"></div>
 
+            <details class="alternate-background-section">
+              <summary style="min-height:40px;cursor:pointer">Проверка деформаций</summary>
+              <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
+                <small>Выберите до восьми движений. Проверка уменьшает резкие растяжения весов для этого набора. Ручная покраска сохраняется; результат можно отменить.</small>
+                <button type="button" id="motion-weight-repair">Улучшить веса выбранных движений</button>
+                <button type="button" id="motion-weight-undo" class="secondary-button" disabled>Отменить исправление</button>
+                <small id="motion-weight-status" role="status" aria-live="polite"></small>
+              </div>
+            </details>
+
             <div class="download-actions-row">
               <button class="no-style-button" id="action_back_to_edit_skeleton">
                 &#x2039; Веса
@@ -575,3 +585,4 @@
     <!-- build version information-->
     <span id="build-version"></span></body>
 </html>
+
