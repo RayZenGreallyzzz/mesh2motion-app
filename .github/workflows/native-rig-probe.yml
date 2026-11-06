@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Install Android compile tools
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' > /dev/null
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null'
       - name: Compile the generic shell
         run: bash tools/native-rig-probe/build.sh
       - uses: actions/upload-artifact@v4
