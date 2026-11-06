@@ -25,8 +25,8 @@ for pack in catalog:
 def replace_strings(data):
     for old, new in [
         ('com.rayzen.riganimationstudio.v814test', 'com.rayzen.riganimationstudio.v815test'),
-        ('Rig Studio v8.1.4 Test', 'Rig Studio v8.1.5 Test'),
-        ('8.1.4', '8.1.5'),
+        ('Rig Studio v8.1.4 Test', 'Rig Studio v8.1.6 Test'),
+        ('8.1.4', '8.1.6'),
     ]:
         for encoding in ('utf-8', 'utf-16le'):
             a, b = old.encode(encoding), new.encode(encoding)
@@ -49,7 +49,7 @@ def patch_version_code(data):
                 name = struct.unpack_from('<I', data, pos + 4)[0]
                 if name < len(resources) and resources[name] == 0x0101021b:
                     assert struct.unpack_from('<I', data, pos + 16)[0] == 814
-                    struct.pack_into('<I', data, pos + 16, 815)
+                    struct.pack_into('<I', data, pos + 16, 816)
         if size < 8:
             raise ValueError('Invalid manifest chunk')
         cursor += size

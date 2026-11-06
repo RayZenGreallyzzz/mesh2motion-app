@@ -46,7 +46,9 @@ This is not a universal rigging or motion-retargeting solution. It does not add
 trunk/tail articulation to human skeletons, fix the long-neck bird or the winged
 dragon, provide foot-contact IK, or prove compatibility with every purchased
 animation. Anatomical joint centers, accessories and deformations still require
-review. There has been no new APK/device test or neural-model inference.
+review. The full-library v8.1.6 test APK packages these changes and retains the
+v8.1.5 package identity and private signing key for an in-place update. There
+has been no physical Android-device test or neural-model inference.
 
 RigAnything is a separate research candidate for mesh-to-skeleton and skinning.
 Its downloaded source archive excludes the trained checkpoint and its supplied

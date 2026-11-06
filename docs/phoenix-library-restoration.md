@@ -38,9 +38,11 @@ For a like-for-like comparison, the Blender reference uses that same limit;
 each conversion report records the number of affected vertices and largest
 discarded influence fraction. Original .blend files are never overwritten.
 
-For the v8.1.5 native shell, scripts/repack-private-library.py can replace the
+For the v8.1.6 native shell, scripts/repack-private-library.py can replace the
 web assets of the verified v8.1.4 APK with the validated local dist directory.
 The resulting APK is unsigned; align and sign it with the locally retained
 test key, then verify both the signature and all catalog entries in the final
-APK. This test package uses com.rayzen.riganimationstudio.v815test and installs
-separately from previous test packages.
+APK. This test package keeps com.rayzen.riganimationstudio.v815test, uses version
+code 816/name 8.1.6 and must be signed with the private v8.1.5 test key. It updates
+v8.1.5 while retaining that package's local imports and settings. Do not uninstall
+v8.1.5 before installing the update. Other test packages remain separate.
