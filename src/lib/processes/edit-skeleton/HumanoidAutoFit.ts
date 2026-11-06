@@ -4,6 +4,7 @@ import { estimate_arm_pose } from './AutoRigArmPoseEstimator.ts'
 import { capture_hand_shape, place_hand_shape } from './HandPose.ts'
 import { refine_woman_rig } from './WomanBodyFit.ts'
 import { fit_humanoid_head } from './HumanoidHeadFit.ts'
+import { CreatureVolume } from './CreatureVolume.ts'
 import { refine_humanoid_joints, visit_fit_geometry, type LimbChain } from './HumanoidJointFit.ts'
 
 // Refits must use template proportions, not feed the prior fitted offsets back.
@@ -63,7 +64,27 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     bones[0]?.updateWorldMatrix(true, true)
     const centerX = (minX + maxX) * 0.5
     const centerZ = (minZ + maxZ) * 0.5
-    const yAt = (ratio: number): number => minY + height * ratio
+    const armEstimate = estimate_arm_pose(points, centerX, width, minY, height)
+    const bodyHeight = armEstimate?.shortBody ? (armEstimate.shoulderY - minY) / .79 : height
+    const yAt = (ratio: number): number => minY + bodyHeight * ratio
+    let pelvisY = yAt(.52)
+    let bodyVolume: CreatureVolume | null = null
+    let torsoZ = centerZ
+    if (armEstimate?.shortBody) {
+      const volume = new CreatureVolume(model, frame, new THREE.Quaternion(), points, 112)
+      bodyVolume = volume
+      const armZ = points.filter(p => Math.abs(p.y - armEstimate.shoulderY) < height * .04 && Math.abs(p.x - centerX) > width * .26).map(p => p.z).sort((a, b) => a - b)
+      torsoZ = armZ[Math.floor(armZ.length / 2)] ?? centerZ
+      // Locate the crotch where the two legs merge into a solid central body.
+      // Restrict depth to the arm/torso band so a trailing tail is not a pelvis.
+      let crotch = Infinity
+      for (const i of volume.cells) {
+        if (volume.radius[i] < 2) continue
+        const p = volume.point(i)
+        if (Math.abs(p.x - centerX) < volume.step * 1.5 && Math.abs(p.z - torsoZ) < bodyHeight * .15 && p.y > minY + bodyHeight * .12 && p.y < armEstimate.shoulderY) crotch = Math.min(crotch, p.y)
+      }
+      if (Number.isFinite(crotch)) pelvisY = crotch + (armEstimate.shoulderY - crotch) * .20
+    }
 
     const normalize = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, '')
     const byAliases = (aliases: string[]): Bone | undefined => {
@@ -146,6 +167,12 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       radiusX: number = Math.max(width * 0.035, 0.0001),
       radiusY: number = Math.max(height * 0.025, 0.0001)
     ): number => {
+      if (bodyVolume) {
+        const volume = bodyVolume
+        const cell = volume.select((p, r) => Math.abs(p.x - x) < Math.max(volume.step * 1.5, bodyHeight * .02) && Math.abs(p.y - y) < Math.max(volume.step, bodyHeight * .012)
+          ? r * 2 - Math.abs(p.z - torsoZ) * .35 : -Infinity)
+        if (cell >= 0) return volume.point(cell).z
+      }
       const candidates: number[] = []
       for (const p of points) {
         const dx = (p.x - x) / radiusX
@@ -195,7 +222,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       return distances[Math.min(distances.length - 1, Math.floor(distances.length * 0.72))]
     }
 
-    const hipHalf = Math.max(width * 0.045, sliceHalfWidth(0.52) * 0.42)
+    const hipHalf = Math.max(width * 0.045, sliceHalfWidth((pelvisY - minY) / bodyHeight) * 0.42)
 
     // Determine which world-X side the rig calls "left" from the current rig,
     // so this works even if the imported character faces the opposite direction.
@@ -208,13 +235,12 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     // v6.4: locate real arm heights from the lateral mesh before falling
     // back to Y=79%. Giant cat ears and hair otherwise move the assumed
     // shoulder slice ABOVE a real T-pose and create false A-pose rigs.
-    const armEstimate = estimate_arm_pose(points, centerX, width, minY, height)
     // A shoulder-height slice includes the entire horizontal arm in T-pose.
     // Measure the rib cage BELOW it instead; otherwise the "shoulder" lands at
     // the wrist and both arm segments collapse, even on our own reference mesh.
-    const chestRatio = Math.min(0.70, ((armEstimate?.shoulderY ?? yAt(0.79)) - minY) / height - 0.09)
+    const chestRatio = Math.min(0.70, ((armEstimate?.shoulderY ?? yAt(0.79)) - minY) / bodyHeight - 0.09)
     const shoulderHalf = THREE.MathUtils.clamp(sliceHalfWidth(chestRatio, 0.02) * 1.05,
-      Math.min(width * 0.08, height * 0.12), height * 0.20)
+      Math.min(width * 0.08, bodyHeight * 0.12), bodyHeight * 0.20)
     const slope = armEstimate ? (armEstimate.handY - armEstimate.shoulderY) / (width * 0.155) : 0
     const shoulderY = armEstimate
       ? armEstimate.shoulderY + THREE.MathUtils.clamp(slope, -2, 2) * (shoulderHalf - width * 0.315)
@@ -234,7 +260,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
 
 
     // Centre chain.
-    setWorld(pelvis, centerX, yAt(0.52), depthCenterAt(centerX, yAt(0.52), centerZ, width * 0.12, height * 0.035))
+    setWorld(pelvis, centerX, pelvisY, depthCenterAt(centerX, pelvisY, centerZ, width * 0.12, bodyHeight * 0.035))
 
     const spineBones = bones
       .filter(b => {
@@ -245,10 +271,12 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
 
     spineBones.forEach((bone, index) => {
       const t = spineBones.length <= 1 ? 1 : index / (spineBones.length - 1)
-      { const yy = yAt(0.59 + 0.16 * t); setWorld(bone, centerX, yy, depthCenterAt(centerX, yy, centerZ, width * 0.10, height * 0.03)) }
+      { const yy = armEstimate?.shortBody ? THREE.MathUtils.lerp(pelvisY + bodyHeight * .05, shoulderY - bodyHeight * .04, t) : yAt(0.59 + 0.16 * t); setWorld(bone, centerX, yy, depthCenterAt(centerX, yy, centerZ, width * 0.10, bodyHeight * 0.03)) }
     })
     setWorld(neck, centerX, yAt(0.84), depthCenterAt(centerX, yAt(0.84), centerZ, width * 0.08, height * 0.025))
     setWorld(head, centerX, yAt(0.91), depthCenterAt(centerX, yAt(0.91), centerZ, width * 0.09, height * 0.035))
+    if (armEstimate?.shortBody) setWorld(byAliases(['head_leaf']), centerX, maxY - height * .025,
+      head ? position(head).z : torsoZ)
 
     // Arms: fit A-pose by default, keep T-pose horizontal when geometry says so.
     for (const side of ['l', 'r'] as const) {
@@ -307,8 +335,9 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     }
 
     // Legs.
+    const legYAt = (ratio: number) => armEstimate?.shortBody ? minY + (pelvisY - minY) * ratio / .52 : yAt(ratio)
     const legCenterAt = (sign: number, ratio: number, fallback: number): number => {
-      const xs = points.filter(p => Math.abs(p.y - yAt(ratio)) < height * 0.025 &&
+      const xs = points.filter(p => Math.abs(p.y - legYAt(ratio)) < bodyHeight * 0.025 &&
         (p.x - centerX) * sign > height * 0.01)
         .map(p => p.x).sort((a, b) => a - b)
       if (xs.length < 8) return fallback
@@ -328,10 +357,10 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       const xHip = legCenterAt(sign, 0.50, centerX + sign * hipHalf)
       const xKnee = legCenterAt(sign, 0.285, (xHip + xFoot) * 0.5)
 
-      const hipY = yAt(0.50)
-      const kneeY = yAt(0.285)
-      const footY = yAt(0.055)
-      const toeY = yAt(0.025)
+      const hipY = legYAt(0.50)
+      const kneeY = legYAt(0.285)
+      const footY = legYAt(0.055)
+      const toeY = legYAt(0.025)
       setWorld(thigh, xHip, hipY,
         depthCenterAt(xHip, hipY, preservedZ(thigh ?? pelvis!), width * 0.045, height * 0.035))
       setWorld(shin, xKnee, kneeY,
@@ -344,7 +373,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
 
     bones[0]?.updateWorldMatrix(true, true)
     if (profile === 'woman') refine_woman_rig(points, bones, frame)
-    fit_humanoid_head(points, bones, frame)
+    fit_humanoid_head(points, bones, frame, armEstimate?.shortBody ? bodyHeight : undefined)
     const chains: LimbChain[] = []
     for (const side of ['l', 'r'] as const) {
       for (const [startRole, jointRole, endRole, kind] of [

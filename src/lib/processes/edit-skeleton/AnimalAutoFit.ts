@@ -1,6 +1,7 @@
 import { load_pack_rig } from '../../../library/PackRigSource.ts'
 import { WingedCreatureAutoFit } from './WingedCreatureAutoFit.ts'
 import { AnimalCrossSection } from './AnimalCrossSection.ts'
+import { fit_quadruped_limbs, quadruped_limbs } from './QuadrupedLimbFit.ts'
 import { Box3, Matrix4, Object3D, Quaternion, Skeleton, Vector3, type Bone, type Mesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { RigConfig } from '../../RigConfig.ts'
@@ -107,7 +108,7 @@ export class AnimalAutoFit {
       (creature_mode === 'upright-winged' || size.y / size.x > .65)
       ? WingedCreatureAutoFit.propose(model, frame, fit.yaw, canonical_target) : null
     if (creature_mode === 'upright-winged' && !creature) return null
-    const quadruped = reference.joints.has('Front_Leg_Upper_L') && reference.joints.has('Back_Leg_Upper_L')
+    const quadruped = quadruped_limbs(reference.joints.keys()).length === 4
     const source_feet = quadruped ? this.foot_centers(canonical_source, size) : null
     const target_feet = quadruped ? this.foot_centers(canonical_target, size) : null
     const box = new Box3().setFromPoints(canonical_target)
@@ -188,6 +189,20 @@ export class AnimalAutoFit {
         })
       }
     }
+    let fitted_limbs = false
+    if (!identical_shape && quadruped) {
+      const inverse_frame = frame?.matrixWorld.clone().invert() ?? new Matrix4()
+      const initial = new Map([...targets].map(([name, joint]) => [name, joint.position.clone().applyMatrix4(inverse_frame).applyQuaternion(inverse_yaw)]))
+      const limbs = fit_quadruped_limbs(model, frame, fit.yaw, canonical_target, initial)
+      if (limbs) {
+        fitted_limbs = true
+        for (const [name, point] of limbs) {
+          point.applyQuaternion(fit.yaw)
+          if (frame) point.applyMatrix4(frame.matrixWorld)
+          targets.get(name)!.position.copy(point)
+        }
+      }
+    }
     if (creature) {
       for (const [name, point] of creature) {
         const joint = targets.get(name)
@@ -208,7 +223,7 @@ export class AnimalAutoFit {
       bone.updateWorldMatrix(true, true)
     }
     return creature ? 'двуногий дракон; цепочки внутри тела, шеи и хвоста; крылья и поднятые лапы отдельно'
-      : 'шаблон животного; лапы, спина и хвост требуют проверки'
+      : fitted_limbs ? 'лапы подогнаны по объёму; проверьте суставы и движение' : 'шаблон животного; лапы, спина и хвост требуют проверки'
   }
 
   private static depth (object: Object3D): number {

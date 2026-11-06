@@ -9,7 +9,7 @@ const percentile = (values: number[], q: number): number => {
  * total height (inside the face). Hair/raised hands must not define this joint.
  * The setup-frame coordinates and authored local rotation basis are preserved.
  */
-export function fit_humanoid_head(points: readonly Vector3[], bones: Bone[], frame: Object3D | null): boolean {
+export function fit_humanoid_head(points: readonly Vector3[], bones: Bone[], frame: Object3D | null, bodyHeight?: number): boolean {
   const neck = bones.find(b => b.name === 'neck_01'), head = bones.find(b => b.name === 'head')
   const tip = bones.find(b => b.name === 'head_leaf'), pelvis = bones.find(b => b.name === 'pelvis')
   const arms = ['upperarm_l', 'upperarm_r'].map(name => bones.find(b => b.name === name))
@@ -18,7 +18,7 @@ export function fit_humanoid_head(points: readonly Vector3[], bones: Bone[], fra
   const at = (b: Bone) => b.getWorldPosition(new Vector3()).applyMatrix4(inverse)
   let bottom = Infinity, top = -Infinity
   for (const p of points) { bottom = Math.min(bottom, p.y); top = Math.max(top, p.y) }
-  const height = top - bottom
+  const height = bodyHeight ?? top - bottom
   if (!(height > 1e-6)) return false
   const center = at(pelvis).x, shoulder = (at(arms[0]!).y + at(arms[1]!).y) * .5
   const oldHead = at(head), oldTip = at(tip)

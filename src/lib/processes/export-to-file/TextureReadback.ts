@@ -12,7 +12,9 @@ export class TextureReadback {
     const cached = this.readable.get(texture)
     if (cached) return cached
     this.renderer ??= new WebGLRenderer({ antialias: false, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true })
-    const result = decompress(texture, max_size, this.renderer)
+    // WebGLTextureUtils constructs a CanvasTexture; its public declaration
+    // currently widens that return value to Texture.
+    const result = decompress(texture, max_size, this.renderer) as CanvasTexture
     // Readback changes the image representation, not its UV set or transform.
     result.channel = texture.channel
     result.mapping = texture.mapping

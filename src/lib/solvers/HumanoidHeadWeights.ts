@@ -19,10 +19,16 @@ export function protect_humanoid_head(geometry: BufferGeometry, bones: Bone[], i
   const base = head.getWorldPosition(new Vector3()), end = tip.getWorldPosition(new Vector3()), neckBase = neck.getWorldPosition(new Vector3())
   const length = base.distanceTo(end), neckLength = base.distanceTo(neckBase)
   if (length<1e-6 || neckLength<1e-6) return 0
-  const axis = end.clone().sub(base).normalize(), segments: Array<[Vector3,Vector3]> = []
+  const pelvis = bones.find(b => b.name === 'pelvis')?.getWorldPosition(new Vector3())
+  const torsoLength = pelvis ? neckBase.distanceTo(pelvis) : length
+  const largeHead = !!pelvis && length > torsoLength * .8
+  const axis = end.clone().sub(base).normalize(), segments: Array<{ a: Vector3, b: Vector3, radius: number }> = []
   for (const b of bones) if (/^(?:upperarm|lowerarm|hand|thumb_\d+|index_\d+|middle_\d+|ring_\d+|pinky_\d+)_[lr]$/.test(b.name)) {
     const a = b.getWorldPosition(new Vector3())
-    for (const c of b.children) if ((c as Bone).isBone) segments.push([a,c.getWorldPosition(new Vector3())])
+    for (const c of b.children) if ((c as Bone).isBone) {
+      const end = c.getWorldPosition(new Vector3())
+      segments.push({ a, b: end, radius: torsoLength * .09 + a.distanceTo(end) * .12 })
+    }
   }
   const pos = geometry.getAttribute('position'), p = new Vector3(), delta = new Vector3(), v = new Vector3(), d = new Vector3()
   let changed = 0
@@ -30,14 +36,22 @@ export function protect_humanoid_head(geometry: BufferGeometry, bones: Bone[], i
     p.fromBufferAttribute(pos,i);delta.copy(p).sub(base)
     const height=delta.dot(axis), radial=Math.sqrt(Math.max(0,delta.lengthSq()-height*height))
     let amount=smooth((height+neckLength*.65)/(neckLength*.65)) *
-      (1-smooth((radial/length-1.05)/.45)) * (1-smooth((height/length-1.65)/.55))
+      (largeHead ? 1 : 1-smooth((radial/length-1.05)/.45)) * (1-smooth((height/length-1.65)/.55))
     if (amount<1e-6) continue
     const headDistance=distanceToSegment(p,base,end,v,d)
     let armDistance=Infinity
-    for (const [a,b] of segments) armDistance=Math.min(armDistance,distanceToSegment(p,a,b,v,d))
+    let armExclusion = 1
+    for (const { a, b, radius } of segments) {
+      const distance = distanceToSegment(p,a,b,v,d)
+      armDistance=Math.min(armDistance,distance)
+      armExclusion = Math.min(armExclusion, smooth((distance - radius) / Math.max(radius * .7, 1e-6)))
+    }
     // Smooth spatial exclusion protects hands held next to the face as well as
     // high V-pose arms. No horizontal head plane can distinguish these alone.
-    amount*=smooth((armDistance-headDistance)/(length*.30))
+    // With a large skull, a distant ear can be closer to a finger than to the
+    // central head axis. That does not make it an arm. Only the local arm/hand
+    // capsules exclude this head correction; raised hands stay protected.
+    amount*=largeHead ? armExclusion : smooth((armDistance-headDistance)/(length*.30))
     if (amount<1e-6) continue
     const at=i*4, entries=new Map<number,number>()
     for(let k=0;k<4;k++) entries.set(indices[at+k],(entries.get(indices[at+k])??0)+weights[at+k]*(1-amount))
