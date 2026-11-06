@@ -228,7 +228,10 @@ export class MotionWeightRepairControl {
       if (generation !== this.generation) return
       this.pending?.worker.terminate(); this.pending = undefined
       const message = error instanceof Error ? error.message : String(error)
-      this.text(message.includes('memory budget') ? 'Недостаточно памяти для этого набора. Выберите меньше движений.' : message)
+      const large = this.context.meshes().reduce((sum, mesh) => sum + mesh.geometry.getAttribute('position').count, 0) > 250000
+      this.text(message.includes('memory budget')
+        ? large ? 'Слишком подробная модель для этой проверки. Используйте облегчённую копию GLB.' : 'Недостаточно памяти для этого набора. Выберите меньше движений.'
+        : message)
     } finally { if (generation === this.generation) this.buttons() }
   }
 }

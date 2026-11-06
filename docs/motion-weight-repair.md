@@ -45,12 +45,12 @@ rejected explicitly. Fewer selected clips reduce memory and processing cost.
 - TypeScript checking and the Vite production build pass. The worker is emitted
   as a separate bundled asset.
 
-The previously reviewed private exports and screen recording are no longer
-available in this workspace. Results measured on those earlier files are not
-claimed as validation of this reconstructed revision. A renewed real-model
-check and a full-library signed Android build are pending reattachment of the
-two exports and the private backup. No replacement APK is produced by this
-source change. There has been no physical Android-device validation.
+The previously reviewed exports and screen recording were unavailable when this
+pass was reconstructed; earlier measurements were not used as validation of the
+reconstructed code. Subsequently supplied unrigged models and the v8.1.6 APK
+enabled renewed model checks and a complete-library parallel v8.1.7 test build.
+See `v8.1.7-test.md` for the actual scope, remaining visible deformation defects
+and installation identity. There has been no physical Android-device validation.
 
 This does not correct anatomical elbow/knee centers, create missing tail/trunk
 bones, perform contact IK, or establish universal compatibility with purchased

@@ -11,6 +11,12 @@ parser.add_argument('--base-apk', required=True)
 parser.add_argument('--web', required=True)
 parser.add_argument('--catalog', required=True)
 parser.add_argument('--output', required=True)
+parser.add_argument('--source-version', default='8.1.4')
+parser.add_argument('--target-version', default='8.1.6')
+parser.add_argument('--source-version-code', type=int, default=814)
+parser.add_argument('--target-version-code', type=int, default=816)
+parser.add_argument('--source-package', default='com.rayzen.riganimationstudio.v814test')
+parser.add_argument('--target-package', default='com.rayzen.riganimationstudio.v815test')
 args = parser.parse_args()
 web = Path(args.web).resolve()
 catalog = json.loads(Path(args.catalog).read_text())
@@ -24,9 +30,9 @@ for pack in catalog:
 
 def replace_strings(data):
     for old, new in [
-        ('com.rayzen.riganimationstudio.v814test', 'com.rayzen.riganimationstudio.v815test'),
-        ('Rig Studio v8.1.4 Test', 'Rig Studio v8.1.6 Test'),
-        ('8.1.4', '8.1.6'),
+        (args.source_package, args.target_package),
+        (f'Rig Studio v{args.source_version} Test', f'Rig Studio v{args.target_version} Test'),
+        (args.source_version, args.target_version),
     ]:
         for encoding in ('utf-8', 'utf-16le'):
             a, b = old.encode(encoding), new.encode(encoding)
@@ -48,8 +54,8 @@ def patch_version_code(data):
                 pos = cursor + 16 + start + i * attr_size
                 name = struct.unpack_from('<I', data, pos + 4)[0]
                 if name < len(resources) and resources[name] == 0x0101021b:
-                    assert struct.unpack_from('<I', data, pos + 16)[0] == 814
-                    struct.pack_into('<I', data, pos + 16, 816)
+                    assert struct.unpack_from('<I', data, pos + 16)[0] == args.source_version_code
+                    struct.pack_into('<I', data, pos + 16, args.target_version_code)
         if size < 8:
             raise ValueError('Invalid manifest chunk')
         cursor += size
@@ -85,3 +91,4 @@ with zipfile.ZipFile(out) as check:
         name = 'assets/public/' + pack['path']
         assert check.read(name) == (web / pack['path']).read_bytes(), name
 print(json.dumps({'unsigned_apk': str(out), 'bytes': out.stat().st_size, 'pack_files': len(catalog), 'sha256': hashlib.sha256(out.read_bytes()).hexdigest()}))
+
