@@ -1,0 +1,29 @@
+name: Build native rig diagnostic shell
+on:
+  push:
+    branches: [test/native-rig-probe-2026-11-07]
+    paths: [tools/native-rig-probe/**, .github/workflows/native-rig-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android compile tools
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' > /dev/null
+      - name: Compile the generic shell
+        run: bash tools/native-rig-probe/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-rig-probe-shell
+          path: tools/native-rig-probe/build/Rig-Engine-Probe-unsigned.apk
+          retention-days: 7
