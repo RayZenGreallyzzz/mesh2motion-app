@@ -23,6 +23,28 @@ Imported source files are copied per job and hashed before/after execution.
 Native results, environment and file hashes can be saved through Android SAF.
 The app requests no Internet, camera, audio or broad storage permission.
 
+## 0.2 input preparation
+
+Actual 0.1 device reports on Android 35 confirmed that the native library loads
+and both ANALYZE and INITIAL_BODY_GUIDES return. Both rejected the submitted
+model with UNSUPPORTED_GLTF_EXTENSION / KHR_mesh_quantization before solving.
+This is evidence of an input-format blocker, not a successful skeleton or weight
+test. No device result for 0.2 is claimed by the build checks.
+
+0.2 expands quantized geometry attributes (including morphs and sparse data) to
+Float32 before calling the engine. Normalization follows the Khronos extension
+equations. Node transforms, inverse binds, texture transforms and the complete
+original BIN prefix are preserved. Only geometry accessor references and the
+quantization extension declaration change. Draco/Meshopt are explicitly rejected
+because this converter is not a decoder for those codecs. Float-only GLBs are
+copied byte-for-byte. The original source and the prepared native input have
+separate hashes in the receipt; the session hash describes the prepared input.
+
+The same app ID and signing key permit an in-place update. Previously selected
+GLBs are restored on startup. Save report filenames include a timestamp.
+Run the independent host regression checks using `bash tests/run.sh` (JDK,
+Python 3 and curl required; JSON-java is downloaded for host tests only).
+
 Build with a JDK and Android platform/build-tools 35 using `bash build.sh`.
 Before alignment/signing, insert the supplied library as a stored ZIP entry at
 lib/arm64-v8a/libriggerdroid_rigger.so and provide the two model assets at

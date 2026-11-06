@@ -83,10 +83,15 @@ public final class ProbeService extends Service {
             File selected=ownFile(request.getString("source",""));
             if (!selected.isFile()||selected.length()>104857600) throw new IOException("Некорректный входной GLB");
             root=new File(getFilesDir(),"jobs/"+UUID.randomUUID());File folder=new File(root,"input");if(!folder.mkdirs())throw new IOException("Не удалось создать папку расчёта");
-            File input=new File(folder,"source.glb"),output=new File(root,"output.glb"),report=new File(root,"report.json"),sessionFile=new File(root,"session.json");
-            try(InputStream in=new FileInputStream(selected);OutputStream out=new FileOutputStream(input)){copy(in,out,104857600);}
+            receipt.put("probeVersion","0.2-test");receipt.put("command",command);receipt.put("androidApi",Build.VERSION.SDK_INT);receipt.put("device",Build.MANUFACTURER+" "+Build.MODEL);receipt.put("abis",new JSONArray(Arrays.asList(Build.SUPPORTED_ABIS)));
+            File original=new File(folder,"source-original.glb"),input=new File(folder,"source.glb"),output=new File(root,"output.glb"),report=new File(root,"report.json"),sessionFile=new File(root,"session.json");
+            try(InputStream in=new FileInputStream(selected);OutputStream out=new FileOutputStream(original)){copy(in,out,104857600);}
+            receipt.put("originalSourceSha256",hash(original));receipt.put("originalSourceBytes",original.length());
+            send(reply,PROGRESS,request.getString("token",""),"stage","Подготовка GLB для риггера");
+            receipt.put("inputPreparation",GlbQuantization.prepare(original,input));
+            receipt.put("preparedSourceSha256",hash(input));receipt.put("preparedSourceBytes",input.length());
             JSONObject settings=session(input);write(sessionFile,settings.toString(2));
-            receipt.put("probeVersion","0.1-test");receipt.put("command",command);receipt.put("androidApi",Build.VERSION.SDK_INT);receipt.put("device",Build.MANUFACTURER+" "+Build.MODEL);receipt.put("abis",new JSONArray(Arrays.asList(Build.SUPPORTED_ABIS)));receipt.put("session",settings);
+            receipt.put("session",settings);
             receipt.put("inputSha256Before",hash(input));
             File library=new File(getApplicationInfo().nativeLibraryDir,"libriggerdroid_rigger.so");if(library.isFile())receipt.put("nativeLibrarySha256",hash(library));
             RigNative nativeRig=RigNative.INSTANCE;
@@ -98,6 +103,7 @@ public final class ProbeService extends Service {
             try{receipt.put("nativeReturn",new JSONObject(returned));}catch(JSONException invalid){receipt.put("nativeReturnText",returned);}
             if(report.isFile()&&report.length()<1048576){String text=read(report,1048576);try{receipt.put("nativeReport",new JSONObject(text));}catch(JSONException invalid){receipt.put("nativeReportText",text);}}
             receipt.put("inputSha256After",hash(input));receipt.put("inputPreserved",receipt.getString("inputSha256Before").equals(receipt.getString("inputSha256After")));
+            receipt.put("originalSourcePreserved",receipt.getString("originalSourceSha256").equals(hash(original)));
             receipt.put("outputBytes",output.isFile()?output.length():0);if(output.isFile())receipt.put("outputSha256",hash(output));
             receipt.put("probeStatus",cancelled.get()?"CANCELLED":"NATIVE_CALL_RETURNED");
         } catch(Throwable failure) {

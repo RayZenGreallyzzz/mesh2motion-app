@@ -41,9 +41,10 @@ public final class MainActivity extends Activity {
         button(body,"Предложить ориентиры тела",()->run("INITIAL_BODY_GUIDES"),true);
         button(body,"Проверить чтение и запись GLB",()->run("ROUNDTRIP"),true);
         button(body,"Отменить",this::cancel,false);
-        button(body,"Сохранить отчёт",()->save(SAVE_REPORT,"rig-engine-report.json","application/json",lastReport),true);
+        button(body,"Сохранить отчёт",()->save(SAVE_REPORT,"rig-engine-v02-"+System.currentTimeMillis()+".json","application/json",lastReport),true);
         button(body,"Сохранить результат записи GLB",()->save(SAVE_MODEL,"rig-engine-roundtrip.glb","model/gltf-binary",lastModel),true);
-        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextIsSelectable(true);status.setText("Ожидание. Интернет не требуется.");body.addView(status);
+        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextIsSelectable(true);
+        File previous=new File(getFilesDir(),"selected.glb");if(validGlb(previous)){source=previous;status.setText("0.2-test · Сохранена ранее выбранная модель. Нажмите «Анализ».\nКвантованный GLB подготавливается автоматически; исходник сохраняется.");}else status.setText("0.2-test · Ожидание. Интернет не требуется.");body.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(body);setContentView(scroll);
         connect();
     }

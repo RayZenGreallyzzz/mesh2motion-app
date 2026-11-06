@@ -22,8 +22,12 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null'
       - name: Compile the generic shell
         run: bash tools/native-rig-probe/build.sh
+      - name: Verify quantized GLB preparation
+        run: bash tools/native-rig-probe/tests/run.sh
       - uses: actions/upload-artifact@v4
         with:
           name: native-rig-probe-shell
-          path: tools/native-rig-probe/build/Rig-Engine-Probe-unsigned.apk
+          path: |
+            tools/native-rig-probe/build/Rig-Engine-Probe-unsigned.apk
+            tools/native-rig-probe/build/quantization-test-results.json
           retention-days: 7
