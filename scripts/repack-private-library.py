@@ -60,7 +60,14 @@ out = Path(args.output)
 out.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(args.base_apk) as base, zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
     for item in base.infolist():
-        if item.filename.startswith(('META-INF/', 'assets/public/')):
+        if item.filename.startswith('META-INF/'):
+            continue
+        if item.filename.startswith('assets/public/'):
+            # Capacitor sync injects these native compatibility shims after
+            # Vite builds dist. They are not public source/static files.
+            relative = item.filename[len('assets/public/'):]
+            if relative in ('cordova.js', 'cordova_plugins.js') and not (web / relative).is_file():
+                target.writestr(item, base.read(item))
             continue
         content = base.read(item)
         if item.filename == 'AndroidManifest.xml':
