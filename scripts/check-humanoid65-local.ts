@@ -13,7 +13,7 @@ const result=await build_humanoid65(asset,{template,direct_solver:true,progress:
 const saved=await load(result.bytes),a=parts(source),b=parts(result.bytes);validate_humanoid65(saved)
 if(a.bin.subarray(0,a.doc.buffers[0].byteLength).some((n,i)=>n!==b.bin[i]))throw new Error('Original binary prefix changed')
 const bones=[...saved.nodes.values()].filter(n=>n.is_joint);if(bones.length!==65)throw new Error('Not 65 joints after reload')
-const headNode=bones.find(n=>n.name==='head')!,neckNode=bones.find(n=>n.name==='neck_01')!,headPlane=headNode.object.getWorldPosition(new Vector3()).y+headNode.object.getWorldPosition(new Vector3()).distanceTo(neckNode.object.getWorldPosition(new Vector3()))*.5
+const headNode=bones.find(n=>n.name==='head')!,neckNode=bones.find(n=>n.name==='neck_01')!,headPlane=headNode.object.getWorldPosition(new Vector3()).y+Math.max(headNode.object.getWorldPosition(new Vector3()).distanceTo(neckNode.object.getWorldPosition(new Vector3()))*.5,headNode.object.getWorldPosition(new Vector3()).distanceTo(bones.find(n=>n.name==='head_leaf')!.object.getWorldPosition(new Vector3()))*.2)
 const skinMeshes:SkinnedMesh[]=[];saved.scene.traverse(o=>{if((o as SkinnedMesh).isSkinnedMesh)skinMeshes.push(o as SkinnedMesh)})
 let bindMax=0,headVerts=0,headShoulderInfluence=0,fingerWeights=0;const meshesReport=[]
 for(const mesh of skinMeshes){mesh.skeleton.update();const pos=mesh.geometry.attributes.position,si=mesh.geometry.attributes.skinIndex,sw=mesh.geometry.attributes.skinWeight;const names=mesh.skeleton.bones.map(b=>b.name);const current=[]

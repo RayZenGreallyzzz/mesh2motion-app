@@ -24,7 +24,9 @@ export class Humanoid65Panel {
     this.busy=true;this.abort=new AbortController();this.refresh();this.options.viewer.stop()
     try{await this.options.operation('Подготавливаю полный гуманоидный риг…',async()=>{
       const result=await build_humanoid65(asset,{template:await humanoid_template(),profile:this.profile.value as 'human'|'woman',signal:this.abort!.signal,progress:text=>this.options.status(text)})
-      await this.options.show(result.bytes);this.options.status('Готов полный риг: 65 костей, включая пальцы. Проверьте голову и сгибы с анимацией перед экспортом.')
+      await this.options.show(result.bytes)
+      const fallback=result.report.joints.filter(j=>(j.evidence as {source?:string})?.source==='fallback').map(j=>j.name.startsWith('lowerarm')?'локти':'колени')
+      this.options.status('Готов полный риг: 65 костей, включая пальцы. '+(fallback.length?'Проверьте '+[...new Set(fallback)].join(' и ')+': поверхность не дала точного ориентира, использованы пропорции шаблона. ':'')+'Проверьте движения перед экспортом.')
     })}finally{this.busy=false;this.abort=undefined;this.refresh()}
   }
 }
