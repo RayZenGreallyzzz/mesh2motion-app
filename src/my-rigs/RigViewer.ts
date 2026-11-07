@@ -233,7 +233,7 @@ export class RigViewer {
     if (!this.asset) return
     const bounds = new Box3().setFromObject(this.asset.scene), radius = Math.max(bounds.getSize(new Vector3()).length() / 150, 0.000001)
     for (const [name, [x, y, z]] of Object.entries(points)) {
-      const marker = new Mesh(new SphereGeometry(radius, 12, 8), new MeshBasicMaterial({ color: name.endsWith('_l') ? 0x6ee7a8 : name.endsWith('_r') ? 0xf3a0cf : 0xffd47b, depthTest: false }))
+      const marker = new Mesh(new SphereGeometry(radius, 12, 8), new MeshBasicMaterial({ color: name === 'head' ? 0x62d9ff : name === 'head_end' ? 0xd69aff : name.endsWith('_l') ? 0x6ee7a8 : name.endsWith('_r') ? 0xf3a0cf : 0xffd47b, depthTest: false }))
       marker.name = name; marker.position.set(-x, y, z); marker.renderOrder = 1000; this.native_markers.add(marker)
     }
   }
@@ -243,6 +243,19 @@ export class RigViewer {
     const distance = this.camera.position.distanceTo(this.controls.target)
     this.camera.position.copy(this.controls.target).add(side ? new Vector3(distance, 0, 0) : new Vector3(0, 0, distance))
     this.camera.lookAt(this.controls.target); this.controls.update()
+  }
+
+  focus_points(points: Array<[number, number, number]>): void {
+    if (!points.length || points.some(p => !p.every(Number.isFinite))) return
+    const bounds = new Box3().setFromPoints(points.map(p => new Vector3(...p))), center = bounds.getCenter(new Vector3())
+    const radius = Math.max(bounds.getSize(new Vector3()).length() * .8, .0001)
+    const width = this.renderer.domElement.clientWidth || 1, height = this.renderer.domElement.clientHeight || 1
+    const freeWidth = Math.max(width - (this.overlay.bottom ? 0 : this.overlay.width), width * .18), freeHeight = Math.max(height - (this.overlay.bottom ? this.overlay.height : 0), height * .18)
+    const distance = radius / Math.sin(this.camera.fov * Math.PI / 360) / Math.min(freeWidth / height, freeHeight / height, 1) * 1.15
+    const direction = this.camera.position.clone().sub(this.controls.target).normalize()
+    this.camera.position.copy(center).addScaledVector(direction, distance); this.controls.target.copy(center)
+    this.camera.near = Math.max(radius / 1000, .000001); this.camera.far = Math.max(distance * 10, 100); this.camera.updateProjectionMatrix(); this.controls.update()
+    this.follow_node?.getWorldPosition(this.follow_anchor)
   }
 
   set_native_bones(bones: unknown[]): void {

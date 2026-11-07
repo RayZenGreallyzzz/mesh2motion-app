@@ -18,8 +18,7 @@ import { inspect_transfer, mapping_key, suggest_mapping, transfer_clips_async, t
 import { RigViewer } from './RigViewer.ts'
 import { inspect_skin_weights } from './RigSkinDiagnostics.ts'
 import { NativeRigPanel } from './NativeRigPanel.ts'
-import { build_humanoid65 } from './Humanoid65Builder.ts'
-import { Humanoid65Panel, humanoid_template } from './Humanoid65Panel.ts'
+import { Humanoid65Panel } from './Humanoid65Panel.ts'
 import { validate_humanoid65, validate_native_skin } from './NativeRigValidation.ts'
 import { StudioWorkspace } from './StudioWorkspace.ts'
 
@@ -45,7 +44,7 @@ const status = (message: string, error = false): void => {
 }
 
 function controls (): void {
-  const locked = busy || pose_editing
+  const own_busy = busy || pose_editing, locked = own_busy || !!humanoid_panel?.reviewing
   button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
     button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
@@ -59,7 +58,7 @@ function controls (): void {
   element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = locked })
   document.body.classList.toggle('busy', busy)
   native_panel?.refreshControls(locked)
-  humanoid_panel?.refresh(locked)
+  humanoid_panel?.refresh(own_busy)
 }
 
 async function operation (message: string, task: () => Promise<void>): Promise<void> {
@@ -103,23 +102,22 @@ native_panel = new NativeRigPanel(element('native-rig-panel'), {
   asset: () => asset,
   operation,
   status,
+  headReviewActive: () => !!humanoid_panel?.reviewing,
+  cancelCompletion: () => humanoid_panel?.cancel_build(),
   show: async bytes => {
     const body = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
-    let next = body
-    try {
-      validate_native_skin(body)
-      if ([...body.nodes.values()].filter(n => n.is_joint).length !== 65) {
-        const result = await build_humanoid65(body, {template: await humanoid_template(), progress: text => status(text)})
-        next = await load_rig_asset(result.bytes, body.name)
-      }
-      validate_humanoid65(next)
-    } catch (error) { if (next !== body) dispose_rig_scene(next.scene); dispose_rig_scene(body.scene); throw error }
-    if (next !== body) dispose_rig_scene(body.scene)
-    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions')
+    try { validate_native_skin(body) } catch (error) { dispose_rig_scene(body.scene); throw error }
+    if ([...body.nodes.values()].filter(n => n.is_joint).length !== 65) {
+      if (!humanoid_panel) { dispose_rig_scene(body.scene); throw new Error('Панель полного рига недоступна') }
+      const opened = await humanoid_panel.complete_native(body)
+      workspace?.open(opened ? 'motions' : 'native'); return opened
+    }
+    try { validate_humanoid65(body) } catch (error) { dispose_rig_scene(body.scene); throw error }
+    show_asset(body); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions'); return true
   }
 })
 humanoid_panel = new Humanoid65Panel(element('humanoid65-panel'), {
-  viewer, asset: () => asset, operation: (message,task) => {selected_clip=-1;button('pause').textContent='▶';return operation(message,task)}, status,
+  viewer, asset: () => asset, operation: (message,task) => {selected_clip=-1;button('pause').textContent='▶';return operation(message,task)}, status, changed: controls,
   show: async bytes => {
     const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
     try { validate_humanoid65(next) } catch (error) { dispose_rig_scene(next.scene); throw error }

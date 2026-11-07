@@ -7,7 +7,9 @@ interface Options {
   viewer: RigViewer
   asset(): RigAsset | undefined
   operation(message: string, task: () => Promise<void>): Promise<void>
-  show(bytes: ArrayBuffer): Promise<void>
+  show(bytes: ArrayBuffer): Promise<boolean | void>
+  headReviewActive?(): boolean
+  cancelCompletion?(): void
   status?(message: string, error?: boolean): void
 }
 const names: Record<string, string> = { pelvis: 'Таз', chest: 'Грудная клетка', thorax: 'Грудная клетка', neck: 'Шея', head: 'Голова', shoulder: 'Плечо', elbow: 'Локоть', wrist: 'Запястье', hand_end: 'Конец кисти', hip: 'Бедро', knee: 'Колено', ankle: 'Голеностоп', ball: 'Основание пальцев стопы', toe: 'Носок' }
@@ -52,7 +54,7 @@ export class NativeRigPanel {
     this.review = document.createElement('input'); this.review.type = 'checkbox'; this.review.onchange = () => this.refreshControls()
     label.append(this.review, ' Проверил суставы спереди и сбоку')
     this.build = button('4. Рассчитать веса и открыть риг', () => void this.work('Рассчитываю веса…', () => this.skin()))
-    this.cancel = button('Отменить расчёт', () => { void this.client.cancel().catch(error => this.set_message(String(error), true)) })
+    this.cancel = button('Отменить расчёт', () => { this.options.cancelCompletion?.(); void this.client.cancel().catch(error => this.set_message(String(error), true)) })
     this.editor = document.createElement('div'); this.editor.className = 'native-rig-points'
     const details = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = 'Отчёт обработки'
     this.report = document.createElement('textarea'); this.report.readOnly = true; this.report.setAttribute('aria-label', 'Отчёт нативного риггера')
@@ -100,6 +102,7 @@ export class NativeRigPanel {
   }
   private points(): NativePoints { return this.editing === 'guides' ? this.guides : this.landmarks }
   private markers(): void {
+    if (this.options.headReviewActive?.()) return
     this.options.viewer.set_native_points(this.points(), (name, point) => this.edit(name, point, false))
   }
   private edit(name: string, point: [number, number, number], redraw = true): void {
@@ -147,9 +150,10 @@ export class NativeRigPanel {
     await this.client.run('BUILD_SKELETON', { bodyLandmarks: this.landmarks, reviewed: true })
     await this.client.run('COMPUTE_WEIGHTS')
     await this.client.run('EXPORT')
-    const bytes = await this.client.result(); await this.options.show(bytes)
-    this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.editor.replaceChildren(); this.options.viewer.set_native_points({}); this.options.viewer.set_native_bones([])
-    this.set_message('Результат открыт. Полный риг: 65 костей. Включите «Кости» и добавьте анимацию из библиотеки, чтобы проверить деформации.')
+    const bytes = await this.client.result(), opened = await this.options.show(bytes)
+    this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.editor.replaceChildren(); this.options.viewer.set_native_bones([])
+    if (opened !== false) this.options.viewer.set_native_points({})
+    this.set_message(opened === false ? 'Нужно уточнить голову в верхней части вкладки «Риг», затем продолжить расчёт. Исходный персонаж сохранён.' : 'Результат открыт. Полный риг: 65 костей. Включите «Кости» и добавьте анимацию из библиотеки, чтобы проверить деформации.')
   }
 }
 

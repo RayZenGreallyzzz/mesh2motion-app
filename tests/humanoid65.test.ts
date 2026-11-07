@@ -7,6 +7,7 @@ import {read_glb} from '../src/test/GlbFixture.ts'
 import {build_rig_asset} from '../src/my-rigs/RigAsset.ts'
 import {inspect_glb} from '../src/my-rigs/GlbEnvelope.ts'
 import {build_humanoid65,humanoid_world_geometry} from '../src/my-rigs/Humanoid65Builder.ts'
+import {HumanoidHeadReviewRequired} from '../src/my-rigs/HumanoidHeadReview.ts'
 import {validate_humanoid65} from '../src/my-rigs/NativeRigValidation.ts'
 import {estimate_limb_joint,joint_fit_surface} from '../src/lib/processes/edit-skeleton/HumanoidJointFit.ts'
 const file=(path:string):ArrayBuffer=>{const b=readFileSync(path);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength) as ArrayBuffer}
@@ -39,6 +40,14 @@ describe('complete humanoid binding',()=>{
   // Rebinding a saved rig also retains its animation as a real target track.
   const head=[...asset.nodes.values()].find(n=>n.name==='head')!;asset.clips=[new AnimationClip('Head test',1,[new QuaternionKeyframeTrack(head.object.uuid+'.quaternion',[0,1],[...head.rotation.toArray(),...head.rotation.clone().multiply(new Quaternion().setFromAxisAngle(new Vector3(0,1,0),.5)).toArray()])])]
   const again=await build_humanoid65(asset,{template:file('static/rigs/rig-human.glb'),profile,direct_solver:true});const reloaded=await parse(again.bytes);expect(reloaded.clips).toHaveLength(1);expect(reloaded.clips[0].name).toBe('Head test');expect(reloaded.clips[0].tracks.length).toBeGreaterThan(0)
+ },30000)
+ it('resumes a reviewed head with real weights and preserves source bytes',async()=>{
+  const bytes=file('static/models/model-human.glb'),original=new Uint8Array(bytes).slice(),source=build_rig_asset(await read_glb('static/models/model-human.glb'),inspect_glb(bytes),bytes,'Human'),template=file('static/rigs/rig-human.glb')
+  let review:HumanoidHeadReviewRequired|undefined
+  try{await build_humanoid65(source,{template,review_head:true,direct_solver:true})}catch(error){if(error instanceof HumanoidHeadReviewRequired)review=error;else throw error}
+  expect(review).toBeInstanceOf(HumanoidHeadReviewRequired);expect(source.dirty).toBe(false);expect(new Uint8Array(bytes)).toEqual(original)
+  const result=await build_humanoid65(source,{template,head_landmarks:review!.points,direct_solver:true})
+  expect(result.report.head_fit_source).toBe('manual');validate_humanoid65(await parse(result.bytes));expect(new Uint8Array(bytes)).toEqual(original)
  },30000)
  it('cancels before modifying the source and rejects an incomplete hand template',async()=>{
   const bytes=file('static/models/model-human.glb'),source=build_rig_asset(await read_glb('static/models/model-human.glb'),inspect_glb(bytes),bytes,'Human'),abort=new AbortController();abort.abort()

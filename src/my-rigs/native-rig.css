@@ -13,3 +13,8 @@
 .native-rig-panel textarea { width: 100%; min-height: 130px; box-sizing: border-box; resize: vertical; font-size: 11px; }
 .native-rig-panel summary { cursor: pointer; padding: 8px 0; }
 .native-rig-panel .error { color: #ffb7ae; }
+.head-landmark-review { display: grid; gap: 10px; border-top: 1px solid #456d70; padding-top: 12px; }
+.head-landmark-review[hidden] { display: none; }
+.head-landmark-review details label { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin: 10px 0; }
+.head-landmark-review details label > span { grid-column: 1 / -1; font-size: 13px; }
+.head-landmark-review input[type=number] { min-width: 0; width: 100%; padding: 8px 4px; box-sizing: border-box; }

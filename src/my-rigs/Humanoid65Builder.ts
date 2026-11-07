@@ -1,8 +1,8 @@
-import { Bone, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, Vector3, type Object3D } from 'three'
+import { Bone, Box3, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, Vector3, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { fit_humanoid_rig } from '../lib/processes/edit-skeleton/HumanoidAutoFit.ts'
-import { fit_humanoid_head } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
-import { refine_humanoid_joints, type LimbChain } from '../lib/processes/edit-skeleton/HumanoidJointFit.ts'
+import { fit_humanoid_head, fit_humanoid_head_surface } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
+import { joint_fit_surface, refine_humanoid_joints, type LimbChain } from '../lib/processes/edit-skeleton/HumanoidJointFit.ts'
 import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
 import SkinningAlgorithm from '../lib/solvers/SkinningAlgorithm.ts'
 import { SkeletonType } from '../lib/enums/SkeletonType.ts'
@@ -10,10 +10,11 @@ import { solve_weight_job, type WeightJob } from '../lib/solvers/CharacterWeight
 import { restore_rig_pose, type RigAsset, type RigNode } from './RigAsset.ts'
 import { suggest_mapping, transfer_clips_async } from './RigMotionTransfer.ts'
 import { write_humanoid65_glb } from './Humanoid65Writer.ts'
+import { HumanoidHeadReviewRequired, validate_head_landmarks, type HeadLandmarks } from './HumanoidHeadReview.ts'
 
 export interface HumanoidMesh { source: Mesh, source_node: number, primitive: number, world: Matrix4, geometry: BufferGeometry, indices: number[], weights: number[] }
-export interface Humanoid65Options { template: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean }
-export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
+export interface Humanoid65Options { template: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean, head_landmarks?: HeadLandmarks, review_head?: boolean }
+export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, head_fit_source: 'vertices' | 'surface' | 'manual', joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
 const check = (signal?: AbortSignal): void => { if (signal?.aborted) throw new Error('Расчёт отменён. Исходный персонаж сохранён.') }
 const world = (bone: Bone): Vector3 => bone.getWorldPosition(new Vector3())
 function place(bone: Bone, point: Vector3): void { bone.parent?.updateWorldMatrix(true, false); bone.position.copy(bone.parent ? bone.parent.worldToLocal(point.clone()) : point); bone.updateWorldMatrix(true, true) }
@@ -92,8 +93,16 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     check(options.signal)
     report('Уточняю шею, голову, локти и колени…')
     const shoulder=(world(get('upperarm_l')).y+world(get('upperarm_r')).y)*.5
-    const headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
-    if(!headFitted)throw new Error('Не удалось уверенно найти переход шеи в голову. Исходный риг сохранён; требуется ручная проверка ориентиров.')
+    let headFitted=false,headSource:Humanoid65Result['report']['head_fit_source']='vertices'
+    if(options.head_landmarks){
+      validate_head_landmarks(options.head_landmarks,new Box3().setFromPoints(points))
+      place(get('neck_01'),new Vector3(...options.head_landmarks.neck));place(get('head'),new Vector3(...options.head_landmarks.head));place(get('head_leaf'),new Vector3(...options.head_landmarks.head_end))
+      headFitted=true;headSource='manual'
+    }else{
+      headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
+      if(!headFitted){headFitted=fit_humanoid_head_surface(joint_fit_surface(asset.scene,null),originalBones,null,(shoulder-bottom)/.79);if(headFitted)headSource='surface'}
+      if(!headFitted||options.review_head)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
+    }
     for (const side of ['l','r'] as const) {const wrist=world(get('hand_'+side));place(get('lowerarm_'+side),world(get('upperarm_'+side)).lerp(wrist,elbowFractions.get(side)!));place(get('hand_'+side),wrist)}
     const chains:LimbChain[]=(['l','r'] as const).flatMap(s=>[{start:get('upperarm_'+s),joint:get('lowerarm_'+s),end:get('hand_'+s),kind:'elbow' as const},{start:get('thigh_'+s),joint:get('calf_'+s),end:get('foot_'+s),kind:'knee' as const}])
     refine_humanoid_joints(asset.scene,chains,null,world(get('pelvis')).x,{elbow:{max_fraction:.70,max_shift:.18}})
@@ -115,6 +124,6 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     asset.clips.forEach((clip,i)=>target.clips[i]?.tracks.push(...clip.tracks.filter(t=>t.name.endsWith('.morphTargetInfluences')).map(t=>t.clone())))
     report('Сохраняю полный риг и проверяю структуру GLB…')
     const bytes=write_humanoid65_glb(asset,scene,bones,meshes,target.clips)
-    return{bytes,report:{bones:bones.length,vertices:points.length,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,joints:chains.map(c=>({name:c.joint.name,evidence:c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
+    return{bytes,report:{bones:bones.length,vertices:points.length,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
   } finally {geometries.forEach(g=>g.dispose())}
 }
