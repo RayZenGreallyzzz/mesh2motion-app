@@ -91,7 +91,7 @@ export class PoseCalibration {
     let tip = selected
     for (let i = 0; i < 5; i++) {
       const children = tip.children.filter(o => (o as Bone).isBone && !o.name.startsWith('rig_volume_')) as Bone[]
-      if (children.length !== 1 || !/(foot|toe|leaf|ankle|hoof|paw)/i.test(tip.name)) break
+      if (children.length !== 1 || !/(foot|toe|leaf|ankle|hoof|paw|leg|humerus|scapula|shin|calf)/i.test(tip.name)) break
       tip = children[0]
     }
     const joints: Bone[] = []; let ancestor = tip.parent
