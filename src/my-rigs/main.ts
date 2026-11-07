@@ -1,4 +1,6 @@
-import type { AnimationClip } from 'three'
+import { type AnimationClip, type SkinnedMesh } from 'three'
+import { PoseEditorPanel } from '../lib/pose/PoseEditorPanel.ts'
+import { create_asset_pose_calibration, commit_asset_pose } from './RigPoseCalibration.ts'
 import { ordered_nodes, is_volume_node, mapping_family_key } from './RigBoneMapping.ts'
 import '../library/pack-style.css';
 import { mount_catalog } from '../library/Catalog.ts'
@@ -15,6 +17,9 @@ import { RigLibrary, type LibraryEntry } from './RigLibrary.ts'
 import { inspect_transfer, mapping_key, suggest_mapping, transfer_clips_async, type TransferOptions, type RigMapping } from './RigMotionTransfer.ts'
 import { RigViewer } from './RigViewer.ts'
 import { inspect_skin_weights } from './RigSkinDiagnostics.ts'
+import { NativeRigPanel } from './NativeRigPanel.ts'
+import { validate_native_skin } from './NativeRigValidation.ts'
+import { StudioWorkspace } from './StudioWorkspace.ts'
 
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
 const button = (id: string): HTMLButtonElement => element<HTMLButtonElement>(id)
@@ -28,27 +33,33 @@ let incoming: RigAsset | undefined
 let mapping: RigMapping = {}
 let selected_clip = -1
 let busy = false
+let pose_editing = false
+let native_panel: NativeRigPanel | undefined
+let workspace: StudioWorkspace | undefined
 const status = (message: string, error = false): void => {
   element('status').textContent = message
   element('status').classList.toggle('error', error)
 }
 
 function controls (): void {
+  const locked = busy || pose_editing
+  button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
-    button(id).disabled = busy || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
+    button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
   }
-  element<HTMLInputElement>('skeleton').disabled = !asset || busy
-  element<HTMLInputElement>('follow').disabled = !asset || busy
-  element<HTMLInputElement>('timeline').disabled = selected_clip === -1 || busy
-  element('library-panel').querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(item => { item.disabled = busy || item.dataset.unavailable === 'true' })
-  element('library-panel').querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach(item => { item.disabled = busy || !asset?.skeleton_count })
-  dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input,button,select').forEach(item => { item.disabled = busy })
-  element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = busy })
+  element<HTMLInputElement>('skeleton').disabled = !asset || locked
+  element<HTMLInputElement>('follow').disabled = !asset || locked
+  element<HTMLInputElement>('timeline').disabled = selected_clip === -1 || locked
+  element('library-panel').querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(item => { item.disabled = locked || item.dataset.unavailable === 'true' })
+  element('library-panel').querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach(item => { item.disabled = locked || !asset?.skeleton_count })
+  dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input,button,select').forEach(item => { item.disabled = locked })
+  element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = locked })
   document.body.classList.toggle('busy', busy)
+  native_panel?.refreshControls(locked)
 }
 
 async function operation (message: string, task: () => Promise<void>): Promise<void> {
-  if (busy) return
+  if (busy || pose_editing) return
   busy = true
   controls()
   status(message)
@@ -63,6 +74,7 @@ function show_asset (next: RigAsset): void {
   const previous = asset
   viewer.set_asset(next)
   asset = next
+  native_panel?.setAsset(next)
   if (previous) dispose_rig_scene(previous.scene)
   selected_clip = -1
   element('empty').hidden = true
@@ -79,7 +91,41 @@ function show_asset (next: RigAsset): void {
   render_clips()
   show_tab(false)
   status(asset.skeleton_count ? 'Риг открыт. Родные веса и движения сохранены.' :
-    'GLB открыт. В файле нет привязки кожи к скелету. Для создания рига вернитесь на главный экран.')
+    'GLB открыт. Для человека доступен тест нативного авторига ниже; другие шаблоны — на главном экране.')
+}
+
+native_panel = new NativeRigPanel(element('native-rig-panel'), {
+  viewer,
+  asset: () => asset,
+  operation,
+  status,
+  show: async bytes => {
+    const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · нативный риг')
+    try { validate_native_skin(next) } catch (error) { dispose_rig_scene(next.scene); throw error }
+    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions')
+  }
+})
+workspace = new StudioWorkspace(viewer, show_tab)
+let pose_calibration: ReturnType<typeof create_asset_pose_calibration> | undefined
+const pose_panel = new PoseEditorPanel(document.body, {
+  applied: () => {
+    if (!asset || !pose_calibration) return
+    commit_asset_pose(asset, pose_calibration)
+    render_clips(); viewer.stop(); status('Исходная поза сохранена во всех движениях. Экспортируйте GLB или сохраните копию.')
+  },
+  closed: () => {
+    pose_editing = false; viewer.stop(); viewer.show_skeleton(element<HTMLInputElement>('skeleton').checked); controls()
+  },
+  layout: (width, height) => viewer.set_settings_overlay(width ? width + 32 : 0, height ? height + 104 : 0, window.innerWidth <= 620)
+}, true)
+button('initial-pose').onclick = () => {
+  if (busy || pose_editing || !asset?.skeleton_count) return
+  if (incoming) cancel_transfer()
+  workspace?.close(false); viewer.stop(); selected_clip = -1; button('pause').textContent = '▶'
+  pose_calibration = create_asset_pose_calibration(asset)
+  const meshes: SkinnedMesh[] = []; asset.scene.traverse(o => { if ((o as SkinnedMesh).isSkinnedMesh) meshes.push(o as SkinnedMesh) })
+  pose_editing = true; controls(); viewer.show_skeleton(true); pose_panel.show(pose_calibration, meshes)
+  status('Настройте позу, затем сохраните её. Воспроизведение остановлено.')
 }
 
 function render_clips (): void {
@@ -107,7 +153,7 @@ function render_clips (): void {
     duration.textContent = clip.duration.toFixed(2) + ' с · ' + clip.tracks.length + ' дорожек'
     play.append(duration)
     play.onclick = () => {
-      if (busy) return
+      if (busy || pose_editing) return
       viewer.play(index)
       selected_clip = index
       list.querySelectorAll('.clip').forEach(item => item.classList.toggle('selected', item === row))
@@ -126,6 +172,7 @@ function show_tab (is_library: boolean): void {
     button(id).classList.toggle('active', active)
     button(id).setAttribute('aria-pressed', String(active))
   }
+  workspace?.sync_tab(is_library)
 }
 
 async function render_library (): Promise<void> {
@@ -355,5 +402,11 @@ element<HTMLInputElement>('pack-file').onchange = event => {
   })
 }
 if (new URLSearchParams(location.search).get('tab') === 'library') show_tab(true)
+if (new URLSearchParams(location.search).get('native') === '1') void operation('Открываю пример персонажа…', async () => {
+  const response = await fetch(new URL('../models/model-human.glb', location.href))
+  if (!response.ok) throw new Error('Пример модели недоступен. Откройте свой GLB.')
+  show_asset(await load_rig_asset(await response.arrayBuffer(), 'Пример человека'))
+})
 void render_library().catch(() => status('Хранилище устройства недоступно. Можно открыть GLB и экспортировать результат.', true))
 controls()
+

@@ -124,6 +124,14 @@ export class Mesh2MotionEngine {
     this.edit_skeleton_step = new StepEditSkeleton()
     this.weight_skin_step = new StepWeightSkin()
     this.animations_listing_step = new StepAnimationsListing(this.theme_manager)
+    this.animations_listing_step.addEventListener('pose-editor-visibility', (event: Event) => {
+      if (this.skeleton_helper) this.skeleton_helper.visible = (event as CustomEvent<boolean>).detail || !!(document.getElementById('show-skeleton-checkbox') as HTMLInputElement | null)?.checked
+    })
+    document.getElementById('classic-initial-pose-button')?.addEventListener('click', () => this.animations_listing_step.open_initial_pose_editor())
+    document.getElementById('weight-initial-pose-button')?.addEventListener('click', () => {
+      this.process_step_changed(ProcessStep.AnimationsListing)
+      if (this.process_step === ProcessStep.AnimationsListing) this.animations_listing_step.open_initial_pose_editor()
+    })
     this.animations_listing_step.set_manual_weight_locks_provider(() => this.weight_skin_step.manual_weight_locks())
     this.download_settings = new DownloadSettings()
     this.file_export_step = new StepExportToFile()
@@ -973,6 +981,7 @@ export class Mesh2MotionEngine {
       this.enable_orbit_controls(true)
     }
     const previous_step = this.process_step
+    if (previous_step === ProcessStep.AnimationsListing) this.animations_listing_step.stop_and_restore_pose()
 
     // Never animate a rig whose bind matrices already move the mesh in REST.
     // The diagnostic used to be log-only, allowing a badly fitted skeleton
@@ -1482,3 +1491,4 @@ export class Mesh2MotionEngine {
   }
 
 } // end Mesh2Motion Engine
+

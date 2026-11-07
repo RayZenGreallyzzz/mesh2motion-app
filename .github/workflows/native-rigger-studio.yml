@@ -1,0 +1,92 @@
+name: Native rigger inside Rig Animation Studio
+on:
+  push:
+    branches: [feature/native-rigger-studio-2026-11-07]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check Studio and native output boundaries
+        run: |
+          npm run typecheck
+          npm test -- tests/pose-calibration.test.ts tests/native-rig.test.ts src/my-rigs/OwnRigs.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
+          npm run build
+          npx vite build --config scripts/pose-check.vite.config.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: private-pose-check-tool
+          path: pose-tool/pose-check.mjs
+          retention-days: 7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Prepare parallel Android Studio test app
+        run: |
+          npm install --no-save --package-lock=false @capacitor/cli@8.5.3 @capacitor/android@8.5.3
+          npx cap add android
+          npx cap sync android
+          node scripts/apply-rig-studio-branding.mjs
+          node scripts/apply-rig-studio-file-export.mjs
+          node scripts/install-native-rig-plugin.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/build.gradle');s=p.read_text()
+          assert s.count('applicationId "com.rayzen.riganimationstudio"')==1
+          s=s.replace('applicationId "com.rayzen.riganimationstudio"','applicationId "com.rayzen.riganimationstudio.nativetest"')
+          s=s.replace('versionCode 1','versionCode 821').replace('versionName "1.0"','versionName "8.2.1-pose-test"');p.write_text(s)
+          p=Path('android/app/src/main/res/values/strings.xml');p.write_text(p.read_text().replace('Rig Animation Studio','Rig Studio Native Test'))
+          PY
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile the integrated Android bridge
+        working-directory: android
+        run: |
+          ./gradlew assembleDebug --no-daemon --max-workers=2
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../Rig-Studio-Native-Unsigned-Shell.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rig-studio-native-shell
+          path: Rig-Studio-Native-Unsigned-Shell.apk
+          retention-days: 7
+  visible-rig-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Verify visible character, review and animation flow
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+          node scripts/check-native-rig-ui.mjs
+          node scripts/check-classic-pose.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rig-studio-native-ui-checks
+          path: artifacts/native-*.png
+          if-no-files-found: ignore
+          retention-days: 7
