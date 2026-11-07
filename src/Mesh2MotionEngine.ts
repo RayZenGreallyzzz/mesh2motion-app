@@ -125,7 +125,7 @@ export class Mesh2MotionEngine {
     this.weight_skin_step = new StepWeightSkin()
     this.animations_listing_step = new StepAnimationsListing(this.theme_manager)
     this.animations_listing_step.addEventListener('pose-editor-visibility', (event: Event) => {
-      if (this.skeleton_helper) this.skeleton_helper.visible = (event as CustomEvent<boolean>).detail || !!(document.getElementById('show-skeleton-animations') as HTMLInputElement | null)?.checked
+      if (this.skeleton_helper) this.skeleton_helper.visible = (event as CustomEvent<boolean>).detail || !!(document.getElementById('show-skeleton-checkbox') as HTMLInputElement | null)?.checked
     })
     document.getElementById('classic-initial-pose-button')?.addEventListener('click', () => this.animations_listing_step.open_initial_pose_editor())
     document.getElementById('weight-initial-pose-button')?.addEventListener('click', () => {

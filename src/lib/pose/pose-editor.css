@@ -9,3 +9,5 @@
 .pose-editor-panel output { font-size: 11px; text-align: right; }
 .floating-pose-editor { position: fixed; z-index: 50; right: 16px; top: 142px; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 246px); overflow: auto; margin: 0; }
 @media (max-width: 620px) { .floating-pose-editor { top: auto; left: 12px; right: 12px; bottom: 100px; width: auto; max-height: 43dvh; } }
+
+#skinned-step-animation-export-options:has(.pose-editor-panel:not([hidden])) > :not(#classic-pose-panel):not(#classic-initial-pose-button) { display: none !important; }

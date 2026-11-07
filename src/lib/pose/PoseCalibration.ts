@@ -98,7 +98,7 @@ export class PoseCalibration {
     while (ancestor && (ancestor as Bone).isBone && joints.length < 5 && !/^(root|hips|pelvis|spine(?:_\d+)?|chest|neck)$/i.test(ancestor.name)) { joints.push(ancestor as Bone); ancestor = ancestor.parent }
     if (!joints.length) throw new Error('Выберите кость лапы, стопы или копыта')
     this.update_world(); const target = tip.getWorldPosition(new Vector3()); target.y = floor
-    for (let iteration = 0; iteration < 96; iteration++) {
+    for (let iteration = 0; iteration < 1024; iteration++) {
       if (tip.getWorldPosition(new Vector3()).distanceTo(target) < 0.00001) break
       for (const joint of joints) {
         const parent = joint.parent; if (!parent) continue

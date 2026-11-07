@@ -82,6 +82,7 @@ jobs:
           npm install --no-save --package-lock=false playwright
           npx playwright install --with-deps chromium
           node scripts/check-native-rig-ui.mjs
+          node scripts/check-classic-pose.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

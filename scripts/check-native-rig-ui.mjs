@@ -37,7 +37,7 @@ try {
     const methods = ['capabilities', 'begin', 'append', 'prepare', 'run', 'read', 'discard', 'cancel', 'addListener', 'removeListener']
     const pending = new Map(); let callback = 0
     window.Capacitor = {
-      PluginHeaders: [{ name: 'RigNativeEngine', methods: methods.map(name => ({ name, rtype: name === 'addListener' ? 'callback' : 'promise' })) }],
+      PluginHeaders: [{ name: 'RigNativeEngine', methods: methods.map(name => ({ name, rtype: name === 'addListener' ? 'callback' : 'promise' })) }, { name: 'RigFileExport', methods: ['begin', 'append', 'finish', 'abort'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise(pluginId, methodName, options) { return new Promise(resolve => { const callbackId = String(++callback); pending.set(callbackId, resolve); window.androidBridge.postMessage(JSON.stringify({ pluginId, methodName, options, callbackId })) }) },
       nativeCallback(pluginId, methodName, options, handler) { const callbackId = String(++callback); if (handler) pending.set(callbackId, handler); window.androidBridge.postMessage(JSON.stringify({ pluginId, methodName, options, callbackId })); return callbackId },
       fromNative(result) { pending.get(result.callbackId)?.(result.data); pending.delete(result.callbackId) }
@@ -46,6 +46,13 @@ try {
     window.androidBridge = { postMessage(text) {
       const request = JSON.parse(text); if (request.type === 'js.error') return
       const { pluginId, methodName, options = {}, callbackId } = request
+      if (pluginId === 'RigFileExport') {
+        let data = {}
+        if (methodName === 'begin') { window.__exportParts = []; data = { id: 'export-test' } }
+        if (methodName === 'append') window.__exportParts.push(options.data)
+        if (methodName === 'finish') { window.__exportBytes = window.__exportParts.flatMap(part => [...atob(part)].map(c => c.charCodeAt(0))); data = { status: 'saved' } }
+        setTimeout(() => window.Capacitor.fromNative({ callbackId, pluginId, methodName, success: true, data }), 5); return
+      }
       if (pluginId !== 'RigNativeEngine' || methodName === 'addListener') return
       let data = {}
       if (methodName === 'capabilities') data = { available: true }
@@ -114,13 +121,22 @@ try {
   await page.getByRole('button', { name: 'Native bridge test motion', exact: false }).click()
   await page.waitForFunction(() => parseFloat(document.getElementById('time').textContent) > 0.05)
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Файл', exact: true }).click()
-  const downloaded = page.waitForEvent('download'); await page.locator('#export').click()
-  const download = await downloaded; await download.saveAs('artifacts/pose-roundtrip.glb')
+  await page.getByRole('button', { name: 'Анимации', exact: true }).click()
+  await page.locator('#export').click()
+  await page.locator('#status').filter({ hasText: 'GLB сохранён' }).waitFor()
+  const exported = Buffer.from(await page.evaluate(() => window.__exportBytes))
+  const doc = JSON.parse(exported.subarray(20, 20 + exported.readUInt32LE(12)).toString())
+  assert.ok(Math.abs(doc.nodes[1].rotation[2] - Math.sin(25 * Math.PI / 360)) < .00001)
+  const original = Buffer.from(outputGlb(), 'base64'), originalDoc = JSON.parse(original.subarray(20, 20 + original.readUInt32LE(12)).toString())
+  assert.deepEqual(doc.skins, originalDoc.skins); assert.deepEqual(doc.meshes, originalDoc.meshes)
+  assert.deepEqual(exported.subarray(28 + exported.readUInt32LE(12), 28 + exported.readUInt32LE(12) + originalDoc.buffers[0].byteLength), original.subarray(28 + original.readUInt32LE(12)))
   await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Риг', exact: true }).click(); await page.locator('#initial-pose').click()
   await page.getByLabel('Кость для исходной позы').selectOption({ label: 'pelvis' })
   await page.getByLabel('Поворот, ° Z', { exact: true }).fill('10'); await page.getByLabel('Поворот, ° Z', { exact: true }).dispatchEvent('input')
   await page.getByRole('button', { name: 'Отмена', exact: true }).click()
+  await page.getByRole('button', { name: 'Файл', exact: true }).click()
+  await page.locator('#model-file').setInputFiles({ name: 'pose-roundtrip.glb', mimeType: 'model/gltf-binary', buffer: exported })
+  await page.locator('#asset-name').filter({ hasText: 'pose-roundtrip' }).waitFor()
   await page.keyboard.press('Escape'); await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: 'Вид', exact: true }).click()
   const small = await page.locator('#workspace-view').boundingBox(); assert.ok(small.width < 390 && small.height < 430)
@@ -128,7 +144,7 @@ try {
   const commands = await page.evaluate(() => window.__nativeCalls)
   assert.deepEqual(commands, ['INITIAL_BODY_GUIDES', 'PROPOSE_BODY', 'PREVIEW_BODY', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'EXPORT'])
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
+  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, initialPoseEditAndExport: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
 } catch (error) {
   if (page) { console.log('Browser state:', await page.locator('#native-rig-panel').innerText().catch(() => 'Page unavailable')); await page.screenshot({ path: 'artifacts/native-failure.png' }).catch(() => {}) }
   throw error

@@ -42,7 +42,6 @@ export class StepAnimationsListing extends EventTarget {
 
   private pose_calibration?: PoseCalibration
   private pose_panel?: PoseEditorPanel
-  private pending_pose_editor = false
   private leaving_pose = false
 
   private animation_mixer: AnimationMixer = new AnimationMixer(new Object3D())
@@ -419,7 +418,6 @@ export class StepAnimationsListing extends EventTarget {
     })
 
     this.play_animation(0) // play the first animation by default
-    if (this.pending_pose_editor) { this.pending_pose_editor = false; this.open_initial_pose_editor() }
   }
 
   private onAnimationLoadProgress (progress: AnimationLoadProgress): void {
@@ -515,7 +513,7 @@ export class StepAnimationsListing extends EventTarget {
 
   public open_initial_pose_editor (): void {
     if (this.pose_panel?.open) return
-    if (this.is_loading_default_animations || !this.animation_clips_loaded.length) { this.pending_pose_editor = true; return }
+    if (!this.skinned_meshes_to_animate.length) return
     this.animation_player.clear_animation(); this.animation_mixer.stopAllAction()
     for (const mesh of this.skinned_meshes_to_animate) this.reset_root_motion_position(mesh)
     if (!this.pose_calibration) {
@@ -533,7 +531,7 @@ export class StepAnimationsListing extends EventTarget {
   }
 
   public stop_and_restore_pose (): void {
-    this.leaving_pose = true; this.pending_pose_editor = false; this.pose_panel?.cancel()
+    this.leaving_pose = true; this.pose_panel?.cancel()
     this.animation_player.clear_animation(); this.animation_mixer.stopAllAction()
     for (const mesh of this.skinned_meshes_to_animate) this.reset_root_motion_position(mesh)
     this.leaving_pose = false
