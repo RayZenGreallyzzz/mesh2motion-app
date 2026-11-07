@@ -10,6 +10,7 @@ import { restore_rig_pose, type RigAsset } from './RigAsset.ts'
 import { register_asset_renderer } from '../lib/AssetCodecs.ts'
 import { joint_roles } from './RigBoneMapping.ts'
 import { BoneSlot } from '../retarget/bone-automap/BoneTypes.ts'
+import { StudioRoom } from './StudioRoom.ts'
 
 export class RigViewer {
   readonly scene = new Scene()
@@ -31,6 +32,9 @@ export class RigViewer {
   private readonly follow_position = new Vector3()
   private readonly native_markers = new Group()
   private native_bones?: LineSegments<BufferGeometry, LineBasicMaterial>
+  private readonly room: StudioRoom
+  private room_asset?: RigAsset
+  private overlay = { width: 0, height: 0, bottom: false }
   private native_change?: (name: string, point: [number, number, number]) => void
   private native_drag?: { name: string, mesh: Mesh, plane: Plane, offset: Vector3, pointer: number }
   on_time: (time: number, duration: number) => void = () => {}
@@ -53,6 +57,7 @@ export class RigViewer {
     const light = new DirectionalLight(0xffe8cb, 3)
     light.position.set(3, 6, 5)
     this.scene.add(light, this.grid)
+    this.room = new StudioRoom(this.scene); this.room.set_visible(true); this.grid.visible = false
     this.scene.add(this.native_markers)
     const canvas = this.renderer.domElement, ray = new Raycaster()
     const pointer = (event: PointerEvent): void => {
@@ -91,6 +96,7 @@ export class RigViewer {
       if (!width || !height) return
       this.renderer.setSize(width, height)
       this.camera.aspect = width / height
+      this.apply_overlay()
       this.camera.updateProjectionMatrix()
     }).observe(container)
     this.renderer.setAnimationLoop(time => {
@@ -141,7 +147,10 @@ export class RigViewer {
     if (bounds.isEmpty()) bounds.setFromCenterAndSize(new Vector3(), new Vector3(1, 1, 1))
     const center = bounds.getCenter(new Vector3())
     const radius = Math.max(bounds.getSize(new Vector3()).length() * 0.5, 0.1)
-    const aspect = Math.min(this.camera.aspect, 1)
+    const width = this.renderer.domElement.clientWidth || 1, height = this.renderer.domElement.clientHeight || 1
+    const free_width = Math.max(width - (this.overlay.bottom ? 0 : this.overlay.width), width * 0.18)
+    const free_height = Math.max(height - (this.overlay.bottom ? this.overlay.height : 0), height * 0.18)
+    const aspect = Math.min(free_width / height, free_height / height, 1)
     const distance = radius / Math.sin(this.camera.fov * Math.PI / 360) / aspect * 1.15
     const direction = preserve_view ? this.camera.position.clone().sub(this.controls.target).normalize() : new Vector3(0.55, 0.28, 1).normalize()
     this.camera.position.copy(center).add(direction.multiplyScalar(distance))
@@ -153,6 +162,8 @@ export class RigViewer {
     this.grid.scale.setScalar(radius * 0.4)
     this.controls.update()
     this.follow_node?.getWorldPosition(this.follow_anchor)
+    if (this.room_asset !== this.asset) { this.room.configure(bounds); this.room_asset = this.asset }
+    if (this.room.visible) this.grid.position.y = this.room.group.position.y + radius * 0.001
   }
 
   play (index: number): void {
@@ -249,6 +260,19 @@ export class RigViewer {
     if (!positions.length) throw new Error('Движок не вернул связи между костями.')
     const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute(positions, 3))
     this.native_bones = new LineSegments(geometry, new LineBasicMaterial({ color: 0x8eeaff, depthTest: false })); this.native_bones.renderOrder = 999; this.scene.add(this.native_bones)
+  }
+
+  set_room_enabled(value: boolean): void { this.room.set_visible(value); this.fit(true) }
+  set_grid_visible(value: boolean): void { this.grid.visible = value }
+  set_settings_overlay(width: number, height: number, bottom: boolean): void {
+    const changed = Math.abs(this.overlay.width - width) > 8 || Math.abs(this.overlay.height - height) > 8 || this.overlay.bottom !== bottom
+    this.overlay = { width, height, bottom }; this.apply_overlay(); if (changed) this.fit(true)
+  }
+  private apply_overlay(): void {
+    const width = this.renderer.domElement.clientWidth, height = this.renderer.domElement.clientHeight
+    if (!width || !height) return
+    if (this.overlay.width || this.overlay.height) this.camera.setViewOffset(width, height, this.overlay.bottom ? 0 : this.overlay.width / 2, this.overlay.bottom ? this.overlay.height / 2 : 0, width, height)
+    else this.camera.clearViewOffset()
   }
 }
 

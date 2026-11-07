@@ -64,6 +64,16 @@ supplied Probe APK, then align and sign the result privately. Preserve the engin
 license notices. The assembly tool verifies the native SHA and retains every
 existing `assets/public/` byte from the shell.
 
+## Room and settings workspace
+
+The test app opens the built-in human in a full-screen display room. File,
+rigging, animation, library and view settings open as button-triggered popups;
+small screens use bottom sheets. The camera shifts its framing into the free
+part of the viewport while a popup is open. The room scales to the source bounds
+and remains outside the rig's export hierarchy. Orbit, pinch zoom and panning
+use the existing touch controls. The owner's original stone-wall PNG is supplied
+privately with `--wall-texture`; public builds use a procedural fallback surface.
+
 Privately restored animation packs are separate from the public repository
 assets. A shell build does not establish that missing private packs were
 restored. Native integration does not remove catalog entries or model files.

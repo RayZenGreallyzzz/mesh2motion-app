@@ -17,6 +17,7 @@ import { RigViewer } from './RigViewer.ts'
 import { inspect_skin_weights } from './RigSkinDiagnostics.ts'
 import { NativeRigPanel } from './NativeRigPanel.ts'
 import { validate_native_skin } from './NativeRigValidation.ts'
+import { StudioWorkspace } from './StudioWorkspace.ts'
 
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
 const button = (id: string): HTMLButtonElement => element<HTMLButtonElement>(id)
@@ -31,6 +32,7 @@ let mapping: RigMapping = {}
 let selected_clip = -1
 let busy = false
 let native_panel: NativeRigPanel | undefined
+let workspace: StudioWorkspace | undefined
 const status = (message: string, error = false): void => {
   element('status').textContent = message
   element('status').classList.toggle('error', error)
@@ -91,12 +93,14 @@ native_panel = new NativeRigPanel(element('native-rig-panel'), {
   viewer,
   asset: () => asset,
   operation,
+  status,
   show: async bytes => {
     const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · нативный риг')
     try { validate_native_skin(next) } catch (error) { dispose_rig_scene(next.scene); throw error }
-    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true)
+    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions')
   }
 })
+workspace = new StudioWorkspace(viewer, show_tab)
 
 function render_clips (): void {
   const list = element('clips')
@@ -142,6 +146,7 @@ function show_tab (is_library: boolean): void {
     button(id).classList.toggle('active', active)
     button(id).setAttribute('aria-pressed', String(active))
   }
+  workspace?.sync_tab(is_library)
 }
 
 async function render_library (): Promise<void> {

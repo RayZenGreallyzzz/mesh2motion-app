@@ -8,6 +8,7 @@ interface Options {
   asset(): RigAsset | undefined
   operation(message: string, task: () => Promise<void>): Promise<void>
   show(bytes: ArrayBuffer): Promise<void>
+  status?(message: string, error?: boolean): void
 }
 const names: Record<string, string> = { pelvis: 'Таз', chest: 'Грудная клетка', thorax: 'Грудная клетка', neck: 'Шея', head: 'Голова', shoulder: 'Плечо', elbow: 'Локоть', wrist: 'Запястье', hand_end: 'Конец кисти', hip: 'Бедро', knee: 'Колено', ankle: 'Голеностоп', ball: 'Основание пальцев стопы', toe: 'Носок' }
 function title(name: string): string { const key = name.replace(/_[lr]$/, ''); return (names[key] ?? key) + (name.endsWith('_l') ? ' · слева' : name.endsWith('_r') ? ' · справа' : '') }
@@ -65,6 +66,7 @@ export class NativeRigPanel {
     if (this.busy || this.source === asset.source_bytes) return
     this.source = asset.source_bytes; this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.front_seen = this.side_seen = false
     this.editor.replaceChildren(); this.fields.clear(); this.options.viewer.set_native_points({}); this.options.viewer.set_native_bones([])
+    if (this.available) this.set_message('Персонаж открыт. Нажмите «Найти ориентиры тела».')
     void this.client.dispose(); this.refreshControls()
   }
   refreshControls(external_busy = this.external_busy): void {
@@ -79,7 +81,7 @@ export class NativeRigPanel {
     this.cancel.hidden = !this.busy
     this.editor.querySelectorAll('input').forEach(input => { input.disabled = busy })
   }
-  private set_message(text: string, error = false): void { this.message.textContent = text; this.message.classList.toggle('error', error) }
+  private set_message(text: string, error = false): void { this.message.textContent = text; this.message.classList.toggle('error', error); this.options.status?.(text, error) }
   private async work(message: string, action: () => Promise<void>): Promise<void> {
     if (this.busy || this.external_busy) return
     this.busy = true; this.refreshControls(); this.options.viewer.set_native_points(this.points())

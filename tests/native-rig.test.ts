@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { Bone, BufferGeometry, Float32BufferAttribute, Group, MeshBasicMaterial, Skeleton, SkinnedMesh, Uint16BufferAttribute } from 'three'
+import { Bone, Box3, BufferGeometry, Float32BufferAttribute, Group, MeshBasicMaterial, Skeleton, SkinnedMesh, Uint16BufferAttribute, Vector3 } from 'three'
 import { NativeRigClient, native_failure, native_points, type NativeReceipt } from '../src/my-rigs/NativeRigClient.ts'
 import { validate_native_skin } from '../src/my-rigs/NativeRigValidation.ts'
 import type { RigAsset } from '../src/my-rigs/RigAsset.ts'
+import { room_layout } from '../src/my-rigs/StudioRoom.ts'
 
 function glb(size = 220000): ArrayBuffer { const b = new ArrayBuffer(size), view = new DataView(b); view.setUint32(0, 0x46546c67, true); view.setUint32(4, 2, true); view.setUint32(8, size, true); for (let i = 12; i < size; i++) view.setUint8(i, i % 251); return b }
 class FakeBridge {
@@ -57,5 +58,15 @@ describe('native output never replaces a visible model with broken skin', () => 
     expect(() => validate_native_skin(asset([1, 0, 0, 0], 10))).toThrow('индексы')
     expect(() => validate_native_skin(asset([0, 0, 0, 0]))).toThrow('нормализованных')
     expect(() => validate_native_skin(asset([NaN, 0, 0, 0]))).toThrow('неверные веса')
+  })
+})
+describe('display room follows model units without moving the model', () => {
+  it('places the floor under translated feet and retains scale for tiny and large models', () => {
+    const source = new Box3(new Vector3(10, -3, 4), new Vector3(12, 0, 6)), before = source.clone(), base = room_layout(source)
+    expect(base.center.toArray()).toEqual([11, -1.5, 5]); expect(base.floor).toBeLessThan(-3); expect(source.equals(before)).toBe(true)
+    for (const factor of [0.001, 1000]) {
+      const scaled = room_layout(new Box3(source.min.clone().multiplyScalar(factor), source.max.clone().multiplyScalar(factor)))
+      expect(scaled.unit / base.unit).toBeCloseTo(factor, 6); expect(scaled.floor / base.floor).toBeCloseTo(factor, 6)
+    }
   })
 })
