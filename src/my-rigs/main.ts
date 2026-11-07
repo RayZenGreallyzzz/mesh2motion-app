@@ -44,7 +44,9 @@ const status = (message: string, error = false): void => {
 }
 
 function controls (): void {
-  const own_busy = busy || pose_editing, locked = own_busy || !!humanoid_panel?.reviewing
+  const own_busy = busy || pose_editing
+  humanoid_panel?.refresh(own_busy)
+  const locked = own_busy || !!humanoid_panel?.reviewing
   button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
     button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
@@ -56,9 +58,9 @@ function controls (): void {
   element('library-panel').querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach(item => { item.disabled = locked || !asset?.skeleton_count })
   dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input,button,select').forEach(item => { item.disabled = locked })
   element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = locked })
+  element('clips').querySelectorAll<HTMLButtonElement | HTMLInputElement>('button,input').forEach(item => { item.disabled = locked })
   document.body.classList.toggle('busy', busy)
   native_panel?.refreshControls(locked)
-  humanoid_panel?.refresh(own_busy)
 }
 
 async function operation (message: string, task: () => Promise<void>): Promise<void> {
@@ -172,7 +174,7 @@ function render_clips (): void {
     duration.textContent = clip.duration.toFixed(2) + ' с · ' + clip.tracks.length + ' дорожек'
     play.append(duration)
     play.onclick = () => {
-      if (busy || pose_editing) return
+      if (busy || pose_editing || humanoid_panel?.reviewing) return
       viewer.play(index)
       selected_clip = index
       list.querySelectorAll('.clip').forEach(item => item.classList.toggle('selected', item === row))
