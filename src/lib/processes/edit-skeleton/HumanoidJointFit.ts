@@ -33,7 +33,7 @@ export function visit_fit_geometry (model: Object3D, visit: (child: Object3D, ge
 // Intersect the surface, rather than counting vertices near a guessed joint.
 // A low-poly limb, a subdivided limb and duplicated UV seams must describe the
 // same shape. The bounded triangle snapshot is shared by all four limbs.
-export function joint_fit_surface (model: Object3D, frame: Object3D | null): Float32Array {
+export function joint_fit_surface (model: Object3D, frame: Object3D | null, maxTriangles = 150000): Float32Array {
   model.updateWorldMatrix(true, true)
   frame?.updateWorldMatrix(true, false)
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
@@ -47,7 +47,9 @@ export function joint_fit_surface (model: Object3D, frame: Object3D | null): Flo
     meshes.push({ geometry, matrix: inverse.clone().multiply(child.matrixWorld), start, count })
     total += count
   })
-  const stride = Math.max(1, Math.ceil(total / 150000))
+  // Closed-contour fitting must retain every triangle. Callers doing that pass
+  // Infinity; the limb estimator keeps its bounded sampling by default.
+  const stride = Math.max(1, Math.ceil(total / Math.max(1, maxTriangles)))
   const count = meshes.reduce((n, mesh) => n + Math.ceil(mesh.count / stride), 0)
   const triangles = new Float32Array(count * 9)
   const point = new Vector3()

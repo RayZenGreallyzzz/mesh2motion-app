@@ -23,20 +23,24 @@ export function fit_humanoid_head(points: readonly Vector3[], bones: Bone[], fra
   const center = at(pelvis).x, shoulder = (at(arms[0]!).y + at(arms[1]!).y) * .5
   const oldHead = at(head), oldTip = at(tip)
   const rows: Array<{ y: number, width: number, z: number }> = []
-  const start = Math.max(shoulder + height * .025, bottom + height * .79)
-  const end = Math.min(bottom + height * .875, shoulder + height * .12)
+  const start = shoulder + height * .025
+  const end = Math.min(top - height * .025, shoulder + height * .24)
   for (let y = start; y <= end; y += height * .005) {
-    const slice = points.filter(p => Math.abs(p.y - y) < height * .006 && Math.abs(p.x - center) < height * .065 && Math.abs(p.z - oldHead.z) < height * .09)
+    // A narrow corridor clips the back/sides of a thick neck or upper chest,
+    // making those clipped torso samples look like a narrower anatomical neck.
+    const slice = points.filter(p => Math.abs(p.y - y) < height * .006 && Math.abs(p.x - center) < height * .18 && Math.abs(p.z - oldHead.z) < height * .20)
     if (slice.length < 10) continue
+    if (slice.some(p => Math.abs(p.x - center) > height * .17 || Math.abs(p.z - oldHead.z) > height * .19)) continue
     const width = percentile(slice.map(p => Math.abs(p.x - center)), .85)
     if (width < height * .012 || width > height * .05) continue
     const z = (percentile(slice.map(p => p.z), .12) + percentile(slice.map(p => p.z), .88)) * .5
     rows.push({ y, width, z })
   }
-  if (!rows.length) return false
-  const narrow = rows.reduce((a,b) => a.width < b.width ? a : b)
+  const coherent = rows.filter(r => rows.filter(q => Math.abs(q.y-r.y)<height*.013 && q.width<=r.width*1.2).length>=3 && rows.some(q=>q.y>r.y+height*.03 && q.y<r.y+height*.12 && q.width>r.width*1.12))
+  if (!coherent.length) return false
+  const narrow = coherent.reduce((a,b) => a.width < b.width ? a : b)
   // A shallow smooth band avoids selecting an isolated sparse slice.
-  const band = rows.filter(r => r.width <= narrow.width * 1.18 && Math.abs(r.y - narrow.y) < height * .016)
+  const band = coherent.filter(r => r.width <= narrow.width * 1.18 && Math.abs(r.y - narrow.y) < height * .016)
   const y = band.reduce((sum,r) => sum+r.y, 0) / band.length
   const z = band.reduce((sum,r) => sum+r.z, 0) / band.length
   const place = (b: Bone, p: Vector3) => {
@@ -49,7 +53,9 @@ export function fit_humanoid_head(points: readonly Vector3[], bones: Bone[], fra
   if (oldTip.y <= headY + height * .04) return false
   place(neck, new Vector3(center, Math.max(shoulder + height * .018, y - height * .028), z))
   place(head, new Vector3(center, headY, z))
-  place(tip, new Vector3(center, oldTip.y, z))
+  // In a T/A source pose the upper mesh extent is above the skull. A template
+  // endpoint inside the forehead makes the skull region artificially short.
+  place(tip, new Vector3(center, Math.max(oldTip.y, top), z))
   return true
 }
 
@@ -61,8 +67,9 @@ export function fit_humanoid_head_surface(surface: Float32Array, bones: Bone[], 
   if (!neck || !head || !tip || !pelvis || !left || !right || head.parent !== neck || tip.parent !== head || !(height > 1e-6) || !surface.length) return false
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4(), at = (bone: Bone) => bone.getWorldPosition(new Vector3()).applyMatrix4(inverse)
   const shoulder = (at(left).y + at(right).y) * .5, center = at(pelvis).x, oldHead = at(head), oldTip = at(tip)
+  let top = -Infinity; for (let i=1;i<surface.length;i+=3) top=Math.max(top,surface[i])
   const rows: Array<{ y: number, width: number, x: number, z: number }> = [], step = height * .006, tolerance = height * .00002
-  for (let y = shoulder + height * .012; y < Math.min(shoulder + height * .22, oldTip.y - height * .025); y += step) {
+  for (let y = shoulder + height * .012; y < Math.min(shoulder + height * .30, top - height * .004); y += step) {
     const vertices: Array<{ x: number, z: number, edges: Set<number> }> = [], ids = new Map<string, number>()
     const vertex = (x: number, z: number): number => {
       const key = Math.round(x / tolerance) + ':' + Math.round(z / tolerance)
@@ -106,6 +113,10 @@ export function fit_humanoid_head_surface(surface: Float32Array, bones: Bone[], 
   if (oldTip.y < y + height * .04) return false
   const place = (bone: Bone, point: Vector3) => { bone.parent?.updateWorldMatrix(true, false); if (frame) point.applyMatrix4(frame.matrixWorld); bone.position.copy(bone.parent ? bone.parent.worldToLocal(point) : point); bone.updateWorldMatrix(true, true) }
   place(neck, new Vector3(x, Math.max(shoulder + height * .006, y - height * .028), z))
-  place(head, new Vector3(x, y + height * .002, z)); place(tip, new Vector3(x, oldTip.y, z))
+  // The template skull end can stop inside a short-faced character's forehead.
+  // Extend it through the final central closed head contour, without following
+  // detached raised hands or the separate contours of distant ears/horns.
+  const crown = Math.min(top, Math.max(...rows.filter(r=>r.y>y).map(r=>r.y+step), oldTip.y))
+  place(head, new Vector3(x, y + height * .002, z)); place(tip, new Vector3(x, Math.max(oldTip.y,crown), z))
   return true
 }

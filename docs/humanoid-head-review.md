@@ -4,7 +4,7 @@ The full 65-joint humanoid builder previously stopped when its vertex-slice neck
 search found fewer than ten nearby vertices. The model was preserved, but the
 message offered manual review without any way to perform it.
 
-The builder now falls back to closed triangle-surface sections. It requires a
+The builder now prefers closed triangle-surface sections, retaining every triangle even on meshes above the limb sampling budget. The vertex fallback rejects clipped torso rows and requires coherent neck-to-skull widening. It requires a
 coherent narrow band with a wider skull above it. Open or ambiguous sections do
 not silently become a successful anatomical estimate. The result report identifies
 vertex, surface or manually confirmed head fitting.
@@ -39,6 +39,31 @@ be signed with the existing rig65-test key from the 8.2.2 backup. Do not sign wi
 the older native-studio key: it belongs to a different installed package. No
 private module, purchased model or signing key belongs in this public repository.
 
-The gold humanoid shown in the user's screenshots has not been tested as geometry:
+The gold alien humanoid shown in the user's screenshots has not been tested as geometry:
 its GLB was not available. Device execution of the restored native module and
 visual deformation checks remain necessary before claiming that model is fixed.
+
+## Dense muscular human regression
+
+A subsequently supplied unskinned human with 203,062 vertices exposed a separate
+false fit. The narrow vertex corridor clipped the upper chest and back of the
+neck, placing the skull base about 12.5 cm too low and 6 cm too far forward. The
+resulting neck points were incorrectly inside the validator's skull cylinder.
+Full closed sections place the base at the actual neck/skull transition; the
+skull endpoint also follows the upper central head extent rather than ending in
+the forehead. Neither the source model nor its textures is published here.
+
+The model also exposed a torso-correction discontinuity: a tiny initial spine
+weight was amplified in proportion to its original distribution. Adjacent
+vertices whose tiny seeds named different spine bones could then follow different
+joints strongly. Where amplification would dominate weak evidence, the torso field follows a
+smooth projection along the actual spine. Substantial original spine support,
+arm capsules and correction bounds are retained. This reduces the observed
+armpit discontinuities; fine hand and armpit deformation still needs visual review. A regression uses
+adjacent points with different 0.1% spine seeds.
+
+Private checks include bind invariance, binary preservation, anatomical validation,
+controlled head/shoulder/elbow/knee turns and export/reload of Pistol_Reload and
+Crouch_Walk from the existing public application library. These are not a claim
+that every purchased or Mixamo animation or every body shape is verified. The
+proprietary ARM64 engine still requires device execution.

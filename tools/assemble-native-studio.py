@@ -13,7 +13,10 @@ with zipfile.ZipFile(a.shell) as shell,zipfile.ZipFile(a.engine_apk) as supplied
         out.writestr(info,shell.read(info))
     out.writestr(engine_path,engine,compress_type=zipfile.ZIP_STORED)
     for name in ['NOTICE.txt','DEPENDENCIES.txt','APACHE-2.0.txt']:
-        out.writestr('assets/native-engine/licenses/'+name,supplied.read('assets/probe/licenses/'+name),compress_type=zipfile.ZIP_DEFLATED)
+        candidates=['assets/probe/licenses/'+name,'assets/native-engine/licenses/'+name]
+        source=next((path for path in candidates if path in supplied.namelist()),None)
+        if source is None:raise ValueError('Engine licence missing: '+name)
+        out.writestr('assets/native-engine/licenses/'+name,supplied.read(source),compress_type=zipfile.ZIP_DEFLATED)
     if a.wall_texture:
         texture=pathlib.Path(a.wall_texture).read_bytes()
         if len(texture)>16*1024*1024 or texture[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError('Wall texture must be PNG below 16 MiB')

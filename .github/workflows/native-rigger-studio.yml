@@ -21,7 +21,7 @@ jobs:
       - name: Check Studio and native output boundaries
         run: |
           npm run typecheck
-          npm test -- tests/head-review.test.ts tests/head-review-panel.test.ts tests/humanoid65.test.ts src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts tests/pose-calibration.test.ts tests/native-rig.test.ts src/my-rigs/OwnRigs.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
+          npm test -- tests/head-review.test.ts tests/head-review-panel.test.ts tests/humanoid65.test.ts tests/torso-weights.test.ts tests/head-weight-boundaries.test.ts tests/large-head-weights.test.ts src/lib/processes/edit-skeleton/HumanoidAutoFit.test.ts src/lib/processes/edit-skeleton/HumanoidJointFit.test.ts src/lib/solvers/HumanoidJointWeightCorrector.test.ts tests/pose-calibration.test.ts tests/native-rig.test.ts src/my-rigs/OwnRigs.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
           npm run build
           npx vite build --config scripts/pose-check.vite.config.mjs
       - uses: actions/upload-artifact@v4

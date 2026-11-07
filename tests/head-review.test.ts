@@ -19,6 +19,25 @@ function sparseNeck(open = false) {
   return new Mesh(geometry)
 }
 describe('head landmarks independent of tessellation', () => {
+  it('does not fit a cropped thick chest as the skull base', () => {
+    const rings: Vector2[] = []
+    const shape = [[.18, 0], [.30, 1.5], [.23, 1.69], [.07, 1.80], [.07, 1.84], [.11, 1.92], [.07, 2.05]]
+    for (let i=0;i<shape.length-1;i++) for(let j=0;j<18;j++){const t=j/18;rings.push(new Vector2(shape[i][0]*(1-t)+shape[i+1][0]*t,shape[i][1]*(1-t)+shape[i+1][1]*t))}
+    rings.push(new Vector2(...shape.at(-1)! as [number,number]))
+    const mesh = new Mesh(new LatheGeometry(rings, 32)), bones = skeleton(), pos = mesh.geometry.attributes.position
+    const points = Array.from({length:pos.count},(_,i)=>new Vector3().fromBufferAttribute(pos,i))
+    expect(fit_humanoid_head(points,bones,null,2)).toBe(true)
+    expect(bones[2].getWorldPosition(new Vector3()).y).toBeGreaterThan(1.77)
+    expect(Math.abs(bones[2].getWorldPosition(new Vector3()).z)).toBeLessThan(.015)
+    expect(bones[3].getWorldPosition(new Vector3()).y).toBeCloseTo(2.05)
+    mesh.geometry.dispose()
+  })
+  it('retains complete contours when a caller disables triangle striding', () => {
+    const mesh = sparseNeck()
+    expect(fit_humanoid_head_surface(joint_fit_surface(mesh,null,1),skeleton(),null,2)).toBe(false)
+    expect(fit_humanoid_head_surface(joint_fit_surface(mesh,null,Infinity),skeleton(),null,2)).toBe(true)
+    mesh.geometry.dispose()
+  })
   it('finds a neck in a closed sparse surface without near-neck vertices', () => {
     const mesh = sparseNeck(), bones = skeleton(), pos = mesh.geometry.attributes.position
     const points = Array.from({ length: pos.count }, (_, i) => new Vector3().fromBufferAttribute(pos, i))

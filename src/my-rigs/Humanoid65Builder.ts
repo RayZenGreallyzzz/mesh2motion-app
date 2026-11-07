@@ -99,8 +99,9 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       place(get('neck_01'),new Vector3(...options.head_landmarks.neck));place(get('head'),new Vector3(...options.head_landmarks.head));place(get('head_leaf'),new Vector3(...options.head_landmarks.head_end))
       headFitted=true;headSource='manual'
     }else{
-      headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
-      if(!headFitted){headFitted=fit_humanoid_head_surface(joint_fit_surface(asset.scene,null),originalBones,null,(shoulder-bottom)/.79);if(headFitted)headSource='surface'}
+      headFitted=fit_humanoid_head_surface(joint_fit_surface(asset.scene,null,Infinity),originalBones,null,(shoulder-bottom)/.79)
+      if(headFitted)headSource='surface'
+      else headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
       if(!headFitted||options.review_head)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
     for (const side of ['l','r'] as const) {const wrist=world(get('hand_'+side));place(get('lowerarm_'+side),world(get('upperarm_'+side)).lerp(wrist,elbowFractions.get(side)!));place(get('hand_'+side),wrist)}
