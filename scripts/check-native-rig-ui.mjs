@@ -26,16 +26,22 @@ function outputGlb() {
 }
 const server = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4181'], { stdio: ['ignore', 'pipe', 'pipe'] })
 await mkdir('artifacts', { recursive: true })
-let browser
+let browser, page
 try {
   for (let i = 0; i < 100; i++) { try { if ((await fetch('http://127.0.0.1:4181/my-rigs/index.html')).ok) break } catch {}; await new Promise(r => setTimeout(r, 100)) }
   browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
-  const page = await browser.newPage({ viewport: { width: 1000, height: 1000 }, deviceScaleFactor: 1 })
+  page = await browser.newPage({ viewport: { width: 1000, height: 1000 }, deviceScaleFactor: 1 })
   const errors = []; page.on('pageerror', error => errors.push(String(error)))
   await page.addInitScript(({ output }) => {
     window.__nativeCalls = []; window.__nativeFail = false
     const methods = ['capabilities', 'begin', 'append', 'prepare', 'run', 'read', 'discard', 'cancel', 'addListener', 'removeListener']
-    window.Capacitor = { PluginHeaders: [{ name: 'RigNativeEngine', methods: methods.map(name => ({ name, rtype: name === 'addListener' ? 'callback' : 'promise' })) }] }
+    const pending = new Map(); let callback = 0
+    window.Capacitor = {
+      PluginHeaders: [{ name: 'RigNativeEngine', methods: methods.map(name => ({ name, rtype: name === 'addListener' ? 'callback' : 'promise' })) }],
+      nativePromise(pluginId, methodName, options) { return new Promise(resolve => { const callbackId = String(++callback); pending.set(callbackId, resolve); window.androidBridge.postMessage(JSON.stringify({ pluginId, methodName, options, callbackId })) }) },
+      nativeCallback(pluginId, methodName, options, handler) { const callbackId = String(++callback); if (handler) pending.set(callbackId, handler); window.androidBridge.postMessage(JSON.stringify({ pluginId, methodName, options, callbackId })); return callbackId },
+      fromNative(result) { pending.get(result.callbackId)?.(result.data); pending.delete(result.callbackId) }
+    }
     let id = 0
     window.androidBridge = { postMessage(text) {
       const request = JSON.parse(text); if (request.type === 'js.error') return
@@ -90,4 +96,7 @@ try {
   assert.deepEqual(commands, ['INITIAL_BODY_GUIDES', 'PROPOSE_BODY', 'PREVIEW_BODY', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'EXPORT'])
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({ status: 'passed', modelVisible: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
+} catch (error) {
+  if (page) { console.log('Browser state:', await page.locator('#native-rig-panel').innerText().catch(() => 'Page unavailable')); await page.screenshot({ path: 'artifacts/native-failure.png' }).catch(() => {}) }
+  throw error
 } finally { await browser?.close(); server.kill() }
