@@ -76,7 +76,8 @@ export function estimate_limb_joint (
   end: Vector3,
   fallback: Vector3,
   centerX: number,
-  kind: LimbChain['kind'] = 'elbow'
+  kind: LimbChain['kind'] = 'elbow',
+  search?: { max_fraction?: number, max_shift?: number }
 ): JointEstimate | null {
   const axis = end.clone().sub(start), length = axis.length()
   if (!Number.isFinite(length) || length < 1e-5) return null
@@ -156,11 +157,11 @@ export function estimate_limb_joint (
   // The ankle/boot rim is often a stronger constriction than the knee. Exclude
   // the distal end of a leg and implausibly large shifts of its coarse landmark.
   // These are search bounds along this limb, never a fixed percentage of height.
-  const maxFraction = kind === 'knee' ? .74 : .88
+  const maxFraction = search?.max_fraction ?? (kind === 'knee' ? .74 : .88)
   let best: JointEstimate | null = null, bestScore = 0
   for (let i = 18; i <= 84; i++) {
     const section = profile[i], fraction = first + i * step
-    if (!section || fraction < .22 || fraction > maxFraction || (kind === 'knee' && Math.abs(fraction - prior) > .23)) continue
+    if (!section || fraction < .22 || fraction > maxFraction || Math.abs(fraction - prior) > (search?.max_shift ?? (kind === 'knee' ? .23 : 1))) continue
     const before = profile.slice(i - 14, i - 5).filter((s): s is Section => s !== null)
     const after = profile.slice(i + 6, i + 15).filter((s): s is Section => s !== null)
     if (before.length < 6 || after.length < 6) continue
@@ -197,7 +198,7 @@ export function estimate_limb_joint (
 }
 
 /** Run after the Woman shoulder pass, which must not overwrite these joints. */
-export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number): void {
+export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number, search?: Partial<Record<LimbChain['kind'], { max_fraction?: number, max_shift?: number }>>): void {
   const surface = joint_fit_surface(model, frame)
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
   const at = (bone: Bone) => bone.getWorldPosition(new Vector3()).applyMatrix4(inverse)
@@ -209,7 +210,7 @@ export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], fr
   }
   for (const chain of chains) {
     const { start, joint, end, kind } = chain
-    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind)
+    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind, search?.[kind])
     joint.userData.rigJointFit = estimate ? { source: 'surface', evidence: estimate.evidence, confidence: estimate.confidence } : { source: 'fallback' }
     if (!estimate) { joint.userData.rigFitWarning = true; continue }
     delete joint.userData.rigFitWarning

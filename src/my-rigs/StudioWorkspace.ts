@@ -24,7 +24,8 @@ export class StudioWorkspace {
     const file = pane('file', 'Файл и персонаж', 'Файл')
     document.querySelectorAll('.import-row').forEach(row => file.append(row)); file.append(document.getElementById('asset-info')!)
     const rig = pane('native', 'Создать риг', 'Риг')
-    rig.append(document.getElementById('initial-pose')!, document.getElementById('native-rig-panel')!)
+    rig.append(document.getElementById('humanoid65-panel')!, document.getElementById('initial-pose')!)
+    const native_details = document.createElement('details'), native_summary = document.createElement('summary'); native_summary.textContent = 'Нативные ориентиры тела · тест'; native_details.append(native_summary, document.getElementById('native-rig-panel')!); rig.append(native_details)
     const animals = document.createElement('a'); animals.href = '../create.html'; animals.className = 'workspace-link'; animals.textContent = 'Шаблоны животных и монстров →'; rig.append(animals)
     const motions = pane('motions', 'Анимации', 'Анимации')
     const speed = document.createElement('label'); speed.className = 'workspace-speed'; speed.append('Скорость воспроизведения ', document.getElementById('speed')!); motions.append(speed, document.getElementById('motion-preview')!, document.getElementById('motions-panel')!)
@@ -60,3 +61,4 @@ export class StudioWorkspace {
     if (rect.width && rect.height) this.viewer.set_settings_overlay(rect.width + 32, rect.height + 104, bottom)
   }
 }
+

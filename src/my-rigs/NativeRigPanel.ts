@@ -149,6 +149,7 @@ export class NativeRigPanel {
     await this.client.run('EXPORT')
     const bytes = await this.client.result(); await this.options.show(bytes)
     this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.editor.replaceChildren(); this.options.viewer.set_native_points({}); this.options.viewer.set_native_bones([])
-    this.set_message('Результат открыт. Включите «Кости» и добавьте анимацию из библиотеки, чтобы проверить деформации.')
+    this.set_message('Результат открыт. Полный риг: 65 костей. Включите «Кости» и добавьте анимацию из библиотеки, чтобы проверить деформации.')
   }
 }
+

@@ -1,29 +1,34 @@
 import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { Quaternion, Vector3 } from 'three'
 import { mkdir } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 
 // A small independently generated skinned GLB is the bridge's mock output.
 // This proves the UI/transport path; it does not execute the ARM64 engine.
 function outputGlb() {
-  const chunks = [], views = [], accessors = []; let offset = 0
-  function accessor(values, componentType, type, count, extra = {}) {
-    const array = componentType === 5123 ? new Uint16Array(values) : new Float32Array(values), raw = Buffer.from(array.buffer)
-    const index = views.length; views.push({ buffer: 0, byteOffset: offset, byteLength: raw.length }); chunks.push(raw); offset += raw.length
-    if (offset % 4) { const padding = Buffer.alloc(4 - offset % 4); chunks.push(padding); offset += padding.length }
-    accessors.push({ bufferView: index, componentType, type, count, ...extra }); return accessors.length - 1
-  }
-  const position = accessor([-0.3, 0, 0, 0.3, 0, 0, 0, 1, 0], 5126, 'VEC3', 3, { min: [-0.3, 0, 0], max: [0.3, 1, 0] })
-  const joints = accessor([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 5123, 'VEC4', 3)
-  const weights = accessor([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 5126, 'VEC4', 3)
-  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], inverse = identity.slice(); inverse[13] = -0.5
-  const matrices = accessor([...identity, ...inverse], 5126, 'MAT4', 2)
-  const times = accessor([0, 1], 5126, 'SCALAR', 2, { min: [0], max: [1] }), rotations = accessor([0, 0, 0, 1, 0, 0, Math.sin(0.2), Math.cos(0.2)], 5126, 'VEC4', 2)
-  const doc = { asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0, 2] }], nodes: [{ name: 'root', children: [1] }, { name: 'pelvis', translation: [0, 0.5, 0] }, { name: 'native-mesh', mesh: 0, skin: 0 }], meshes: [{ primitives: [{ attributes: { POSITION: position, JOINTS_0: joints, WEIGHTS_0: weights }, material: 0 }] }], materials: [{ doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.8, 0.55, 0.25, 1] } }], skins: [{ joints: [0, 1], inverseBindMatrices: matrices }], animations: [{ name: 'Native bridge test motion', samplers: [{ input: times, output: rotations }], channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }] }], accessors, bufferViews: views, buffers: [{ byteLength: offset }] }
-  let json = Buffer.from(JSON.stringify(doc)); json = Buffer.concat([json, Buffer.alloc((-json.length) & 3, 32)]); const bin = Buffer.concat(chunks), header = Buffer.alloc(20), binaryHeader = Buffer.alloc(8)
-  header.writeUInt32LE(0x46546c67, 0); header.writeUInt32LE(2, 4); header.writeUInt32LE(28 + json.length + bin.length, 8); header.writeUInt32LE(json.length, 12); header.writeUInt32LE(0x4e4f534a, 16); binaryHeader.writeUInt32LE(bin.length, 0); binaryHeader.writeUInt32LE(0x004e4942, 4)
-  return Buffer.concat([header, json, binaryHeader, bin]).toString('base64')
+  const input=readFileSync('static/rigs/rig-human.glb'),n=input.readUInt32LE(12),doc=JSON.parse(input.subarray(20,20+n)),oldBin=input.subarray(28+n)
+  const chunks=[oldBin.subarray(0,doc.buffers[0].byteLength)];let offset=doc.buffers[0].byteLength
+  if(offset%4){const pad=Buffer.alloc(4-offset%4);chunks.push(pad);offset+=pad.length}
+  const add=(values,componentType,type,count,extra={})=>{const array=componentType===5123?new Uint16Array(values):new Float32Array(values),raw=Buffer.from(array.buffer),bv=doc.bufferViews.length;doc.bufferViews.push({buffer:0,byteOffset:offset,byteLength:raw.length});chunks.push(raw);offset+=raw.length;if(offset%4){const pad=Buffer.alloc(4-offset%4);chunks.push(pad);offset+=pad.length}doc.accessors.push({bufferView:bv,componentType,type,count,...extra});return doc.accessors.length-1}
+  const oldSkin=doc.skins[0],root=doc.nodes.findIndex(n=>n.name==='root'),pelvis=doc.nodes.findIndex(n=>n.name==='pelvis'),accessor=doc.accessors[oldSkin.inverseBindMatrices],view=doc.bufferViews[accessor.bufferView]
+  const matrices=new Float32Array(oldBin.buffer,oldBin.byteOffset+(view.byteOffset??0)+(accessor.byteOffset??0),accessor.count*16)
+  const kept=oldSkin.joints.map((id,index)=>({id,index})).filter(o=>o.id!==root)
+  oldSkin.joints=kept.map(o=>o.id);oldSkin.skeleton=pelvis;oldSkin.inverseBindMatrices=add(kept.flatMap(o=>Array.from(matrices.subarray(o.index*16,o.index*16+16))),5126,'MAT4',65)
+  const position=add([-.3,0,0,.3,0,0,0,1,0],5126,'VEC3',3,{min:[-.3,0,0],max:[.3,1,0]}),joint=kept.findIndex(o=>o.id===pelvis)
+  const joints=add([joint,0,0,0,joint,0,0,0,joint,0,0,0],5123,'VEC4',3),weights=add([1,0,0,0,1,0,0,0,1,0,0,0],5126,'VEC4',3)
+  doc.meshes=[{primitives:[{attributes:{POSITION:position,JOINTS_0:joints,WEIGHTS_0:weights},material:0}]}];doc.materials=[{doubleSided:true,pbrMetallicRoughness:{baseColorFactor:[.8,.55,.25,1]}}]
+  doc.nodes.push({name:'native-mesh',mesh:0,skin:0});doc.scenes[0].nodes.push(doc.nodes.length-1)
+  const base=new Quaternion().fromArray(doc.nodes[pelvis].rotation??[0,0,0,1]),end=new Quaternion().setFromAxisAngle(new Vector3(0,0,1),.4).multiply(base)
+  const times=add([0,1],5126,'SCALAR',2,{min:[0],max:[1]}),rotations=add([...base.toArray(),...end.toArray()],5126,'VEC4',2)
+  doc.animations=[{name:'Native bridge test motion',samplers:[{input:times,output:rotations}],channels:[{sampler:0,target:{node:pelvis,path:'rotation'}}]}]
+  doc.buffers[0].byteLength=offset
+  let json=Buffer.from(JSON.stringify(doc));json=Buffer.concat([json,Buffer.alloc((-json.length)&3,32)]);const bin=Buffer.concat(chunks),header=Buffer.alloc(20),bh=Buffer.alloc(8)
+  header.writeUInt32LE(0x46546c67,0);header.writeUInt32LE(2,4);header.writeUInt32LE(28+json.length+bin.length,8);header.writeUInt32LE(json.length,12);header.writeUInt32LE(0x4e4f534a,16);bh.writeUInt32LE(bin.length,0);bh.writeUInt32LE(0x004e4942,4)
+  return Buffer.concat([header,json,bh,bin]).toString('base64')
 }
+
 const server = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4181'], { stdio: ['ignore', 'pipe', 'pipe'] })
 await mkdir('artifacts', { recursive: true })
 let browser, page
@@ -81,7 +86,12 @@ try {
   await page.getByRole('button', { name: 'Вид', exact: true }).click(); assert.equal(await page.locator('#room-enabled').isChecked(), true)
   await page.locator('#room-enabled').uncheck(); await page.locator('#room-enabled').check(); await page.keyboard.press('Escape')
   await page.screenshot({ path: 'artifacts/native-source-visible.png' })
-  await page.getByRole('button', { name: 'Риг', exact: true }).click(); await page.getByRole('button', { name: '1. Найти ориентиры тела', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Риг', exact: true }).click()
+  await page.getByRole('button', { name: 'Создать полный риг · 65 костей', exact: true }).click()
+  await page.locator('#status').filter({hasText:'Готов полный риг: 65 костей'}).waitFor({timeout:60000})
+  assert.match(await page.locator('#asset-stats').textContent(), /65 костей/)
+  await page.getByText('Нативные ориентиры тела · тест', {exact:true}).click()
+  await page.getByRole('button', { name: '1. Найти ориентиры тела', exact: true }).waitFor()
   await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(b => b.textContent === '1. Найти ориентиры тела').disabled)
   const originalName = await page.locator('#asset-name').textContent(), originalStats = await page.locator('#asset-stats').textContent()
   assert.equal(await page.locator('#viewport canvas').count(), 1)
@@ -101,7 +111,7 @@ try {
   await page.evaluate(() => { window.__nativeFail = false })
   await page.getByRole('button', { name: '4. Рассчитать веса и открыть риг', exact: true }).click()
   await page.locator('#status').filter({ hasText: 'Результат открыт.' }).waitFor()
-  assert.match(await page.locator('#asset-name').textContent(), /нативный риг/)
+  assert.match(await page.locator('#asset-name').textContent(), /полный риг 65/)
   assert.equal(await page.locator('#skeleton').isChecked(), true)
   await page.getByRole('button', { name: 'Native bridge test motion', exact: false }).click()
   await page.waitForFunction(() => parseFloat(document.getElementById('time').textContent) > 0.05)
@@ -126,7 +136,7 @@ try {
   await page.locator('#status').filter({ hasText: 'GLB сохранён' }).waitFor()
   const exported = Buffer.from(await page.evaluate(() => window.__exportBytes))
   const doc = JSON.parse(exported.subarray(20, 20 + exported.readUInt32LE(12)).toString())
-  assert.ok(Math.abs(doc.nodes[1].rotation[2] - Math.sin(25 * Math.PI / 360)) < .00001)
+  const originalRig=JSON.parse(Buffer.from(outputGlb(),'base64').subarray(20,20+Buffer.from(outputGlb(),'base64').readUInt32LE(12)));const pelvisSaved=doc.nodes.find(n=>n.name==='pelvis');const expected=new Quaternion().setFromAxisAngle(new Vector3(0,0,1),25*Math.PI/180).multiply(new Quaternion().fromArray(originalRig.nodes.find(n=>n.name==='pelvis').rotation??[0,0,0,1]));assert.ok(new Quaternion().fromArray(pelvisSaved.rotation).angleTo(expected)<.0001)
   const original = Buffer.from(outputGlb(), 'base64'), originalDoc = JSON.parse(original.subarray(20, 20 + original.readUInt32LE(12)).toString())
   assert.deepEqual(doc.skins, originalDoc.skins); assert.deepEqual(doc.meshes, originalDoc.meshes)
   assert.deepEqual(exported.subarray(28 + exported.readUInt32LE(12), 28 + exported.readUInt32LE(12) + originalDoc.buffers[0].byteLength), original.subarray(28 + original.readUInt32LE(12)))
@@ -144,8 +154,9 @@ try {
   const commands = await page.evaluate(() => window.__nativeCalls)
   assert.deepEqual(commands, ['INITIAL_BODY_GUIDES', 'PROPOSE_BODY', 'PREVIEW_BODY', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'EXPORT'])
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, initialPoseEditAndExport: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
+  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, initialPoseEditAndExport: true, complete65RigCreatedInWorker: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
 } catch (error) {
   if (page) { console.log('Browser state:', await page.locator('#native-rig-panel').innerText().catch(() => 'Page unavailable')); await page.screenshot({ path: 'artifacts/native-failure.png' }).catch(() => {}) }
   throw error
 } finally { await browser?.close(); server.kill() }
+

@@ -18,7 +18,9 @@ import { inspect_transfer, mapping_key, suggest_mapping, transfer_clips_async, t
 import { RigViewer } from './RigViewer.ts'
 import { inspect_skin_weights } from './RigSkinDiagnostics.ts'
 import { NativeRigPanel } from './NativeRigPanel.ts'
-import { validate_native_skin } from './NativeRigValidation.ts'
+import { build_humanoid65 } from './Humanoid65Builder.ts'
+import { Humanoid65Panel, humanoid_template } from './Humanoid65Panel.ts'
+import { validate_humanoid65, validate_native_skin } from './NativeRigValidation.ts'
 import { StudioWorkspace } from './StudioWorkspace.ts'
 
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -36,6 +38,7 @@ let busy = false
 let pose_editing = false
 let native_panel: NativeRigPanel | undefined
 let workspace: StudioWorkspace | undefined
+let humanoid_panel: Humanoid65Panel | undefined
 const status = (message: string, error = false): void => {
   element('status').textContent = message
   element('status').classList.toggle('error', error)
@@ -56,6 +59,7 @@ function controls (): void {
   element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = locked })
   document.body.classList.toggle('busy', busy)
   native_panel?.refreshControls(locked)
+  humanoid_panel?.refresh(locked)
 }
 
 async function operation (message: string, task: () => Promise<void>): Promise<void> {
@@ -100,9 +104,26 @@ native_panel = new NativeRigPanel(element('native-rig-panel'), {
   operation,
   status,
   show: async bytes => {
-    const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · нативный риг')
-    try { validate_native_skin(next) } catch (error) { dispose_rig_scene(next.scene); throw error }
+    const body = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
+    let next = body
+    try {
+      validate_native_skin(body)
+      if ([...body.nodes.values()].filter(n => n.is_joint).length !== 65) {
+        const result = await build_humanoid65(body, {template: await humanoid_template(), progress: text => status(text)})
+        next = await load_rig_asset(result.bytes, body.name)
+      }
+      validate_humanoid65(next)
+    } catch (error) { if (next !== body) dispose_rig_scene(next.scene); dispose_rig_scene(body.scene); throw error }
+    if (next !== body) dispose_rig_scene(body.scene)
     show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions')
+  }
+})
+humanoid_panel = new Humanoid65Panel(element('humanoid65-panel'), {
+  viewer, asset: () => asset, operation: (message,task) => {selected_clip=-1;button('pause').textContent='▶';return operation(message,task)}, status,
+  show: async bytes => {
+    const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
+    try { validate_humanoid65(next) } catch (error) { dispose_rig_scene(next.scene); throw error }
+    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true)
   }
 })
 workspace = new StudioWorkspace(viewer, show_tab)
@@ -409,4 +430,5 @@ if (new URLSearchParams(location.search).get('native') === '1') void operation('
 })
 void render_library().catch(() => status('Хранилище устройства недоступно. Можно открыть GLB и экспортировать результат.', true))
 controls()
+
 
