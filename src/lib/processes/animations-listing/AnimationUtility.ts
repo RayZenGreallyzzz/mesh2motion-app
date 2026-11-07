@@ -1,6 +1,8 @@
 import { AnimationClip, Quaternion, Vector3, type KeyframeTrack, type QuaternionKeyframeTrack } from 'three'
 import type { TransformedAnimationClipPair } from './interfaces/TransformedAnimationClipPair'
 
+import { clip_pose_calibration, copy_clip_pose_calibration } from '../../pose/PoseCalibration.ts'
+
 export class AnimationUtility {
   // when we scaled the skeleton itself near the beginning, we kept track of that
   // this scaling will affect position keyframes since they expect the original skeleton scale
@@ -47,7 +49,9 @@ export class AnimationUtility {
 
   static deep_clone_animation_clip (clip: AnimationClip): AnimationClip {
     const tracks = clip.tracks.map((track: KeyframeTrack) => track.clone())
-    return new AnimationClip(clip.name, clip.duration, tracks)
+    const copy = new AnimationClip(clip.name, clip.duration, tracks, clip.blendMode)
+    copy_clip_pose_calibration(clip, copy)
+    return copy
   }
 
   static deep_clone_animation_clips (animation_clips: AnimationClip[]): AnimationClip[] {
@@ -57,7 +61,8 @@ export class AnimationUtility {
   }
 
   static create_mirrored_clip (source_clip: AnimationClip): AnimationClip {
-    const mirrored_clip = AnimationUtility.deep_clone_animation_clip(source_clip)
+    const calibration = clip_pose_calibration(source_clip)
+    const mirrored_clip = AnimationUtility.deep_clone_animation_clip(calibration?.original ?? source_clip)
     mirrored_clip.name = `${mirrored_clip.name}_mirror`
 
     AnimationUtility.apply_animation_mirroring([
@@ -68,6 +73,7 @@ export class AnimationUtility {
       }
     ])
 
+    calibration?.apply(mirrored_clip)
     return mirrored_clip
   }
 
@@ -177,3 +183,4 @@ export class AnimationUtility {
     }
   }
 }
+

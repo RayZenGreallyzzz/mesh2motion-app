@@ -24,6 +24,9 @@ import { type AnimationExportSelection } from './interfaces/AnimationExportSelec
 import { PropsManager } from './props/PropsManager.ts'
 import { MotionWeightRepairControl } from './MotionWeightRepair.ts'
 
+import { PoseCalibration } from '../../pose/PoseCalibration.ts'
+import { PoseEditorPanel } from '../../pose/PoseEditorPanel.ts'
+
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepAnimationsListing extends EventTarget {
   private readonly theme_manager: ThemeManager
@@ -36,6 +39,11 @@ export class StepAnimationsListing extends EventTarget {
   private readonly clip_warp_revisions = new WeakMap<TransformedAnimationClipPair, number>()
   private readonly animation_loader: AnimationLoader = new AnimationLoader()
   private readonly rest_pose_snapshots: RigRestPoseSnapshot = new RigRestPoseSnapshot()
+
+  private pose_calibration?: PoseCalibration
+  private pose_panel?: PoseEditorPanel
+  private pending_pose_editor = false
+  private leaving_pose = false
 
   private animation_mixer: AnimationMixer = new AnimationMixer(new Object3D())
   private skinned_meshes_to_animate: SkinnedMesh[] = []
@@ -191,6 +199,7 @@ export class StepAnimationsListing extends EventTarget {
   // setup in the bootstrap.ts file and only called if we are actively
   // on this step
   public frame_change (delta_time: number): void {
+    if (this.pose_panel?.open) return
     this.motion_weight_repair.checkContext()
     this.mixer().update(delta_time)
     this.animation_player.update(delta_time)
@@ -263,6 +272,7 @@ export class StepAnimationsListing extends EventTarget {
    * and replays the current animation on them.
    */
   public swap_skinned_meshes (scene: Scene, new_skinned_meshes: SkinnedMesh[]): void {
+    this.stop_and_restore_pose(); this.pose_calibration = undefined
     this.motion_weight_repair.reset()
     const is_variation_active = this.model_variation_switcher?.is_variation_active ?? false
     this.props_manager.detach_all()
@@ -320,6 +330,7 @@ export class StepAnimationsListing extends EventTarget {
   }
 
   public load_and_apply_default_animation_to_skinned_mesh (final_skinned_meshes: SkinnedMesh[]): void {
+    this.stop_and_restore_pose(); this.pose_calibration = undefined
     this.skinned_meshes_to_animate = final_skinned_meshes
     // Record the actual edited bind pose before the first animation. Both
     // AutoRig and manual joints go through the same snapshot/restore path.
@@ -408,6 +419,7 @@ export class StepAnimationsListing extends EventTarget {
     })
 
     this.play_animation(0) // play the first animation by default
+    if (this.pending_pose_editor) { this.pending_pose_editor = false; this.open_initial_pose_editor() }
   }
 
   private onAnimationLoadProgress (progress: AnimationLoadProgress): void {
@@ -481,6 +493,7 @@ export class StepAnimationsListing extends EventTarget {
     if (skeleton !== undefined) {
       JointVolumeSupport.updateClip(pair.display_animation_clip, skeleton)
     }
+    this.pose_calibration?.apply_clip(pair.display_animation_clip)
     this.clip_warp_revisions.set(pair, this.warp_revision)
   }
 
@@ -500,7 +513,34 @@ export class StepAnimationsListing extends EventTarget {
     skinned_mesh.updateMatrixWorld(true)
   }
 
+  public open_initial_pose_editor (): void {
+    if (this.pose_panel?.open) return
+    if (this.is_loading_default_animations || !this.animation_clips_loaded.length) { this.pending_pose_editor = true; return }
+    this.animation_player.clear_animation(); this.animation_mixer.stopAllAction()
+    for (const mesh of this.skinned_meshes_to_animate) this.reset_root_motion_position(mesh)
+    if (!this.pose_calibration) {
+      this.pose_calibration = new PoseCalibration(this.skinned_meshes_to_animate.flatMap(mesh => mesh.skeleton.bones))
+      const rest = this.animation_clips_loaded.find(pair => /^(rest[ _-]?pose|t[ _-]?pose)$/i.test(pair.original_animation_clip.name))
+      this.pose_calibration.set_reference_clip(rest?.original_animation_clip)
+    }
+    const mount = document.getElementById('classic-pose-panel'); if (!mount) return
+    this.pose_panel ??= new PoseEditorPanel(mount, {
+      applied: () => this.rebuild_warped_animations(),
+      closed: () => { this.dispatchEvent(new CustomEvent('pose-editor-visibility', { detail: false })); if (!this.leaving_pose) this.play_animation(this.current_playing_index) }
+    })
+    this.pose_panel.show(this.pose_calibration, this.skinned_meshes_to_animate)
+    this.dispatchEvent(new CustomEvent('pose-editor-visibility', { detail: true }))
+  }
+
+  public stop_and_restore_pose (): void {
+    this.leaving_pose = true; this.pending_pose_editor = false; this.pose_panel?.cancel()
+    this.animation_player.clear_animation(); this.animation_mixer.stopAllAction()
+    for (const mesh of this.skinned_meshes_to_animate) this.reset_root_motion_position(mesh)
+    this.leaving_pose = false
+  }
+
   private play_animation (index: number = 0): void {
+    if (this.pose_panel?.open || this.leaving_pose) return
     const pair = this.animation_clips_loaded[index]
     if (pair === undefined) return
     this.ensure_warped_animation(pair)
@@ -671,3 +711,4 @@ export class StepAnimationsListing extends EventTarget {
     return clips
   }
 }
+

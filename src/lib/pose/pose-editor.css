@@ -1,0 +1,11 @@
+.pose-editor-panel { display: grid; gap: 10px; padding: 14px; border: 1px solid #6e9693; border-radius: 14px; background: #192a30f5; color: #e8f2ed; margin: 12px 0; }
+.pose-editor-panel[hidden] { display: none !important; }
+.pose-editor-panel p { font-size: 12px; line-height: 1.5; margin: 0; }
+.pose-editor-panel fieldset { border: 1px solid #557275; border-radius: 10px; min-width: 0; padding: 8px; }
+.pose-editor-panel fieldset > label { display: grid; grid-template-columns: 18px minmax(0, 1fr) 48px; gap: 7px; align-items: center; margin: 5px 0; }
+.pose-editor-panel input { width: 100%; min-width: 0; min-height: 40px; }
+.pose-editor-panel input[type=number] { padding: 6px; color: inherit; background: #15202c; border: 1px solid #607a7c; border-radius: 8px; }
+.pose-editor-panel select, .pose-editor-panel button { width: 100%; min-height: 44px; white-space: normal; }
+.pose-editor-panel output { font-size: 11px; text-align: right; }
+.floating-pose-editor { position: fixed; z-index: 50; right: 16px; top: 142px; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 246px); overflow: auto; margin: 0; }
+@media (max-width: 620px) { .floating-pose-editor { top: auto; left: 12px; right: 12px; bottom: 100px; width: auto; max-height: 43dvh; } }

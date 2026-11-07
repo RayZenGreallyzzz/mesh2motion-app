@@ -23,6 +23,7 @@ export interface RigNode {
 }
 
 export interface RigAsset {
+  pose_overrides?: Set<string>
   motion_info?: { format: 'bvh' | 'fbx', calibration_frame?: number, warnings: string[] }
   name: string
   scene: Group
@@ -136,3 +137,4 @@ export function dispose_rig_scene (scene: Object3D): void {
   })
   scene.removeFromParent()
 }
+

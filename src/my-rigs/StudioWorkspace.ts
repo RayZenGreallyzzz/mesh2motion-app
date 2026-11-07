@@ -24,7 +24,7 @@ export class StudioWorkspace {
     const file = pane('file', 'Файл и персонаж', 'Файл')
     document.querySelectorAll('.import-row').forEach(row => file.append(row)); file.append(document.getElementById('asset-info')!)
     const rig = pane('native', 'Создать риг', 'Риг')
-    rig.append(document.getElementById('native-rig-panel')!)
+    rig.append(document.getElementById('initial-pose')!, document.getElementById('native-rig-panel')!)
     const animals = document.createElement('a'); animals.href = '../create.html'; animals.className = 'workspace-link'; animals.textContent = 'Шаблоны животных и монстров →'; rig.append(animals)
     const motions = pane('motions', 'Анимации', 'Анимации')
     const speed = document.createElement('label'); speed.className = 'workspace-speed'; speed.append('Скорость воспроизведения ', document.getElementById('speed')!); motions.append(speed, document.getElementById('motion-preview')!, document.getElementById('motions-panel')!)
@@ -39,7 +39,7 @@ export class StudioWorkspace {
     const observer = new ResizeObserver(() => this.update_overlay()); for (const panel of this.panels.values()) observer.observe(panel)
     window.addEventListener('resize', () => this.update_overlay())
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && this.active && !(event.target as HTMLElement).closest('dialog[open]')) { event.preventDefault(); this.close() } })
-    document.addEventListener('click', event => { if (this.active && !(event.target as HTMLElement).closest('.workspace-dialog, .studio-toolbar, dialog')) this.close(false) })
+    document.addEventListener('click', event => { if (this.active && !(event.target as HTMLElement).closest('.workspace-dialog, .studio-toolbar, .pose-editor-panel, dialog')) this.close(false) })
   }
   open(key: Panel): void {
     this.active = key
