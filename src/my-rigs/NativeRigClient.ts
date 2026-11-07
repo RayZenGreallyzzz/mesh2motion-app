@@ -96,7 +96,7 @@ export class NativeRigClient {
   }
   async result(kind: 'output' | 'prepared' = 'output'): Promise<ArrayBuffer> {
     if (!this.project) throw new Error('Сессия недоступна.')
-    let data: Uint8Array | undefined, offset = 0
+    let data: Uint8Array<ArrayBuffer> | undefined, offset = 0
     do {
       const part = await this.api.read({ project: this.project, kind, offset, size: chunk_size })
       if (!Number.isSafeInteger(part.total) || part.total < 20 || part.total > 128 * 1024 * 1024 || part.offset !== offset || (data && data.byteLength !== part.total)) throw new Error('Нарушен размер результата.')

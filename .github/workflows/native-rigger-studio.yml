@@ -23,6 +23,11 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+      - name: Verify visible character, review and animation flow
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+          node scripts/check-native-rig-ui.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
