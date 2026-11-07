@@ -98,6 +98,7 @@ export class RigViewer {
       this.camera.aspect = width / height
       this.apply_overlay()
       this.camera.updateProjectionMatrix()
+      if (this.asset) this.fit(true)
     }).observe(container)
     this.renderer.setAnimationLoop(time => {
       if (this.suspended) { this.previous = 0; return }
