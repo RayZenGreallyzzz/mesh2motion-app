@@ -38,7 +38,7 @@ describe('native engine transport and report boundary', () => {
     client.project = 'new-id'; await expect(client.run('INITIAL_BODY_GUIDES')).rejects.toThrow('EXT_texture_webp'); expect(client.receipts).toHaveLength(1)
   })
   it('understands point maps in actual stats envelopes without inventing coordinates', () => {
-    const receipt = { command: 'INITIAL_BODY_GUIDES', status: 'DONE', nativeReport: { status: 'DONE', stats: { points: { pelvis: [1, 2, 3], elbow_l: { x: 4, y: 5, z: 6 } } } } } satisfies NativeReceipt
+    const receipt = { command: 'INITIAL_BODY_GUIDES', status: 'DONE', nativeReport: { status: 'DONE', stats: { vertices: 100, meshes: 1 }, bodyPreview: { phase: 'BODY_GUIDES', points: { pelvis: [1, 2, 3], elbow_l: { x: 4, y: 5, z: 6 } } } } } satisfies NativeReceipt
     expect(native_points(receipt, 'points')).toEqual({ pelvis: [1, 2, 3], elbow_l: [4, 5, 6] })
     expect(() => native_points({ ...receipt, nativeReport: { stats: { points: { pelvis: [1, NaN, 0] } } } }, 'points')).toThrow('ориентир')
     expect(() => native_points({ ...receipt, nativeReport: {} }, 'points')).toThrow('не вернул')

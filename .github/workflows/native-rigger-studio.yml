@@ -21,7 +21,7 @@ jobs:
       - name: Check Studio and native output boundaries
         run: |
           npm run typecheck
-          npm test
+          npm test -- tests/native-rig.test.ts src/my-rigs/OwnRigs.test.ts src/lib/processes/animations-listing/ImportedAnimationRetargeter.test.ts src/lib/processes/animations-listing/CustomAnimationImporter.test.ts
           npm run build
       - name: Verify visible character, review and animation flow
         run: |

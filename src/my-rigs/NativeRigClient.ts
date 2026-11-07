@@ -35,7 +35,7 @@ function object(value: unknown): Record<string, unknown> | undefined {
 
 export function native_data(receipt: NativeReceipt): Record<string, unknown> {
   const root = receipt.nativeReport ?? receipt.nativeReturn ?? {}
-  return object(root.stats) ?? root
+  return object(root.bodyPreview) ?? object(root.stats) ?? root
 }
 
 export function native_points(receipt: NativeReceipt, field: 'points' | 'landmarks'): NativePoints {

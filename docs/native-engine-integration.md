@@ -49,6 +49,11 @@ a loaded skinned GLB. These checks do not execute the ARM64 engine. The supplied
 device reports establish that the library loads; they only reached input-format
 validation. End-to-end native skeleton/weight quality still needs device testing.
 
+Public CI selects the native boundary, own-rig and animation-import tests. The
+repository also contains tests that require the owner's private model/animation
+files outside the checkout; a public runner cannot execute those private-data
+checks. They are not replaced with synthetic pass results.
+
 ## Build and private inputs
 
 The public workflow compiles the Studio web app and Android bridge. It contains

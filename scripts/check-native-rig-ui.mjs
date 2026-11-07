@@ -50,7 +50,7 @@ try {
         let stats = {}
         if (options.command === 'INITIAL_BODY_GUIDES') stats = { points: { pelvis: [0, 0.9, 0], thorax: [0, 1.35, 0], neck: [0, 1.6, 0] } }
         if (options.command === 'PROPOSE_BODY') stats = { landmarks: { pelvis: [0, 0.9, 0], chest: [0, 1.35, 0], neck: [0, 1.6, 0], head: [0, 1.8, 0], elbow_l: [-0.5, 1.4, 0], elbow_r: [0.5, 1.4, 0] } }
-        const nativeReport = { status: 'DONE', stats }
+        const nativeReport = { status: 'DONE', stats: { vertices: 1000, meshes: 1 }, bodyPreview: stats }
         if (options.command === 'PREVIEW_BODY') nativeReport.bodyPreview = { bones: [{ name: 'pelvis', parent: -1, rigPosition: [0, 0.9, 0] }, { name: 'neck', parent: 0, rigPosition: [0, 1.6, 0] }] }
         if (options.command === 'COMPUTE_WEIGHTS' && window.__nativeFail) { nativeReport.status = 'FAILED'; nativeReport.errorCode = 'TEST_WEIGHT_FAILURE' }
         data = { receipt: { command: options.command, status: nativeReport.status, nativeReport } }
