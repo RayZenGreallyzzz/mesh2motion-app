@@ -4,3 +4,4 @@ package dev.unicorn.rigger.android;
 public interface RigNativeProgress {
     void onStage(String stage, int percent);
 }
+

@@ -16,3 +16,4 @@ from pathlib import Path
 p=Path(sys.argv[1])
 with zipfile.ZipFile(p/'Rig-Engine-Probe-unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:z.write(p/'dex/classes.dex','classes.dex')
 PY
+

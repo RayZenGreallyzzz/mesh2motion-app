@@ -12,3 +12,4 @@ public final class RigNative {
     public final native String runSession(String command, String input, String output,
                                          String report, String session, RigNativeProgress progress);
 }
+

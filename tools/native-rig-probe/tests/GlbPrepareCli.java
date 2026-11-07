@@ -5,3 +5,4 @@ public final class GlbPrepareCli {
         System.out.println(GlbQuantization.prepare(new File(args[0]),new File(args[1])).toString());
     }
 }
+

@@ -83,12 +83,14 @@ public final class ProbeService extends Service {
             File selected=ownFile(request.getString("source",""));
             if (!selected.isFile()||selected.length()>104857600) throw new IOException("Некорректный входной GLB");
             root=new File(getFilesDir(),"jobs/"+UUID.randomUUID());File folder=new File(root,"input");if(!folder.mkdirs())throw new IOException("Не удалось создать папку расчёта");
-            receipt.put("probeVersion","0.2-test");receipt.put("command",command);receipt.put("androidApi",Build.VERSION.SDK_INT);receipt.put("device",Build.MANUFACTURER+" "+Build.MODEL);receipt.put("abis",new JSONArray(Arrays.asList(Build.SUPPORTED_ABIS)));
-            File original=new File(folder,"source-original.glb"),input=new File(folder,"source.glb"),output=new File(root,"output.glb"),report=new File(root,"report.json"),sessionFile=new File(root,"session.json");
+            receipt.put("probeVersion","0.3-test");receipt.put("command",command);receipt.put("androidApi",Build.VERSION.SDK_INT);receipt.put("device",Build.MANUFACTURER+" "+Build.MODEL);receipt.put("abis",new JSONArray(Arrays.asList(Build.SUPPORTED_ABIS)));
+            File original=new File(folder,"source-original.glb"),geometry=new File(folder,"source-float.glb"),input=new File(folder,"source.glb"),output=new File(root,"output.glb"),report=new File(root,"report.json"),sessionFile=new File(root,"session.json");
             try(InputStream in=new FileInputStream(selected);OutputStream out=new FileOutputStream(original)){copy(in,out,104857600);}
             receipt.put("originalSourceSha256",hash(original));receipt.put("originalSourceBytes",original.length());
             send(reply,PROGRESS,request.getString("token",""),"stage","Подготовка GLB для риггера");
-            receipt.put("inputPreparation",GlbQuantization.prepare(original,input));
+            receipt.put("stage","INPUT_PREPARATION");
+            receipt.put("inputPreparation",GlbQuantization.prepare(original,geometry));
+            try{receipt.put("texturePreparation",GlbWebpCompatibility.prepare(geometry,input,new AndroidWebpCodec()));}finally{geometry.delete();}
             receipt.put("preparedSourceSha256",hash(input));receipt.put("preparedSourceBytes",input.length());
             JSONObject settings=session(input);write(sessionFile,settings.toString(2));
             receipt.put("session",settings);
@@ -96,6 +98,7 @@ public final class ProbeService extends Service {
             File library=new File(getApplicationInfo().nativeLibraryDir,"libriggerdroid_rigger.so");if(library.isFile())receipt.put("nativeLibrarySha256",hash(library));
             RigNative nativeRig=RigNative.INSTANCE;
             if(cancelled.get())throw new InterruptedException("Отменено до запуска");
+            receipt.put("stage","NATIVE_CALL");
             nativeRig.prepare();if(cancelled.get())nativeRig.cancel();
             String returned=nativeRig.runSession(command,input.getPath(),output.getPath(),report.getPath(),sessionFile.getPath(),(stage,percent)->{
                 Message m=Message.obtain(null,PROGRESS);Bundle b=new Bundle();b.putString("token",request.getString("token",""));b.putString("stage",stage);b.putInt("percent",percent);b.putInt("pid",android.os.Process.myPid());m.setData(b);try{reply.send(m);}catch(RemoteException ignored){}
@@ -119,3 +122,4 @@ public final class ProbeService extends Service {
         }
     }
 }
+

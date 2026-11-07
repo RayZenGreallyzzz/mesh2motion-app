@@ -112,3 +112,4 @@ with tempfile.TemporaryDirectory() as directory:
     bad=copy.deepcopy(m);bad['meshes'][0]['primitives'][0]['extensions']={'KHR_draco_mesh_compression':{}};run(bad,mb,'draco','Draco')
     bad=copy.deepcopy(s);badbytes=bytearray(sb);badbytes[0]=2;badbytes[1]=1;run(bad,badbytes,'sparse-unsorted','strictly increasing')
     print(json.dumps({'status':'passed','assertions':checks,'fixtureRuns':18,'checks':'decoded local/world geometry; sparse; morphs; skin/index/image/animation preservation; failure cleanup; exact passthrough'}))
+

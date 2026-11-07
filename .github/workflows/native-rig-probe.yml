@@ -30,4 +30,6 @@ jobs:
           path: |
             tools/native-rig-probe/build/Rig-Engine-Probe-unsigned.apk
             tools/native-rig-probe/build/quantization-test-results.json
+            tools/native-rig-probe/build/webp-test-results.json
           retention-days: 7
+
