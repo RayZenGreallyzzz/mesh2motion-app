@@ -4,6 +4,13 @@ export type NativePoint = [number, number, number]
 export type NativePoints = Record<string, NativePoint>
 export type NativeCommand = 'ANALYZE' | 'INITIAL_BODY_GUIDES' | 'PROPOSE_BODY' | 'PREVIEW_BODY' | 'BUILD_SKELETON' | 'COMPUTE_WEIGHTS' | 'EXPORT'
 export interface NativeReceipt { status: string, command: string, nativeReturn?: Record<string, unknown>, nativeReport?: Record<string, unknown>, error?: string, outputBytes?: number }
+export class NativeRigError extends Error {
+  readonly code: string
+  constructor(readonly receipt: NativeReceipt, message: string) {
+    super(message); this.name = 'NativeRigError'
+    this.code = String((receipt.nativeReport ?? receipt.nativeReturn)?.errorCode ?? receipt.status)
+  }
+}
 interface NativeBridge {
   capabilities(): Promise<{ available: boolean, reason?: string }>
   begin(options: { size: number }): Promise<{ project: string }>
@@ -59,6 +66,7 @@ export function native_failure(receipt: NativeReceipt): string | undefined {
   const code = String(root?.errorCode ?? receipt.status), detail = String(root?.detail ?? receipt.error ?? '')
   if (code === 'UNSUPPORTED_GLTF_EXTENSION') return 'Движок не поддерживает формат ' + detail + '. Исходная модель остаётся на экране.'
   if (code === 'BODY_DEPTH_CONFIRMATION_REQUIRED') return 'Проверьте суставы спереди и сбоку перед расчётом весов.'
+  if (code === 'MESH_TOO_COMPLEX_FOR_LOCAL_RIG') return 'Нативный движок отклонил размер или формат геометрии. Можно продолжить полным ригом · 65 костей. Исходная модель сохранена.'
   return 'Риггер остановился: ' + code + (detail ? ' · ' + detail : '')
 }
 
@@ -91,7 +99,7 @@ export class NativeRigClient {
     if (!this.project) throw new Error('Сначала подготовьте модель.')
     const { receipt } = await this.api.run({ project: this.project, command, ...options })
     this.receipts.push(receipt)
-    const error = native_failure(receipt); if (error) throw new Error(error)
+    const error = native_failure(receipt); if (error) throw new NativeRigError(receipt, error)
     return receipt
   }
   async result(kind: 'output' | 'prepared' = 'output'): Promise<ArrayBuffer> {

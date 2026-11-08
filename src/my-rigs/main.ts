@@ -106,6 +106,11 @@ native_panel = new NativeRigPanel(element('native-rig-panel'), {
   status,
   headReviewActive: () => !!humanoid_panel?.reviewing,
   cancelCompletion: () => humanoid_panel?.cancel_build(),
+  startFullRig: async () => {
+    workspace?.open('native')
+    element('humanoid65-panel').scrollIntoView({ block: 'start' })
+    await humanoid_panel?.start()
+  },
   show: async bytes => {
     const body = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
     try { validate_native_skin(body) } catch (error) { dispose_rig_scene(body.scene); throw error }

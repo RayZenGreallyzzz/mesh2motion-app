@@ -1,7 +1,7 @@
 import type { RigAsset } from './RigAsset.ts'
 import './native-rig.css'
 import type { RigViewer } from './RigViewer.ts'
-import { NativeRigClient, native_points, type NativePoints, type NativeReceipt } from './NativeRigClient.ts'
+import { NativeRigClient, NativeRigError, native_points, type NativePoints, type NativeReceipt } from './NativeRigClient.ts'
 
 interface Options {
   viewer: RigViewer
@@ -10,6 +10,7 @@ interface Options {
   show(bytes: ArrayBuffer): Promise<boolean | void>
   headReviewActive?(): boolean
   cancelCompletion?(): void
+  startFullRig?(): Promise<void>
   status?(message: string, error?: boolean): void
 }
 const names: Record<string, string> = { pelvis: 'Таз', chest: 'Грудная клетка', thorax: 'Грудная клетка', neck: 'Шея', head: 'Голова', shoulder: 'Плечо', elbow: 'Локоть', wrist: 'Запястье', hand_end: 'Конец кисти', hip: 'Бедро', knee: 'Колено', ankle: 'Голеностоп', ball: 'Основание пальцев стопы', toe: 'Носок' }
@@ -26,6 +27,7 @@ export class NativeRigPanel {
   private preview_valid = false
   private front_seen = false
   private side_seen = false
+  private full_rig_offer = false
   private readonly start: HTMLButtonElement
   private readonly propose: HTMLButtonElement
   private readonly preview: HTMLButtonElement
@@ -37,6 +39,7 @@ export class NativeRigPanel {
   private readonly message: HTMLParagraphElement
   private readonly editor: HTMLDivElement
   private readonly report: HTMLTextAreaElement
+  private readonly full_rig: HTMLButtonElement
   private readonly fields = new Map<string, HTMLInputElement[]>()
 
   constructor(container: HTMLElement, private readonly options: Options, private readonly client = new NativeRigClient()) {
@@ -55,18 +58,19 @@ export class NativeRigPanel {
     label.append(this.review, ' Проверил суставы спереди и сбоку')
     this.build = button('4. Рассчитать веса и открыть риг', () => void this.work('Рассчитываю веса…', () => this.skin()))
     this.cancel = button('Отменить расчёт', () => { this.options.cancelCompletion?.(); void this.client.cancel().catch(error => this.set_message(String(error), true)) })
+    this.full_rig = button('Продолжить полным ригом · 65 костей', () => void this.use_full_rig()); this.full_rig.className = 'primary'; this.full_rig.hidden = true
     this.editor = document.createElement('div'); this.editor.className = 'native-rig-points'
     const details = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = 'Отчёт обработки'
     this.report = document.createElement('textarea'); this.report.readOnly = true; this.report.setAttribute('aria-label', 'Отчёт нативного риггера')
     const copy = button('Копировать отчёт', () => { void navigator.clipboard.writeText(this.report.value).then(() => this.set_message('Отчёт скопирован.'), () => this.set_message('Выделите текст отчёта и скопируйте вручную.')) })
     details.append(summary, this.report, copy)
-    container.append(heading, info, this.start, this.propose, views, this.editor, this.preview, label, this.build, this.cancel, this.message, details)
+    container.append(heading, info, this.start, this.propose, views, this.editor, this.preview, label, this.build, this.cancel, this.message, this.full_rig, details)
     this.refreshControls()
     void this.client.available().then(result => { this.available = result.available; this.set_message(result.available ? 'Откройте GLB персонажа. Модель будет видна во время всех этапов.' : result.reason ?? 'Движок недоступен.'); this.refreshControls() }, () => this.set_message('Движок не подключён к этой сборке.'))
   }
   setAsset(asset: RigAsset): void {
     if (this.busy || this.source === asset.source_bytes) return
-    this.source = asset.source_bytes; this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.front_seen = this.side_seen = false
+    this.source = asset.source_bytes; this.guides = {}; this.landmarks = {}; this.preview_valid = false; this.review.checked = false; this.front_seen = this.side_seen = false; this.full_rig_offer = false
     this.editor.replaceChildren(); this.fields.clear(); this.options.viewer.set_native_points({}); this.options.viewer.set_native_bones([])
     if (this.available) this.set_message('Персонаж открыт. Нажмите «Найти ориентиры тела».')
     void this.client.dispose(); this.refreshControls()
@@ -81,19 +85,24 @@ export class NativeRigPanel {
     this.review.disabled = busy || !this.preview_valid || !this.front_seen || !this.side_seen
     this.build.disabled = busy || !this.preview_valid || !this.review.checked || !has_landmarks
     this.cancel.hidden = !this.busy
+    this.full_rig.hidden = !this.full_rig_offer || !this.options.startFullRig
+    this.full_rig.disabled = busy || !this.options.asset()
     this.editor.querySelectorAll('input').forEach(input => { input.disabled = busy })
   }
   private set_message(text: string, error = false): void { this.message.textContent = text; this.message.classList.toggle('error', error); this.options.status?.(text, error) }
   private async work(message: string, action: () => Promise<void>): Promise<void> {
     if (this.busy || this.external_busy) return
-    this.busy = true; this.refreshControls(); this.options.viewer.set_native_points(this.points())
+    this.busy = true; this.full_rig_offer = false; this.refreshControls(); this.options.viewer.set_native_points(this.points())
     let listener: Awaited<ReturnType<NativeRigClient['listen']>> | undefined
     await this.options.operation(message, async () => {
       this.set_message(message)
       try {
         listener = await this.client.listen((stage, percent) => this.set_message(stage + ' · ' + percent + '%'))
         await action()
-      } catch (error) { this.set_message(error instanceof Error ? error.message : String(error), true); throw error }
+      } catch (error) {
+        this.full_rig_offer = error instanceof NativeRigError && error.code === 'MESH_TOO_COMPLEX_FOR_LOCAL_RIG'
+        this.set_message(error instanceof Error ? error.message : String(error), true); throw error
+      }
       finally {
         await listener?.remove(); this.report.value = JSON.stringify({ preparation: this.client.preparation, commands: this.client.receipts }, null, 2)
       }
@@ -101,6 +110,13 @@ export class NativeRigPanel {
     this.busy = false; this.refreshControls(); this.markers()
   }
   private points(): NativePoints { return this.editing === 'guides' ? this.guides : this.landmarks }
+  private async use_full_rig(): Promise<void> {
+    if (this.busy || this.external_busy || !this.full_rig_offer || !this.options.asset() || !this.options.startFullRig) return
+    this.full_rig_offer = false; this.refreshControls()
+    this.options.viewer.set_native_points({}); this.options.viewer.set_native_bones([])
+    try { await this.options.startFullRig() }
+    catch (error) { this.set_message(error instanceof Error ? error.message : String(error), true) }
+  }
   private markers(): void {
     if (this.options.headReviewActive?.()) return
     this.options.viewer.set_native_points(this.points(), (name, point) => this.edit(name, point, false))

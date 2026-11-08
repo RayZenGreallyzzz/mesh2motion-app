@@ -49,7 +49,7 @@ jobs:
           p=Path('android/app/build.gradle');s=p.read_text()
           assert s.count('applicationId "com.rayzen.riganimationstudio"')==1
           s=s.replace('applicationId "com.rayzen.riganimationstudio"','applicationId "com.rayzen.riganimationstudio.humanoid65test"')
-          s=s.replace('versionCode 1','versionCode 823').replace('versionName "1.0"','versionName "8.2.3-head-review-test"');p.write_text(s)
+          s=s.replace('versionCode 1','versionCode 824').replace('versionName "1.0"','versionName "8.2.4-complexity-recovery-test"');p.write_text(s)
           p=Path('android/app/src/main/res/values/strings.xml');p.write_text(p.read_text().replace('Rig Animation Studio','Rig Studio 65 Test'))
           PY
       - uses: gradle/actions/setup-gradle@v4

@@ -38,7 +38,7 @@ try {
   page = await browser.newPage({ viewport: { width: 1000, height: 1000 }, deviceScaleFactor: 1 })
   const errors = []; page.on('pageerror', error => errors.push(String(error)))
   await page.addInitScript(({ output }) => {
-    window.__nativeCalls = []; window.__nativeFail = false
+    window.__nativeCalls = []; window.__nativeFail = false; window.__nativeComplex = false
     const methods = ['capabilities', 'begin', 'append', 'prepare', 'run', 'read', 'discard', 'cancel', 'addListener', 'removeListener']
     const pending = new Map(); let callback = 0
     window.Capacitor = {
@@ -70,6 +70,7 @@ try {
         if (options.command === 'PROPOSE_BODY') stats = { landmarks: { pelvis: [0, 0.9, 0], chest: [0, 1.35, 0], neck: [0, 1.6, 0], head: [0, 1.8, 0], elbow_l: [-0.5, 1.4, 0], elbow_r: [0.5, 1.4, 0] } }
         const nativeReport = { status: 'DONE', stats: { vertices: 1000, meshes: 1 }, bodyPreview: stats }
         if (options.command === 'PREVIEW_BODY') nativeReport.bodyPreview = { bones: [{ name: 'pelvis', parent: -1, rigPosition: [0, 0.9, 0] }, { name: 'neck', parent: 0, rigPosition: [0, 1.6, 0] }] }
+        if (options.command === 'INITIAL_BODY_GUIDES' && window.__nativeComplex) { nativeReport.status = 'FAILED'; nativeReport.errorCode = 'MESH_TOO_COMPLEX_FOR_LOCAL_RIG'; nativeReport.detail = 'POSITION limit or type' }
         if (options.command === 'COMPUTE_WEIGHTS' && window.__nativeFail) { nativeReport.status = 'FAILED'; nativeReport.errorCode = 'TEST_WEIGHT_FAILURE' }
         data = { receipt: { command: options.command, status: nativeReport.status, nativeReport } }
       }
@@ -115,6 +116,17 @@ try {
   await page.getByText('Нативные ориентиры тела · тест', {exact:true}).click()
   await page.getByRole('button', { name: '1. Найти ориентиры тела', exact: true }).waitFor()
   await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(b => b.textContent === '1. Найти ориентиры тела').disabled)
+  const complexityName = await page.locator('#asset-name').textContent(), complexityStats = await page.locator('#asset-stats').textContent()
+  await page.evaluate(() => { window.__nativeComplex = true })
+  await page.getByRole('button', { name: '1. Найти ориентиры тела', exact: true }).click()
+  const recovery = page.getByRole('button', { name: 'Продолжить полным ригом · 65 костей', exact: true })
+  await recovery.waitFor({ state: 'visible' })
+  assert.equal(await page.locator('#asset-name').textContent(), complexityName); assert.equal(await page.locator('#asset-stats').textContent(), complexityStats)
+  assert.match(await page.getByLabel('Отчёт нативного риггера', { exact: true }).inputValue(), /MESH_TOO_COMPLEX_FOR_LOCAL_RIG/)
+  await recovery.click()
+  await page.locator('#status').filter({hasText:'Готов полный риг: 65 костей'}).waitFor({timeout:60000})
+  assert.match(await page.locator('#asset-stats').textContent(), /65 костей/); await recovery.waitFor({ state: 'hidden' })
+  await page.evaluate(() => { window.__nativeComplex = false })
   const originalName = await page.locator('#asset-name').textContent(), originalStats = await page.locator('#asset-stats').textContent()
   assert.equal(await page.locator('#viewport canvas').count(), 1)
   await page.getByRole('button', { name: '1. Найти ориентиры тела', exact: true }).click()
@@ -174,9 +186,9 @@ try {
   const small = await page.locator('#workspace-view').boundingBox(); assert.ok(small.width < 390 && small.height < 430)
   await page.keyboard.press('Escape'); await page.screenshot({ path: 'artifacts/native-room-portrait.png' })
   const commands = await page.evaluate(() => window.__nativeCalls)
-  assert.deepEqual(commands, ['INITIAL_BODY_GUIDES', 'PROPOSE_BODY', 'PREVIEW_BODY', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'EXPORT'])
+  assert.deepEqual(commands, ['INITIAL_BODY_GUIDES', 'INITIAL_BODY_GUIDES', 'PROPOSE_BODY', 'PREVIEW_BODY', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'BUILD_SKELETON', 'COMPUTE_WEIGHTS', 'EXPORT'])
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, initialPoseEditAndExport: true, complete65RigCreatedInWorker: true, manualHeadReviewAndResume: true, headReviewCancelPreservesModel: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
+  console.log(JSON.stringify({ status: 'passed', modelVisible: true, roomScene: true, popupSettings: true, portraitSettings: true, skeletonPreview: true, reviewGate: true, nativeFailurePreservesModel: true, outputAndAnimationVisible: true, initialPoseEditAndExport: true, complete65RigCreatedInWorker: true, manualHeadReviewAndResume: true, headReviewCancelPreservesModel: true, complexityRecoveryPreservesModel: true, transport: 'mock bridge; ARM64 engine not executed', commands }))
 } catch (error) {
   if (page) { console.log('Browser state:', await page.locator('#native-rig-panel').innerText().catch(() => 'Page unavailable')); await page.screenshot({ path: 'artifacts/native-failure.png' }).catch(() => {}) }
   throw error

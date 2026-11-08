@@ -61,6 +61,7 @@ export class Humanoid65Panel {
     container.append(title, info, label, this.build, this.manual, this.cancel, this.review); this.refresh()
   }
   get reviewing(): boolean { return !!this.points }
+  start(): Promise<void> { return this.run() }
   cancel_build(): void { this.abort?.abort() }
   refresh(external = this.external): void {
     this.external = external
