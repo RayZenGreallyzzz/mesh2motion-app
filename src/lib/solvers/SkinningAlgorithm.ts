@@ -12,6 +12,7 @@ import { is_humanoid_skeleton_type } from '../HumanoidSkeleton.js'
 import { HeadWeightCorrector } from './HeadWeightCorrector.js'
 import { protect_humanoid_head } from './HumanoidHeadWeights.ts'
 import { protect_humanoid_torso } from './HumanoidTorsoWeights.ts'
+import { protect_humanoid_chest } from './ChestWeightGuard.ts'
 import { WeightNormalizer } from './WeightNormalizer.js'
 import { SurfaceGeodesicWeightCalculator } from './SurfaceGeodesicWeightCalculator.js'
 import { HumanoidJointWeightCorrector } from './HumanoidJointWeightCorrector.ts'
@@ -95,6 +96,7 @@ export default class SkinningAlgorithm {
 
       if (is_humanoid_skeleton_type(this.skeleton_type)) {
         protect_humanoid_torso(this.geometry, this.bones_master_data, skin_indices, skin_weights)
+        protect_humanoid_chest(this.geometry, this.bones_master_data, skin_indices, skin_weights)
         protect_humanoid_head(this.geometry, this.bones_master_data, skin_indices, skin_weights)
         new HumanoidJointWeightCorrector(this.geometry, this.bones_master_data)
           .apply(skin_indices, skin_weights)

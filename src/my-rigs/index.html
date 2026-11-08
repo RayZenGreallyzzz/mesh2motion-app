@@ -10,7 +10,7 @@
 <body>
   <header>
     <a class="back" href="../create.html" aria-label="Вернуться к созданию рига">←</a>
-    <div><span class="eyebrow">RIG ANIMATION STUDIO · 8.2.4 TEST</span><h1>Персонажи и движения</h1></div>
+    <div><span class="eyebrow">RIG ANIMATION STUDIO · 8.2.5 TEST</span><h1>Персонажи и движения</h1></div>
     <span class="offline">Офлайн</span>
   </header>
   <main>
@@ -60,7 +60,7 @@
   <dialog id="mapping-dialog">
     <form method="dialog"><button class="close" aria-label="Закрыть сопоставление">×</button></form>
     <span class="eyebrow">ДОБАВЛЕНИЕ ДВИЖЕНИЙ</span><h2>Перенос на свой скелет</h2><p id="mapping-source"></p><strong id="mapping-summary"></strong><p id="source-warning" class="hint"></p>
-    <p class="hint">Число костей может различаться: сопоставьте основные цепочки, а лишние кости источника можно пропустить. Родные веса персонажа сохраняются.</p>
+    <p class="hint">Основные кости сопоставляются автоматически. Проверьте предпросмотр; ручные правки нужны, если соответствия не подходят. Число костей может различаться. Родные веса персонажа сохраняются.</p>
     <div class="mapping-actions"><button id="clips-all">Выбрать все</button><button id="clips-none">Снять выбор</button></div><fieldset id="source-clips"><legend>Выберите движения</legend></fieldset>
     <div class="transfer-options"><label><input id="deformation-motion" type="checkbox"> Деформация: сжатие и растяжение (слаймы, совместимые цепочки)</label><label id="calibration-option" hidden><input id="skip-first-frame" type="checkbox"> Пропустить первый кадр BVH при переносе</label><label><input id="match-pose" type="checkbox" checked> Подстроить исходную позу</label><label><input id="anchor-motion" type="checkbox" checked> Начинать у персонажа</label><label>Перемещение <select id="root-motion"><option value="preserve">Сохранить путь</option><option value="in-place">На месте, с прыжками</option></select></label></div><button id="auto-map">Сопоставить автоматически</button><details class="mapping-details"><summary>Соответствия костей · изменить вручную</summary><div class="map-head"><span>Из файла</span><span>Ваш персонаж</span></div><div id="mapping-rows"></div></details>
     <p id="mapping-status" role="status"></p><div class="preview-options"><label for="preview-clip">Проверить движение</label><select id="preview-clip"></select><button id="preview-motion">Посмотреть на персонаже</button></div><button id="apply-motion" class="primary">Добавить выбранные</button>

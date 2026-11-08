@@ -47,6 +47,24 @@ function skin(asset:RigAsset){const m=[...asset.nodes.values()].find(n=>n.is_mes
 function pose(asset:RigAsset,clip:AnimationClip,time:number){restore_rig_pose(asset);const mixer=new AnimationMixer(asset.scene);const a=mixer.clipAction(clip);a.play();a.time=time;mixer.update(0);asset.scene.updateMatrixWorld(true);return mixer}
 
 describe('Unequal-skeleton motion transfer',()=>{
+ it('recognizes an animation-only humanoid GLB hierarchy without skin declarations',()=>{
+  const original=fixture(false,41),objects=[...original.nodes.values()],associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
+  const source=build_rig_asset({scene:original.scene,animations:original.clips,parser:{associations}} as unknown as GLTF,{asset:{version:'2.0'},nodes:objects.map(n=>({name:n.name}))},new ArrayBuffer(0),'Animation only')
+  expect(source.inferred_skeleton).toBe(true)
+  const target=fixture(true,60),map=suggest_mapping(source,target),before=skin(target)
+  expect(inspect_transfer(source,target,map,[0]).mapped_bones).toBeGreaterThan(15)
+  expect(transfer_clips(source,target,map,[0])[0].tracks.length).toBeGreaterThan(15)
+  expect(skin(target)).toEqual(before)
+ })
+ it('does not infer bones from disconnected or ambiguous names or from an unanimated body',()=>{
+  for(const mode of ['broken','unanimated','ambiguous']){
+   const original=fixture(false,41),objects=[...original.nodes.values()],associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
+   if(mode==='broken')original.scene.attach(joint(original,'calf_l').object)
+   if(mode==='ambiguous')objects.find(n=>n.name.startsWith('extra_source_'))!.object.name='head'
+   const source=build_rig_asset({scene:original.scene,animations:mode==='unanimated'?[]:original.clips,parser:{associations}} as unknown as GLTF,{asset:{version:'2.0'},nodes:objects.map(n=>({name:n.name}))},new ArrayBuffer(0),'Scene')
+   expect(source.inferred_skeleton).toBe(false);expect([...source.nodes.values()].some(n=>n.is_joint)).toBe(false)
+  }
+ })
  it('transfers 41 to 60 bones while retaining hierarchy, weights, bind data and limb lengths',()=>{
   const source=fixture(false,41),target=fixture(true,60),map=suggest_mapping(source,target),before=skin(target)
   expect(inspect_transfer(source,target,map,[0]).mapped_bones).toBeGreaterThan(15)

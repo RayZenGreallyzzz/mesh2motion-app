@@ -298,7 +298,7 @@ async function open_motion_source (next: RigAsset): Promise<void> {
   element('mapping-source').textContent = incoming.name + ' → ' + asset.name
   element('calibration-option').hidden = incoming.motion_info?.format !== 'bvh'
   element<HTMLInputElement>('skip-first-frame').checked = Boolean(incoming.motion_info?.calibration_frame)
-  element('source-warning').textContent = [...(incoming.motion_info?.warnings ?? []), ...(incoming.motion_info?.calibration_frame ? ['Первый кадр похож на калибровочную позу. Он будет пропущен только при переносе; можно отключить ниже.'] : [])].join(' ')
+  element('source-warning').textContent = [...(incoming.inferred_skeleton ? ['Анимационный GLB без привязки кожи: распознан человеческий скелет по именам и цепочкам. Проверьте движение в предпросмотре.'] : []), ...(incoming.motion_info?.warnings ?? []), ...(incoming.motion_info?.calibration_frame ? ['Первый кадр похож на калибровочную позу. Он будет пропущен только при переносе; можно отключить ниже.'] : [])].join(' ')
   const list = element('source-clips'); list.replaceChildren()
   incoming.clips.forEach((clip, index) => {
     const label = document.createElement('label'), checkbox = document.createElement('input')
