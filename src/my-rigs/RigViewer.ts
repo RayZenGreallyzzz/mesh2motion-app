@@ -34,6 +34,7 @@ export class RigViewer {
   private native_bones?: LineSegments<BufferGeometry, LineBasicMaterial>
   private readonly room: StudioRoom
   private room_asset?: RigAsset
+  private framing_bounds?: Box3
   private overlay = { width: 0, height: 0, bottom: false }
   private native_change?: (name: string, point: [number, number, number]) => void
   private native_drag?: { name: string, mesh: Mesh, plane: Plane, offset: Vector3, pointer: number }
@@ -98,7 +99,7 @@ export class RigViewer {
       this.camera.aspect = width / height
       this.apply_overlay()
       this.camera.updateProjectionMatrix()
-      if (this.asset) this.fit(true)
+      if (this.asset) this.fit(true, false)
     }).observe(container)
     this.renderer.setAnimationLoop(time => {
       if (this.suspended) { this.previous = 0; return }
@@ -138,14 +139,19 @@ export class RigViewer {
     this.fit()
   }
 
-  fit (preserve_view = false): void {
+  fit (preserve_view = false, measure = true): void {
     if (!this.asset) return
-    this.asset.scene.updateWorldMatrix(true, true)
-    this.asset.scene.traverse(object => { const mesh = object as SkinnedMesh; if (mesh.isSkinnedMesh) mesh.computeBoundingBox() })
-    const bounds = new Box3().setFromObject(this.asset.scene)
-    // Skeleton-only files have no geometry to frame.
-    if (bounds.isEmpty()) this.asset.nodes.forEach(node => bounds.expandByPoint(node.object.getWorldPosition(new Vector3())))
-    if (bounds.isEmpty()) bounds.setFromCenterAndSize(new Vector3(), new Vector3(1, 1, 1))
+    let bounds = this.framing_bounds
+    // A layout change can reuse the bounds while the model stays in its rest pose.
+    if (measure || this.action || !bounds) {
+      this.asset.scene.updateWorldMatrix(true, true)
+      this.asset.scene.traverse(object => { const mesh = object as SkinnedMesh; if (mesh.isSkinnedMesh) mesh.computeBoundingBox() })
+      const measured = new Box3().setFromObject(this.asset.scene)
+      // Skeleton-only files have no geometry to frame.
+      if (measured.isEmpty()) this.asset.nodes.forEach(node => measured.expandByPoint(node.object.getWorldPosition(new Vector3())))
+      if (measured.isEmpty()) measured.setFromCenterAndSize(new Vector3(), new Vector3(1, 1, 1))
+      bounds = this.framing_bounds = measured
+    }
     if (this.room_asset !== this.asset) { this.room.configure(bounds); this.room_asset = this.asset }
     const frame = bounds.clone()
     const stage_radius = this.room.visible ? this.room.stage_radius : 0
@@ -194,6 +200,7 @@ export class RigViewer {
     this.mixer?.stopAllAction()
     if (oldClip) this.mixer?.uncacheClip(oldClip)
     if (this.asset) restore_rig_pose(this.asset)
+    this.framing_bounds = undefined
     if (refit && oldClip) this.fit(true)
     else this.follow_motion()
     this.action = undefined
@@ -282,11 +289,11 @@ export class RigViewer {
     this.native_bones = new LineSegments(geometry, new LineBasicMaterial({ color: 0x8eeaff, depthTest: false })); this.native_bones.renderOrder = 999; this.scene.add(this.native_bones)
   }
 
-  set_room_enabled(value: boolean): void { this.room.set_visible(value); this.fit(true) }
+  set_room_enabled(value: boolean): void { this.room.set_visible(value); this.fit(true, false) }
   set_grid_visible(value: boolean): void { this.grid.visible = value }
   set_settings_overlay(width: number, height: number, bottom: boolean): void {
     const changed = Math.abs(this.overlay.width - width) > 8 || Math.abs(this.overlay.height - height) > 8 || this.overlay.bottom !== bottom
-    this.overlay = { width, height, bottom }; this.apply_overlay(); if (changed) this.fit(true)
+    this.overlay = { width, height, bottom }; this.apply_overlay(); if (changed) this.fit(true, false)
   }
   private apply_overlay(): void {
     const width = this.renderer.domElement.clientWidth, height = this.renderer.domElement.clientHeight

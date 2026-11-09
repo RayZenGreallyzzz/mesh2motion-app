@@ -69,7 +69,16 @@ export function fit_humanoid_head_surface(surface: Float32Array, bones: Bone[], 
   const shoulder = (at(left).y + at(right).y) * .5, center = at(pelvis).x, oldHead = at(head), oldTip = at(tip)
   let top = -Infinity; for (let i=1;i<surface.length;i+=3) top=Math.max(top,surface[i])
   const rows: Array<{ y: number, width: number, x: number, z: number }> = [], step = height * .006, tolerance = height * .00002
-  for (let y = shoulder + height * .012; y < Math.min(shoulder + height * .30, top - height * .004); y += step) {
+  const firstSlice = shoulder + height * .012
+  const sliceLimit = Math.min(shoulder + height * .30, top - height * .004)
+  if (!(firstSlice < sliceLimit)) return false
+  // Preserve every face that can cross a head slice, in the original order.
+  const headFaces: number[] = []
+  for (let offset = 0; offset + 8 < surface.length; offset += 9) {
+    const a = surface[offset + 1], b = surface[offset + 4], c = surface[offset + 7]
+    if (Math.max(a, b, c) > firstSlice && Math.min(a, b, c) < sliceLimit) headFaces.push(offset)
+  }
+  for (let y = firstSlice; y < sliceLimit; y += step) {
     const vertices: Array<{ x: number, z: number, edges: Set<number> }> = [], ids = new Map<string, number>()
     const vertex = (x: number, z: number): number => {
       const key = Math.round(x / tolerance) + ':' + Math.round(z / tolerance)
@@ -77,7 +86,9 @@ export function fit_humanoid_head_surface(surface: Float32Array, bones: Bone[], 
       if (id === undefined) { id = vertices.length; ids.set(key, id); vertices.push({ x, z, edges: new Set() }) }
       return id
     }
-    for (let i = 0; i < surface.length; i += 9) {
+    for (const i of headFaces) {
+      const firstBelow = surface[i + 1] <= y
+      if (firstBelow === (surface[i + 4] <= y) && firstBelow === (surface[i + 7] <= y)) continue
       const intersections: number[] = []
       for (let a = 0; a < 3; a++) {
         const b = (a + 1) % 3, ay = surface[i + a * 3 + 1], by = surface[i + b * 3 + 1]
