@@ -46,7 +46,9 @@ const status = (message: string, error = false): void => {
 function controls (): void {
   const own_busy = busy || pose_editing
   humanoid_panel?.refresh(own_busy)
-  const locked = own_busy || !!humanoid_panel?.reviewing
+  const reviewing = humanoid_panel?.reviewing ?? false
+  workspace?.set_head_review(reviewing)
+  const locked = own_busy || reviewing
   button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
     button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)

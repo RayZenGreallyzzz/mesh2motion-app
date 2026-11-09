@@ -7,6 +7,7 @@ body.room-workspace [hidden] { display: none !important; }
 .studio-toolbar { position: fixed; z-index: 40; top: 78px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; padding: 6px; max-width: calc(100vw - 20px); background: #14202ce8; border: 1px solid #64717b80; border-radius: 16px; backdrop-filter: blur(12px); box-shadow: 0 6px 20px #0002; }
 .studio-toolbar button { min-height: 44px; padding: 8px 13px; background: transparent; border-color: transparent; font-size: 14px; }
 .studio-toolbar button.active { background: #365057; border-color: #7ab7aa; color: #f0fff7; }
+.studio-toolbar button.review-pending { border-color: #edbd75; color: #ffe0a9; }
 .workspace-layer { position: fixed; inset: 0; z-index: 35; pointer-events: none; }
 .workspace-dialog { position: absolute; top: 142px; right: 16px; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 246px); padding: 15px; overflow: auto; overscroll-behavior: contain; pointer-events: auto; border: 1px solid #677b83; border-radius: 18px; background: #15202cf2; backdrop-filter: blur(14px); box-shadow: 0 14px 44px #0005; }
 .workspace-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }

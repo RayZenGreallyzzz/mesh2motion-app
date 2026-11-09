@@ -120,7 +120,7 @@ export class Humanoid65Panel {
       this.fields.set(name, fields); this.coordinates.append(row)
     }
     this.options.viewer.set_native_bones([]); this.markers()
-    this.options.status('Нужна проверка головы. Поправьте три точки спереди и сбоку и продолжите расчёт. Исходная модель остаётся на экране.')
+    this.options.status('Проверьте три точки спереди и сбоку, затем продолжите расчёт. Вкладка «Голова» открывает проверку.')
     this.changed()
   }
   private async calculate(asset: RigAsset, forceReview = false): Promise<boolean> {

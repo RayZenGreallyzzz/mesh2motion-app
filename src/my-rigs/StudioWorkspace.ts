@@ -3,9 +3,10 @@ import './studio-workspace.css'
 
 type Panel = 'file' | 'native' | 'motions' | 'library' | 'view'
 
-/** Full-screen stage with settings opened only through explicit toolbar buttons. */
+/** Full-screen stage with settings and head review in toolbar popovers. */
 export class StudioWorkspace {
   private active?: Panel
+  private reviewing_head = false
   private readonly panels = new Map<Panel, HTMLElement>()
   private readonly buttons = new Map<Panel, HTMLButtonElement>()
   private readonly toolbar = document.createElement('nav')
@@ -47,7 +48,18 @@ export class StudioWorkspace {
     if (key === 'motions' || key === 'library') this.show_tab(key === 'library')
     for (const [name, panel] of this.panels) panel.hidden = name !== key
     for (const [name, button] of this.buttons) { button.setAttribute('aria-expanded', String(name === key)); button.classList.toggle('active', name === key) }
+    if (key === 'native' && this.reviewing_head) {
+      this.panels.get(key)?.querySelector('.head-landmark-review')?.scrollIntoView({ block: 'nearest' })
+    }
     this.update_overlay()
+  }
+  set_head_review(reviewing: boolean): void {
+    if (this.reviewing_head === reviewing) return
+    this.reviewing_head = reviewing
+    const button = this.buttons.get('native')!
+    button.textContent = reviewing ? 'Голова' : 'Риг'
+    button.classList.toggle('review-pending', reviewing)
+    if (reviewing) this.open('native')
   }
   close(focus = true): void {
     const old = this.active; this.active = undefined; for (const panel of this.panels.values()) panel.hidden = true
