@@ -148,9 +148,13 @@ export class RigViewer {
     if (bounds.isEmpty()) bounds.setFromCenterAndSize(new Vector3(), new Vector3(1, 1, 1))
     if (this.room_asset !== this.asset) { this.room.configure(bounds); this.room_asset = this.asset }
     const frame = bounds.clone()
-    if (this.room.visible) frame.min.y = Math.min(frame.min.y, this.room.group.position.y)
+    const stage_radius = this.room.visible ? this.room.stage_radius : 0
+    const floor = this.room.group.position.y
+    // Leave room below the stage for the playback bar.
+    if (this.room.visible) frame.min.y = Math.min(frame.min.y, floor - stage_radius * 0.18)
     const center = frame.getCenter(new Vector3())
-    const radius = Math.max(frame.getSize(new Vector3()).length() * 0.5, this.room.visible ? this.room.stage_radius : 0, 0.1)
+    const stage_frame_radius = this.room.visible ? Math.hypot(stage_radius, center.y - floor) : 0
+    const radius = Math.max(frame.getSize(new Vector3()).length() * 0.5, stage_frame_radius, 0.1)
     const width = this.renderer.domElement.clientWidth || 1, height = this.renderer.domElement.clientHeight || 1
     const free_width = Math.max(width - (this.overlay.bottom ? 0 : this.overlay.width), width * 0.18)
     const free_height = Math.max(height - (this.overlay.bottom ? this.overlay.height : 0), height * 0.18)
