@@ -16,9 +16,16 @@ export function write_humanoid65_glb(source: RigAsset, rig: Group, bones: Bone[]
   doc.accessors??=[];doc.bufferViews??=[]
   const add=(values:ArrayLike<number>,width:number,type:string,integer=false,times=false):number=>{
     if(!values.length||values.length%width)throw new Error('Неверный размер данных нового рига')
-    const array=integer?new Uint16Array(values.length):new Float32Array(values.length)
-    for(let i=0;i<values.length;i++){const n=values[i];if(!Number.isFinite(n)||(integer&&(!Number.isInteger(n)||n<0||n>65535)))throw new Error('Неверное значение нового рига');array[i]=n}
-    const bytes=new Uint8Array(array.buffer),bv=doc.bufferViews.length
+    const packed=integer
+      ? (values instanceof Uint16Array ? values : undefined)
+      : (values instanceof Float32Array ? values : undefined)
+    const array=packed??(integer?new Uint16Array(values.length):new Float32Array(values.length))
+    for(let i=0;i<values.length;i++){
+      const n=values[i]
+      if(!Number.isFinite(n)||(integer&&(!Number.isInteger(n)||n<0||n>65535)))throw new Error('Неверное значение нового рига')
+      if(!packed)array[i]=n
+    }
+    const bytes=new Uint8Array(array.buffer,array.byteOffset,array.byteLength),bv=doc.bufferViews.length
     doc.bufferViews.push({buffer:0,byteOffset:length,byteLength:bytes.length});parts.push({offset:length,bytes});length=Math.ceil((length+bytes.length)/4)*4
     const accessor:any={bufferView:bv,componentType:integer?5123:5126,count:values.length/width,type}
     if(times){accessor.min=[values[0]];accessor.max=[values[values.length-1]]}

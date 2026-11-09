@@ -57,13 +57,14 @@ export function joint_fit_surface (model: Object3D, frame: Object3D | null, maxT
   for (const { geometry, matrix, start, count } of meshes) {
     const positions = geometry.getAttribute('position')
     for (let face = 0; face < count; face += stride) {
-      const offset = cursor
       for (let corner = 0; corner < 3; corner++) {
         const index = start + face * 3 + corner
         point.fromBufferAttribute(positions, geometry.index ? geometry.index.getX(index) : index).applyMatrix4(matrix)
         triangles[cursor++] = point.x; triangles[cursor++] = point.y; triangles[cursor++] = point.z
       }
-      if (!triangles.subarray(offset, cursor).every(Number.isFinite)) cursor = offset
+      for (let i = cursor - 9; i < cursor; i++) {
+        if (!Number.isFinite(triangles[i])) { cursor -= 9; break }
+      }
     }
   }
   return triangles.subarray(0, cursor)
@@ -101,12 +102,9 @@ export function estimate_limb_joint (
       xyz[corner].fromArray(surface, offset + corner * 3).sub(start)
       projection[corner] = xyz[corner].dot(axis) / length
     }
-    normal.subVectors(xyz[1], xyz[0]).cross(edgeVector.subVectors(xyz[2], xyz[0]))
-    const nu = normal.dot(u), nv = normal.dot(v)
-    const normalBit = nu * nu + nv * nv > 1e-20
-      ? 1 << (Math.floor((Math.atan2(nv, nu) + Math.PI) / (Math.PI * 2) * 16) % 16) : 0
-    const lo = Math.max(0, Math.ceil((Math.min(...projection) - first) / step - 1e-6))
-    const hi = Math.min(bins - 1, Math.floor((Math.max(...projection) - first) / step + 1e-6))
+    const lo = Math.max(0, Math.ceil((Math.min(projection[0], projection[1], projection[2]) - first) / step - 1e-6))
+    const hi = Math.min(bins - 1, Math.floor((Math.max(projection[0], projection[1], projection[2]) - first) / step + 1e-6))
+    let normalBit: number | undefined
     for (let bin = lo; bin <= hi; bin++) {
       const fraction = first + bin * step
       let accepted = 0, rejected = 0
@@ -125,7 +123,15 @@ export function estimate_limb_joint (
         hits[bin]++
         accepted++
       }
-      if (accepted) normals[bin] |= normalBit
+      if (accepted) {
+        if (normalBit === undefined) {
+          normal.subVectors(xyz[1], xyz[0]).cross(edgeVector.subVectors(xyz[2], xyz[0]))
+          const nu = normal.dot(u), nv = normal.dot(v)
+          normalBit = nu * nu + nv * nv > 1e-20
+            ? 1 << (Math.floor((Math.atan2(nv, nu) + Math.PI) / (Math.PI * 2) * 16) % 16) : 0
+        }
+        normals[bin] |= normalBit
+      }
       if (accepted && rejected) clipped[bin] = 1
     }
   }

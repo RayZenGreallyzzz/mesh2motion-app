@@ -1,4 +1,4 @@
-import { Bone, Box3, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, Vector3, type Object3D } from 'three'
+import { Bone, Box3, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, Vector3, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { fit_humanoid_rig } from '../lib/processes/edit-skeleton/HumanoidAutoFit.ts'
 import { fit_humanoid_head, fit_humanoid_head_surface } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
@@ -6,22 +6,24 @@ import { joint_fit_surface, refine_humanoid_joints, type LimbChain } from '../li
 import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
 import SkinningAlgorithm from '../lib/solvers/SkinningAlgorithm.ts'
 import { SkeletonType } from '../lib/enums/SkeletonType.ts'
-import { solve_weight_job, type WeightJob } from '../lib/solvers/CharacterWeightJob.ts'
+import { solve_packed_weights, type PackedWeightJob, type PackedWeights } from '../lib/solvers/CharacterWeightJob.ts'
 import { restore_rig_pose, type RigAsset, type RigNode } from './RigAsset.ts'
 import { suggest_mapping, transfer_clips_async } from './RigMotionTransfer.ts'
 import { write_humanoid65_glb } from './Humanoid65Writer.ts'
 import { HumanoidHeadReviewRequired, validate_head_landmarks, type HeadLandmarks } from './HumanoidHeadReview.ts'
 
-export interface HumanoidMesh { source: Mesh, source_node: number, primitive: number, world: Matrix4, geometry: BufferGeometry, indices: number[], weights: number[] }
+export interface HumanoidMesh { source: Mesh, source_node: number, primitive: number, world: Matrix4, indices: Uint16Array, weights: Float32Array }
 export interface Humanoid65Options { template: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean, head_landmarks?: HeadLandmarks, review_head?: boolean }
 export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, head_fit_source: 'vertices' | 'surface' | 'manual', joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
 const check = (signal?: AbortSignal): void => { if (signal?.aborted) throw new Error('Расчёт отменён. Исходный персонаж сохранён.') }
 const world = (bone: Bone): Vector3 => bone.getWorldPosition(new Vector3())
 function place(bone: Bone, point: Vector3): void { bone.parent?.updateWorldMatrix(true, false); bone.position.copy(bone.parent ? bone.parent.worldToLocal(point.clone()) : point); bone.updateWorldMatrix(true, true) }
 export function humanoid_world_geometry(mesh:Mesh):BufferGeometry {
-  const geometry=mesh.geometry.clone(),source=mesh.geometry.getAttribute('position'),positions=new Float32Array(source.count*3),point=new Vector3()
+  const geometry=new BufferGeometry(),source=mesh.geometry.getAttribute('position'),positions=new Float32Array(source.count*3),point=new Vector3()
   for(let i=0;i<source.count;i++){point.fromBufferAttribute(source,i).applyMatrix4(mesh.matrixWorld);point.toArray(positions,i*3)}
-  geometry.setAttribute('position',new Float32BufferAttribute(positions,3));return geometry
+  geometry.setAttribute('position',new BufferAttribute(positions,3))
+  geometry.setIndex(mesh.geometry.index)
+  return geometry
 }
 function snapshot(scene: Group, bones: Bone[], source: RigAsset): RigAsset {
   const nodes = new Map<string, RigNode>(), ids = new Map<Object3D,string>(), joints = new Set<Object3D>(bones)
@@ -30,33 +32,47 @@ function snapshot(scene: Group, bones: Bone[], source: RigAsset): RigAsset {
   for (const [object,id] of ids) nodes.set(id,{id,name:object.name,parent_id:object.parent ? ids.get(object.parent) ?? null : null,object,position:object.position.clone(),rotation:object.quaternion.clone(),scale:object.scale.clone(),world_rotation:object.getWorldQuaternion(new Quaternion()),parent_rotation:object.parent?.getWorldQuaternion(new Quaternion()) ?? new Quaternion(),world_scale:object.getWorldScale(new Vector3()),is_joint:joints.has(object),is_mesh:false})
   return {name:source.name,scene,nodes,clips:[],source_bytes:source.source_bytes,signature:JSON.stringify([...nodes.values()].map(n=>[n.name,n.parent_id,n.position.toArray(),n.rotation.toArray()])),skeleton_count:1,vertex_count:source.vertex_count,dirty:true}
 }
-async function weights(job: WeightJob, signal?: AbortSignal, direct = false): Promise<number[][]> {
+async function weights(job: PackedWeightJob, {signal,direct_solver,progress}: Humanoid65Options): Promise<PackedWeights> {
   check(signal)
-  if (direct || typeof Worker === 'undefined') return solve_weight_job(job)
+  if (direct_solver || typeof Worker === 'undefined') return solve_packed_weights(job,progress)
   const worker = new Worker(new URL('../lib/solvers/CharacterWeightWorker.ts', import.meta.url), {type:'module'})
-  try { return await new Promise((resolve,reject)=>{
-    const abort=():void=>reject(new Error('Расчёт отменён. Исходный персонаж сохранён.'))
+  let abort: (() => void) | undefined
+  try { return await new Promise<PackedWeights>((resolve,reject)=>{
+    abort=()=>reject(new Error('Расчёт отменён. Исходный персонаж сохранён.'))
     signal?.addEventListener('abort',abort,{once:true})
-    const cleanup=():void=>signal?.removeEventListener('abort',abort)
-    worker.onmessage=event=>{cleanup();event.data.error ? reject(new Error(event.data.error)) : resolve(event.data.weights)}
-    worker.onerror=event=>{cleanup();reject(new Error(event.message))}
-    worker.postMessage(job)
-  }) } finally { worker.terminate() }
+    worker.onmessage=({data})=>{
+      if (data.progress) progress?.(data.progress)
+      else if (data.error) reject(new Error(data.error))
+      else resolve(data.weights)
+    }
+    worker.onerror=event=>reject(new Error(event.message))
+    worker.onmessageerror=()=>reject(new Error('Не удалось получить рассчитанные веса'))
+    worker.postMessage(job,[job.positions.buffer,job.triangles.buffer])
+  }) } finally {
+    if (abort) signal?.removeEventListener('abort',abort)
+    worker.terminate()
+  }
 }
 
 /** Rebuild only by an explicit humanoid action or when completing NEW native output.
  * Imported rigs remain untouched until this function successfully returns. */
 export async function build_humanoid65(asset: RigAsset, options: Humanoid65Options): Promise<Humanoid65Result> {
   check(options.signal); restore_rig_pose(asset)
-  const report = (text:string):void=>options.progress?.(text)
-  report('Загружаю полный шаблон тела и пальцев…')
+  const report = async (text:string):Promise<void>=>{
+    options.progress?.(text)
+    // Let the WebView paint the next stage and handle a pending cancellation.
+    if(options.progress&&!options.direct_solver)await new Promise(resolve=>setTimeout(resolve,0))
+    check(options.signal)
+  }
+  await report('Загружаю полный шаблон тела и пальцев…')
   const template=await new GLTFLoader().parseAsync(options.template,''); const scene=template.scene
   const originalBones:Bone[]=[];scene.traverse(o=>{if((o as Bone).isBone)originalBones.push(o as Bone)})
   const get=(name:string):Bone=>{const bone=originalBones.find(b=>b.name===name);if(!bone)throw new Error('Неполный человеческий шаблон: '+name);return bone}
   if(originalBones.length!==66)throw new Error('Нужен полный исходный шаблон тела с пальцами')
-  const meshes:HumanoidMesh[]=[];const points:Vector3[]=[];const geometries:BufferGeometry[]=[]
+  const meshes:Array<Omit<HumanoidMesh,'indices'|'weights'>&{vertexCount:number}>=[];const points:Vector3[]=[];const geometries:BufferGeometry[]=[]
   asset.scene.updateWorldMatrix(true,true)
   try {
+    await report('Подготавливаю геометрию персонажа…')
     for(const node of asset.nodes.values()) {
       const mesh=node.object as Mesh;if(!mesh.isMesh)continue
       const match=/^n(\d+)(?:\/p(\d+))?$/.exec(node.id);if(!match)throw new Error('Не удалось связать геометрию с исходным GLB')
@@ -67,11 +83,12 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
         for(let i=0;i<raw.count;i++){p.fromBufferAttribute(raw,i);q.copy(p).applyMatrix4(mesh.matrixWorld);skinned.applyBoneTransform(i,p).applyMatrix4(mesh.matrixWorld);if(p.distanceTo(q)>tolerance)throw new Error('Для пересборки нужна исходная T- или A-поза привязки. Текущая сохранённая поза кожи отличается; персонаж сохранён без изменений.')}
       }
       const pos=geometry.getAttribute('position');for(let i=0;i<pos.count;i++)points.push(new Vector3().fromBufferAttribute(pos,i))
-      meshes.push({source:mesh,source_node:Number(match[1]),primitive:Number(match[2]??0),world:mesh.matrixWorld.clone(),geometry,indices:[],weights:[]})
+      meshes.push({source:mesh,source_node:Number(match[1]),primitive:Number(match[2]??0),world:mesh.matrixWorld.clone(),vertexCount:pos.count})
     }
-    if(points.length<32)throw new Error('В модели недостаточно геометрии для подгонки человека')
+    const vertexCount=points.length
+    if(vertexCount<32)throw new Error('В модели недостаточно геометрии для подгонки человека')
     const elbowFractions = new Map((['l','r'] as const).map(side => {const a=world(get('upperarm_'+side)),b=world(get('lowerarm_'+side)),c=world(get('hand_'+side));return [side,a.distanceTo(b)/(a.distanceTo(b)+b.distanceTo(c))]}))
-    report('Подгоняю полный скелет под геометрию…')
+    await report('Подгоняю полный скелет под геометрию…')
     if(!fit_humanoid_rig(asset.scene,new Skeleton(originalBones),null,()=>{},options.profile??'human'))throw new Error('Не удалось подогнать человеческий шаблон. Нужна исходная T- или A-поза.')
     let bottom=Infinity,top=-Infinity;for(const p of points){bottom=Math.min(bottom,p.y);top=Math.max(top,p.y)}
     const hints=new Map([...asset.nodes.values()].filter(n=>n.is_joint).map(n=>[n.name,n.object.getWorldPosition(new Vector3())]))
@@ -91,7 +108,7 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       const p=world(get('head'));place(get('head_leaf'),new Vector3(p.x,top,p.z))
     }
     check(options.signal)
-    report('Уточняю шею, голову, локти и колени…')
+    await report('Уточняю шею и голову…')
     const shoulder=(world(get('upperarm_l')).y+world(get('upperarm_r')).y)*.5
     let headFitted=false,headSource:Humanoid65Result['report']['head_fit_source']='vertices'
     if(options.head_landmarks){
@@ -104,6 +121,8 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       else headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
       if(!headFitted||options.review_head)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
+    points.length=0
+    await report('Уточняю локти и колени…')
     for (const side of ['l','r'] as const) {const wrist=world(get('hand_'+side));place(get('lowerarm_'+side),world(get('upperarm_'+side)).lerp(wrist,elbowFractions.get(side)!));place(get('hand_'+side),wrist)}
     const chains:LimbChain[]=(['l','r'] as const).flatMap(s=>[{start:get('upperarm_'+s),joint:get('lowerarm_'+s),end:get('hand_'+s),kind:'elbow' as const},{start:get('thigh_'+s),joint:get('calf_'+s),end:get('foot_'+s),kind:'knee' as const}])
     refine_humanoid_joints(asset.scene,chains,null,world(get('pelvis')).x,{elbow:{max_fraction:.70,max_shift:.18}})
@@ -112,19 +131,37 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     const root=get('root'),frame=new Group();frame.copy(root,false);root.parent?.add(frame);frame.add(get('pelvis'));root.removeFromParent();scene.updateWorldMatrix(true,true)
     const bones:Bone[]=[];scene.traverse(o=>{if((o as Bone).isBone)bones.push(o as Bone)})
     if(bones.length!==65)throw new Error('Полный человеческий скелет должен содержать 65 костей')
-    const solver=new SkinningAlgorithm(scene,SkeletonType.Human),config=solver.worker_config(),positions:number[]=[],triangles:number[]=[]
-    for(const g of geometries){const attr=g.getAttribute('position'),offset=positions.length/3;for(let i=0;i<attr.count;i++)positions.push(attr.getX(i),attr.getY(i),attr.getZ(i));for(let i=0;i<(g.index?.count??attr.count);i++)triangles.push(offset+(g.index?.getX(i)??i))}
-    report('Рассчитываю веса тела, головы и всех пальцев…')
-    const [indices,skinWeights]=await weights({...config,positions,triangles},options.signal,options.direct_solver)
-    let offset=0;for(const m of meshes){const n=m.geometry.getAttribute('position').count*4;m.indices=indices.slice(offset,offset+n);m.weights=skinWeights.slice(offset,offset+n);offset+=n}
+    await report('Подготавливаю расчёт весов…')
+    const solver=new SkinningAlgorithm(scene,SkeletonType.Human)
+    const positions=new Float32Array(vertexCount*3)
+    const triangles=new Uint32Array(geometries.reduce((n,g)=>n+(g.index?.count??g.getAttribute('position').count),0))
+    let vertexOffset=0,triangleOffset=0
+    for(const g of geometries){
+      const attr=g.getAttribute('position'),count=g.index?.count??attr.count
+      positions.set(attr.array,vertexOffset*3)
+      for(let i=0;i<count;i++)triangles[triangleOffset+i]=vertexOffset+(g.index?.getX(i)??i)
+      vertexOffset+=attr.count;triangleOffset+=count
+    }
+    geometries.forEach(g=>g.dispose())
+    geometries.length=0
+    const [indices,skinWeights]=await weights({...solver.worker_config(),packed:true,positions,triangles},options)
+    if(indices.length!==vertexCount*4||skinWeights.length!==indices.length)throw new Error('Веса не соответствуют вершинам модели')
+    let offset=0
+    const weightedMeshes=meshes.map(({vertexCount,...mesh})=>{
+      const end=offset+vertexCount*4
+      const result={...mesh,indices:indices.subarray(offset,end),weights:skinWeights.subarray(offset,end)}
+      offset=end;return result
+    })
     check(options.signal)
     const target=snapshot(scene,bones,asset)
-    report('Переношу сохранённые движения на полный скелет…')
-    if(asset.clips.length) target.clips=await transfer_clips_async(asset,target,suggest_mapping(asset,target),asset.clips.map((_,i)=>i),{match_pose:true,anchor_motion:false},undefined,options.signal)
+    if(asset.clips.length){
+      await report('Переношу сохранённые движения на полный скелет…')
+      target.clips=await transfer_clips_async(asset,target,suggest_mapping(asset,target),asset.clips.map((_,i)=>i),{match_pose:true,anchor_motion:false},undefined,options.signal)
+    }
     // Morph channels still target exactly the same original mesh geometry.
     asset.clips.forEach((clip,i)=>target.clips[i]?.tracks.push(...clip.tracks.filter(t=>t.name.endsWith('.morphTargetInfluences')).map(t=>t.clone())))
-    report('Сохраняю полный риг и проверяю структуру GLB…')
-    const bytes=write_humanoid65_glb(asset,scene,bones,meshes,target.clips)
-    return{bytes,report:{bones:bones.length,vertices:points.length,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
+    await report('Сохраняю полный риг и проверяю структуру GLB…')
+    const bytes=write_humanoid65_glb(asset,scene,bones,weightedMeshes,target.clips)
+    return{bytes,report:{bones:bones.length,vertices:vertexCount,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
   } finally {geometries.forEach(g=>g.dispose())}
 }

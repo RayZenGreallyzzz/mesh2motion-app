@@ -68,7 +68,7 @@ export default class SkinningAlgorithm {
     this.arm_plane_offset = offset
   }
 
-  public calculate_indexes_and_weights (): number[][] {
+  public calculate_indexes_and_weights (progress?: (message: string) => void): number[][] {
     const skin_indices: number[] = []
     const skin_weights: number[] = []
 
@@ -77,8 +77,9 @@ export default class SkinningAlgorithm {
     // The anatomy-dependent head override below is still humanoid only.
     {
       const surface_calculator = new SurfaceGeodesicWeightCalculator(this.bones_master_data, this.geometry)
-      surface_calculator.calculate(skin_indices, skin_weights)
+      surface_calculator.calculate(skin_indices, skin_weights, progress)
 
+      progress?.('Уточняю веса головы, корпуса и суставов…')
       const weight_normalizer = new WeightNormalizer(this.geometry)
       weight_normalizer.normalize_weights(skin_weights)
 

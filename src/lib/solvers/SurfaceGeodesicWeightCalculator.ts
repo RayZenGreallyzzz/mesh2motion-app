@@ -105,7 +105,6 @@ export class SurfaceGeodesicWeightCalculator {
 
   private nodePositions: Vector3[] = []
   private originalVertexToNode: number[] = []
-  private nodeToOriginalVertices: number[][] = []
   private adjacency: Array<Array<{ node: number, length: number }>> = []
   private components: number[][] = []
   private boneSurfaceData: BoneSurfaceData[] = []
@@ -119,14 +118,16 @@ export class SurfaceGeodesicWeightCalculator {
     this.geometry = geometry
   }
 
-  public calculate (skinIndices: number[], skinWeights: number[]): void {
+  public calculate (skinIndices: number[], skinWeights: number[], progress?: (message: string) => void): void {
     skinIndices.length = 0
     skinWeights.length = 0
 
     this.buildBoneSurfaceData()
     this.boneSurfaceByIndex = new Map(this.boneSurfaceData.map(bone => [bone.boneIndex, bone]))
     this.buildBoneNeighborhoods()
+    progress?.('Строю карту поверхности модели…')
     this.buildSurfaceGraph()
+    progress?.('Ищу ближайшие к поверхности кости…')
     this.nearestSurfaceBones = this.nodePositions.map(point => this.closestBoneToPoint(point))
     this.buildConnectedComponents()
 
@@ -136,18 +137,21 @@ export class SurfaceGeodesicWeightCalculator {
 
     const bestBones: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
     const bestDistances: number[][] = Array.from({ length: this.nodePositions.length }, () => [])
+    progress?.('Распределяю влияние костей по поверхности…')
     console.time('surface_geodesic_skinning')
     for (const component of this.components) {
       this.solveComponent(component, resultBones, resultWeights, bestBones, bestDistances)
     }
     console.timeEnd('surface_geodesic_skinning')
+    bestBones.length = 0
+    bestDistances.length = 0
 
     // v6.0 joint blend: Dijkstra gives good locality, but high-poly cylindrical
     // limbs can still receive a razor-sharp boundary if the nearest seed set is
     // uneven around the circumference. Smooth the already-local influences over
     // the welded surface graph. Only bones within two hierarchy hops of the
     // dominant bone may enter the blend, so hand weights cannot bleed into chest.
-    this.smoothNodeWeights(resultBones, resultWeights)
+    this.smoothNodeWeights(resultBones, resultWeights, progress)
 
     for (let vertex = 0; vertex < vertexCount; vertex++) {
       const node = this.originalVertexToNode[vertex]
@@ -227,7 +231,6 @@ export class SurfaceGeodesicWeightCalculator {
     const nodeByPosition = new Map<string, number>()
     this.nodePositions = []
     this.originalVertexToNode = new Array<number>(vertexCount)
-    this.nodeToOriginalVertices = []
 
     for (let vertex = 0; vertex < vertexCount; vertex++) {
       const x = positions.getX(vertex)
@@ -240,11 +243,9 @@ export class SurfaceGeodesicWeightCalculator {
         node = this.nodePositions.length
         nodeByPosition.set(key, node)
         this.nodePositions.push(new Vector3(x, y, z))
-        this.nodeToOriginalVertices.push([])
       }
 
       this.originalVertexToNode[vertex] = node
-      this.nodeToOriginalVertices[node].push(vertex)
     }
 
     const neighborSets: Array<Set<number>> = Array.from({ length: this.nodePositions.length }, () => new Set<number>())
@@ -266,7 +267,7 @@ export class SurfaceGeodesicWeightCalculator {
 
     this.adjacency = neighborSets.map((neighbors, node) => {
       const from = this.nodePositions[node]
-      return [...neighbors].map(neighbor => ({
+      return Array.from(neighbors, neighbor => ({
         node: neighbor,
         length: Math.max(1e-6, from.distanceTo(this.nodePositions[neighbor]))
       }))
@@ -552,30 +553,33 @@ export class SurfaceGeodesicWeightCalculator {
     })
   }
 
-  private smoothNodeWeights (resultBones: number[][], resultWeights: number[][]): void {
+  private smoothNodeWeights (resultBones: number[][], resultWeights: number[][], progress?: (message: string) => void): void {
     if (this.smoothingIterations <= 0 || this.smoothingAlpha <= 0) return
 
+    const accumulated = new Map<number, number>()
     for (let iteration = 0; iteration < this.smoothingIterations; iteration++) {
-      const nextBones: number[][] = Array.from({ length: resultBones.length }, () => [])
-      const nextWeights: number[][] = Array.from({ length: resultWeights.length }, () => [])
+      progress?.(`Сглаживаю переходы весов · проход ${iteration + 1} из ${this.smoothingIterations}…`)
+      const nextBones = new Array<number[]>(resultBones.length)
+      const nextWeights = new Array<number[]>(resultWeights.length)
 
       for (let node = 0; node < resultBones.length; node++) {
         const ownBones = resultBones[node]
         const ownWeights = resultWeights[node]
-        if (ownBones.length === 0) continue
+        if (ownBones.length === 0) {
+          nextBones[node] = ownBones
+          nextWeights[node] = ownWeights
+          continue
+        }
 
         const dominantBone = ownBones[0]
         // Keep influences already established by surface propagation. The
         // hierarchy restriction only controls NEW influences from neighbors;
         // dropping existing weights at a dominant-bone boundary creates tears.
-        const allowed = new Set([
-          ...ownBones,
-          ...(this.boneNeighborhoods[dominantBone] ?? [])
-        ])
-        const accumulated = new Map<number, number>()
+        const neighborhood = this.boneNeighborhoods[dominantBone]
+        accumulated.clear()
 
         const add = (bone: number, value: number): void => {
-          if (!allowed.has(bone) || value <= 0) return
+          if (value <= 0 || (!neighborhood?.has(bone) && !ownBones.includes(bone))) return
           accumulated.set(bone, (accumulated.get(bone) ?? 0) + value)
         }
 
@@ -631,37 +635,27 @@ export class SurfaceGeodesicWeightCalculator {
     const distances = bestDistances[node]
     const existing = bones.indexOf(bone)
 
-    if (existing >= 0) {
-      if (distance >= distances[existing] - 1e-8) return false
-      distances[existing] = distance
-      this.sortInfluences(bones, distances)
-      return true
-    }
-
-    if (bones.length >= this.propagationInfluenceCount && distance >= distances[distances.length - 1]) {
+    if (existing >= 0 ? distance >= distances[existing] - 1e-8
+      : bones.length >= this.propagationInfluenceCount && distance >= distances[distances.length - 1]) {
       return false
     }
 
-    bones.push(bone)
-    distances.push(distance)
-    this.sortInfluences(bones, distances)
+    // Only one distance decreased or one influence was appended. Shift the
+    // preceding entries in place, keeping equal-distance entries in order.
+    let slot = existing >= 0 ? existing : bones.length
+    while (slot > 0 && distance < distances[slot - 1]) {
+      bones[slot] = bones[slot - 1]
+      distances[slot] = distances[slot - 1]
+      slot--
+    }
+    bones[slot] = bone
+    distances[slot] = distance
 
     if (bones.length > this.propagationInfluenceCount) {
       bones.pop()
       distances.pop()
     }
-    return bones.includes(bone)
-  }
-
-  private sortInfluences (bones: number[], distances: number[]): void {
-    const order = bones.map((bone, index) => ({ bone, distance: distances[index] }))
-      .sort((a, b) => a.distance - b.distance)
-    bones.length = 0
-    distances.length = 0
-    for (const entry of order) {
-      bones.push(entry.bone)
-      distances.push(entry.distance)
-    }
+    return slot < this.propagationInfluenceCount
   }
 
   private closestBoneToPoint (point: Vector3): number {

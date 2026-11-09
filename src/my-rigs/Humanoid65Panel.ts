@@ -126,6 +126,7 @@ export class Humanoid65Panel {
   private async calculate(asset: RigAsset, forceReview = false): Promise<boolean> {
     try {
       const result = await build_humanoid65(asset, { template: await humanoid_template(), profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview })
+      this.options.status('Открываю и проверяю готовый риг…')
       this.clear_review(); await this.options.show(result.bytes)
       const fallback = result.report.joints.filter(j => (j.evidence as { source?: string })?.source === 'fallback').map(j => j.name.startsWith('lowerarm') ? 'локти' : 'колени')
       this.options.status('Готов полный риг: 65 костей, включая пальцы. ' + (fallback.length ? 'Проверьте ' + [...new Set(fallback)].join(' и ') + ': поверхность не дала точного ориентира, использованы пропорции шаблона. ' : '') + 'Проверьте движения перед экспортом.')
