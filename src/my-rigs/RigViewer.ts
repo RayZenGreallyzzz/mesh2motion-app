@@ -146,8 +146,11 @@ export class RigViewer {
     // Skeleton-only files have no geometry to frame.
     if (bounds.isEmpty()) this.asset.nodes.forEach(node => bounds.expandByPoint(node.object.getWorldPosition(new Vector3())))
     if (bounds.isEmpty()) bounds.setFromCenterAndSize(new Vector3(), new Vector3(1, 1, 1))
-    const center = bounds.getCenter(new Vector3())
-    const radius = Math.max(bounds.getSize(new Vector3()).length() * 0.5, 0.1)
+    if (this.room_asset !== this.asset) { this.room.configure(bounds); this.room_asset = this.asset }
+    const frame = bounds.clone()
+    if (this.room.visible) frame.min.y = Math.min(frame.min.y, this.room.group.position.y)
+    const center = frame.getCenter(new Vector3())
+    const radius = Math.max(frame.getSize(new Vector3()).length() * 0.5, this.room.visible ? this.room.stage_radius : 0, 0.1)
     const width = this.renderer.domElement.clientWidth || 1, height = this.renderer.domElement.clientHeight || 1
     const free_width = Math.max(width - (this.overlay.bottom ? 0 : this.overlay.width), width * 0.18)
     const free_height = Math.max(height - (this.overlay.bottom ? this.overlay.height : 0), height * 0.18)
@@ -163,7 +166,6 @@ export class RigViewer {
     this.grid.scale.setScalar(radius * 0.4)
     this.controls.update()
     this.follow_node?.getWorldPosition(this.follow_anchor)
-    if (this.room_asset !== this.asset) { this.room.configure(bounds); this.room_asset = this.asset }
     if (this.room.visible) this.grid.position.y = this.room.group.position.y + radius * 0.001
   }
 

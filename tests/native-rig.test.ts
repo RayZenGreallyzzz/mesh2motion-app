@@ -70,12 +70,19 @@ describe('native output never replaces a visible model with broken skin', () => 
   })
 })
 describe('display room follows model units without moving the model', () => {
-  it('places the floor under translated feet and retains scale for tiny and large models', () => {
+  it('places a two-step stage under translated feet and scales it with the model', () => {
     const source = new Box3(new Vector3(10, -3, 4), new Vector3(12, 0, 6)), before = source.clone(), base = room_layout(source)
-    expect(base.center.toArray()).toEqual([11, -1.5, 5]); expect(base.floor).toBeLessThan(-3); expect(source.equals(before)).toBe(true)
+    expect(base.center.toArray()).toEqual([11, -1.5, 5])
+    expect(base.stage_top).toBeCloseTo(source.min.y, 2)
+    expect(base.floor + base.step_height * 2).toBeCloseTo(base.stage_top, 8)
+    expect(base.stage_radius).toBeGreaterThan(Math.hypot(2, 2) / 2)
+    expect(base.base_radius).toBeGreaterThan(base.stage_radius)
+    expect(source.equals(before)).toBe(true)
     for (const factor of [0.001, 1000]) {
       const scaled = room_layout(new Box3(source.min.clone().multiplyScalar(factor), source.max.clone().multiplyScalar(factor)))
       expect(scaled.unit / base.unit).toBeCloseTo(factor, 6); expect(scaled.floor / base.floor).toBeCloseTo(factor, 6)
+      expect(scaled.stage_top / base.stage_top).toBeCloseTo(factor, 6)
+      expect(scaled.base_radius / base.base_radius).toBeCloseTo(factor, 6)
     }
   })
 })
