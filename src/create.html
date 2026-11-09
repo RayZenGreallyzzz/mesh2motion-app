@@ -24,7 +24,7 @@
         <img class="ras-brand-mark ignore-filters" src="./images/branding/hedgehog-icon.png" alt="" width="38" height="38" />
         <span class="ras-brand-copy">
           <strong>Rig Animation Studio</strong>
-          <small>v8.1.7 TEST · Проверка весов по движениям</small>
+          <small>NATIVE TEST · Авториг и просмотр персонажа</small>
         </span>
       </div>
       <div style="display: inline-flex; align-items: center;">
@@ -42,6 +42,7 @@
         </div>
 
         <div id="load-model-tools">
+          <a href="./my-rigs/index.html?native=1" style="display:block;margin:12px 0;padding:14px;border:1px solid #62cbb8;border-radius:12px;color:inherit;text-align:center;text-decoration:none;font-weight:600">Нативный авториг · персонаж и скелет →</a>
           <a href="./my-rigs/index.html?tab=library" style="display:block;margin:12px 0;padding:14px;border:1px solid #b8955c;border-radius:12px;color:inherit;text-align:center;text-decoration:none;font-weight:600">Мои риги и анимации →</a>
           <!-- <p class="step-instructions">Supports GLB, GLTF, FBX</p> -->
 
@@ -343,6 +344,7 @@
         </span>
 
         <span id="weight-skin-tools" style="display: none; flex-direction: column; gap: 0.65rem;">
+          <button id="weight-initial-pose-button" type="button">Настроить исходную позу рук и ног →</button>
           <div class="alternate-background-section" style="display: flex; flex-direction: column; gap: 0.45rem;">
             <strong>Rig Engine v2 · Surface Skin</strong>
             <small>Сначала проверьте автовеса. Кистью можно уточнить влияние отдельных костей и сохранить правки в GLB.</small>
@@ -428,6 +430,8 @@
             </span> -->
 
         <span id="skinned-step-animation-export-options">
+          <button id="classic-initial-pose-button" type="button">Исходная поза рук и ног</button>
+          <span id="classic-pose-panel"></span>
           <header class="studio-panel-heading"><p>Движения вашего персонажа</p></header>
     <div id="props-dock" style="display: none">
       <button
@@ -585,4 +589,5 @@
     <!-- build version information-->
     <span id="build-version"></span></body>
 </html>
+
 

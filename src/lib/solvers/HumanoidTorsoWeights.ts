@@ -2,6 +2,7 @@ import { Vector3, type Bone, type BufferGeometry } from 'three'
 import { parse_bone_name } from '../../retarget/bone-automap/BoneNameTokenizer.ts'
 import { resolve_slot } from '../../retarget/bone-automap/BoneSlotVocabulary.ts'
 import { BoneSide, BoneSlot } from '../../retarget/bone-automap/BoneTypes.ts'
+import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 
 const smooth = (a: number, b: number, value: number): number => {
   const t = Math.max(0, Math.min(1, (value-a)/(b-a)))
@@ -11,7 +12,9 @@ const smooth = (a: number, b: number, value: number): number => {
 /** Geodesic falloff can reach the waist from a descending arm. Remove that
  * distant influence only where the field already identifies a torso surface.
  * Keep a capsule around each arm, a soft armpit transition and the original
- * relative spine weights. Manual edits are applied later and remain authoritative.
+ * relative spine weights when those have meaningful support. Tiny spine seeds
+ * must not be amplified into a different dominant joint on adjacent vertices.
+ * Manual edits are applied later and remain authoritative.
  */
 export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[], indices: number[], weights: number[]): number {
   const roles = bones.map(b => { const name=parse_bone_name(b.name);return {slot:resolve_slot(name,name.side),side:name.side,leaf:name.is_leaf} })
@@ -25,6 +28,8 @@ export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[],
   if(height<1e-6||halfWidth/height<.08||halfWidth/height>2)return 0
   const arm=new Set<number>(),core=new Set<number>(),capsules:Array<{a:Vector3,d:Vector3,lengthSq:number,radius:number}>=[]
   roles.forEach((r,i)=>{if(r.slot===BoneSlot.Spine||r.slot===BoneSlot.Pelvis)core.add(i)})
+  const anchors=[...core].filter(i=>!roles[i].leaf&&!bones[i].userData.rigNonDeforming).map(i=>({id:i,height:bones[i].getWorldPosition(new Vector3()).sub(hip).dot(up)})).sort((a,b)=>a.height-b.height)
+  if(!anchors.length)return 0
   for(const upper of [left,right]){
     upper.traverse(b=>{const i=bones.indexOf(b as Bone);if(i>=0)arm.add(i)})
     for(const start of [upper,find(BoneSlot.LowerArm,roles[bones.indexOf(upper)].side)]){
@@ -48,9 +53,23 @@ export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[],
       amount*=smooth(c.radius,c.radius*1.7,Math.hypot(dx-t*c.d.x,dy-t*c.d.y,dz-t*c.d.z))
     }
     if(amount<=1e-8)continue
-    // Transfer to existing torso slots, so no new fourth-slot discontinuity is
-    // introduced and unrelated leg/head weights remain exactly unchanged.
     const removed=armWeight*amount
+    // Proportional transfer can turn a 0.1% accidental spine seed into 80%.
+    // Where that amplification dominates, use a continuous geometric spine
+    // field instead. Substantial original torso support is preserved.
+    const stable=(1-smooth(.15,.55,coreWeight))*smooth(.25,1,removed/coreWeight)
+    if(stable>1e-8){
+      const y=p.clone().sub(hip).dot(up),field=new Map<number,number>()
+      if(y<=anchors[0].height)field.set(anchors[0].id,1)
+      else if(y>=anchors.at(-1)!.height)field.set(anchors.at(-1)!.id,1)
+      else for(let j=1;j<anchors.length;j++)if(y<=anchors[j].height){const a=anchors[j-1],b=anchors[j],t=smooth(a.height,b.height,y);field.set(a.id,1-t);field.set(b.id,t);break}
+      const entries=new Map<number,number>(),coreTotal=coreWeight+removed
+      for(let k=0;k<4;k++){const id=indices[base+k],w=weights[base+k];entries.set(id,(entries.get(id)??0)+(arm.has(id)?w*(1-amount):core.has(id)?w*coreTotal/coreWeight*(1-stable):w))}
+      for(const [id,w] of field)entries.set(id,(entries.get(id)??0)+coreTotal*stable*w)
+      const sorted=continuous_skin_weights([...entries])
+      for(let k=0;k<4;k++){indices[base+k]=sorted[k]?.[0]??0;weights[base+k]=sorted[k]?.[1]??0}
+      changed++;continue
+    }
     for(let k=0;k<4;k++){const id=indices[base+k];if(arm.has(id))weights[base+k]*=1-amount;else if(core.has(id))weights[base+k]=Math.min(1,weights[base+k]+removed*weights[base+k]/coreWeight)}
     changed++
   }

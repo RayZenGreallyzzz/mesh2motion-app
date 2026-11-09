@@ -33,7 +33,7 @@ export function visit_fit_geometry (model: Object3D, visit: (child: Object3D, ge
 // Intersect the surface, rather than counting vertices near a guessed joint.
 // A low-poly limb, a subdivided limb and duplicated UV seams must describe the
 // same shape. The bounded triangle snapshot is shared by all four limbs.
-export function joint_fit_surface (model: Object3D, frame: Object3D | null): Float32Array {
+export function joint_fit_surface (model: Object3D, frame: Object3D | null, maxTriangles = 150000): Float32Array {
   model.updateWorldMatrix(true, true)
   frame?.updateWorldMatrix(true, false)
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
@@ -47,7 +47,9 @@ export function joint_fit_surface (model: Object3D, frame: Object3D | null): Flo
     meshes.push({ geometry, matrix: inverse.clone().multiply(child.matrixWorld), start, count })
     total += count
   })
-  const stride = Math.max(1, Math.ceil(total / 150000))
+  // Closed-contour fitting must retain every triangle. Callers doing that pass
+  // Infinity; the limb estimator keeps its bounded sampling by default.
+  const stride = Math.max(1, Math.ceil(total / Math.max(1, maxTriangles)))
   const count = meshes.reduce((n, mesh) => n + Math.ceil(mesh.count / stride), 0)
   const triangles = new Float32Array(count * 9)
   const point = new Vector3()
@@ -55,13 +57,14 @@ export function joint_fit_surface (model: Object3D, frame: Object3D | null): Flo
   for (const { geometry, matrix, start, count } of meshes) {
     const positions = geometry.getAttribute('position')
     for (let face = 0; face < count; face += stride) {
-      const offset = cursor
       for (let corner = 0; corner < 3; corner++) {
         const index = start + face * 3 + corner
         point.fromBufferAttribute(positions, geometry.index ? geometry.index.getX(index) : index).applyMatrix4(matrix)
         triangles[cursor++] = point.x; triangles[cursor++] = point.y; triangles[cursor++] = point.z
       }
-      if (!triangles.subarray(offset, cursor).every(Number.isFinite)) cursor = offset
+      for (let i = cursor - 9; i < cursor; i++) {
+        if (!Number.isFinite(triangles[i])) { cursor -= 9; break }
+      }
     }
   }
   return triangles.subarray(0, cursor)
@@ -76,7 +79,8 @@ export function estimate_limb_joint (
   end: Vector3,
   fallback: Vector3,
   centerX: number,
-  kind: LimbChain['kind'] = 'elbow'
+  kind: LimbChain['kind'] = 'elbow',
+  search?: { max_fraction?: number, max_shift?: number }
 ): JointEstimate | null {
   const axis = end.clone().sub(start), length = axis.length()
   if (!Number.isFinite(length) || length < 1e-5) return null
@@ -98,12 +102,9 @@ export function estimate_limb_joint (
       xyz[corner].fromArray(surface, offset + corner * 3).sub(start)
       projection[corner] = xyz[corner].dot(axis) / length
     }
-    normal.subVectors(xyz[1], xyz[0]).cross(edgeVector.subVectors(xyz[2], xyz[0]))
-    const nu = normal.dot(u), nv = normal.dot(v)
-    const normalBit = nu * nu + nv * nv > 1e-20
-      ? 1 << (Math.floor((Math.atan2(nv, nu) + Math.PI) / (Math.PI * 2) * 16) % 16) : 0
-    const lo = Math.max(0, Math.ceil((Math.min(...projection) - first) / step - 1e-6))
-    const hi = Math.min(bins - 1, Math.floor((Math.max(...projection) - first) / step + 1e-6))
+    const lo = Math.max(0, Math.ceil((Math.min(projection[0], projection[1], projection[2]) - first) / step - 1e-6))
+    const hi = Math.min(bins - 1, Math.floor((Math.max(projection[0], projection[1], projection[2]) - first) / step + 1e-6))
+    let normalBit: number | undefined
     for (let bin = lo; bin <= hi; bin++) {
       const fraction = first + bin * step
       let accepted = 0, rejected = 0
@@ -122,7 +123,15 @@ export function estimate_limb_joint (
         hits[bin]++
         accepted++
       }
-      if (accepted) normals[bin] |= normalBit
+      if (accepted) {
+        if (normalBit === undefined) {
+          normal.subVectors(xyz[1], xyz[0]).cross(edgeVector.subVectors(xyz[2], xyz[0]))
+          const nu = normal.dot(u), nv = normal.dot(v)
+          normalBit = nu * nu + nv * nv > 1e-20
+            ? 1 << (Math.floor((Math.atan2(nv, nu) + Math.PI) / (Math.PI * 2) * 16) % 16) : 0
+        }
+        normals[bin] |= normalBit
+      }
       if (accepted && rejected) clipped[bin] = 1
     }
   }
@@ -156,11 +165,11 @@ export function estimate_limb_joint (
   // The ankle/boot rim is often a stronger constriction than the knee. Exclude
   // the distal end of a leg and implausibly large shifts of its coarse landmark.
   // These are search bounds along this limb, never a fixed percentage of height.
-  const maxFraction = kind === 'knee' ? .74 : .88
+  const maxFraction = search?.max_fraction ?? (kind === 'knee' ? .74 : .88)
   let best: JointEstimate | null = null, bestScore = 0
   for (let i = 18; i <= 84; i++) {
     const section = profile[i], fraction = first + i * step
-    if (!section || fraction < .22 || fraction > maxFraction || (kind === 'knee' && Math.abs(fraction - prior) > .23)) continue
+    if (!section || fraction < .22 || fraction > maxFraction || Math.abs(fraction - prior) > (search?.max_shift ?? (kind === 'knee' ? .23 : 1))) continue
     const before = profile.slice(i - 14, i - 5).filter((s): s is Section => s !== null)
     const after = profile.slice(i + 6, i + 15).filter((s): s is Section => s !== null)
     if (before.length < 6 || after.length < 6) continue
@@ -197,7 +206,7 @@ export function estimate_limb_joint (
 }
 
 /** Run after the Woman shoulder pass, which must not overwrite these joints. */
-export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number): void {
+export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number, search?: Partial<Record<LimbChain['kind'], { max_fraction?: number, max_shift?: number }>>): void {
   const surface = joint_fit_surface(model, frame)
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
   const at = (bone: Bone) => bone.getWorldPosition(new Vector3()).applyMatrix4(inverse)
@@ -209,7 +218,7 @@ export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], fr
   }
   for (const chain of chains) {
     const { start, joint, end, kind } = chain
-    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind)
+    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind, search?.[kind])
     joint.userData.rigJointFit = estimate ? { source: 'surface', evidence: estimate.evidence, confidence: estimate.confidence } : { source: 'fallback' }
     if (!estimate) { joint.userData.rigFitWarning = true; continue }
     delete joint.userData.rigFitWarning

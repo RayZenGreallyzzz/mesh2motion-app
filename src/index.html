@@ -53,12 +53,12 @@
       <div class="footer">
         <div class="line" aria-hidden="true"></div>
         <p class="status" role="status">Открываем студию…</p>
-        <a class="enter" href="./create.html">Открыть сейчас →</a>
+        <a class="enter" href="./my-rigs/index.html?native=1">Открыть сейчас →</a>
       </div>
     </main>
     <script>
       const launch_started = performance.now()
-      const open_studio = () => window.location.replace('./create.html')
+      const open_studio = () => window.location.replace('./my-rigs/index.html?native=1')
       // A broken image must never block access to the editor.
       window.setTimeout(open_studio, 2800)
       const mascot = document.querySelector('.mascot')
@@ -68,3 +68,4 @@
     </script>
   </body>
 </html>
+

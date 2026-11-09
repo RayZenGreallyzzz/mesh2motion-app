@@ -2,7 +2,7 @@ import { InterpolateDiscrete, type KeyframeTrack } from 'three'
 import type { RigAsset } from './RigAsset.ts'
 import { inspect_glb, MAX_GLB_BYTES } from './GlbEnvelope.ts'
 
-/** Replace only animation declarations. Geometry, images, node transforms,
+/** Replace only animation declarations. Geometry, images, unedited node transforms,
  * inverse bind matrices and vertex weights retain their exact original bytes. */
 export function write_clips_glb (asset: RigAsset, indices: number[]): ArrayBuffer | undefined {
   const original = asset.source_bytes, view = new DataView(original)
@@ -25,6 +25,12 @@ export function write_clips_glb (asset: RigAsset, indices: number[]): ArrayBuffe
   if (!binary || binary.byteLength < doc.buffers[0].byteLength) return undefined
   const chunks: Array<{ offset: number, bytes: Uint8Array }> = [{ offset: 0, bytes: binary.subarray(0, doc.buffers[0].byteLength) }]
   let length = Math.ceil(doc.buffers[0].byteLength / 4) * 4
+  for (const id of asset.pose_overrides ?? []) {
+    const node = asset.nodes.get(id), match = /^n(\d+)$/.exec(id)
+    if (!node || !match || !doc.nodes?.[Number(match[1])]) throw new Error('Не найден сустав исходной позы при экспорте')
+    const target = doc.nodes[Number(match[1])]; delete target.matrix
+    target.translation = node.position.toArray(); target.rotation = node.rotation.toArray(); target.scale = node.scale.toArray()
+  }
   doc.accessors ??= []; doc.bufferViews ??= []
   const add = (values: ArrayLike<number>, width: number, type: string, times = false): number => {
     if (!values.length || values.length % width !== 0) throw new Error('Некорректная дорожка при сохранении GLB')
@@ -74,3 +80,4 @@ export function write_clips_glb (asset: RigAsset, indices: number[]): ArrayBuffe
   let next = start + 8 + length; for (const chunk of other) { bytes.set(chunk, next); next += chunk.byteLength }
   inspect_glb(result); return result
 }
+
