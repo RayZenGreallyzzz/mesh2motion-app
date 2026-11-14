@@ -66,3 +66,20 @@ it('blends the centre of the neck into the chest without assigning the shoulder 
  expect(weightOf(0, 4)).toBeCloseTo(0)
  expect(weightOf(1, 4)).toBe(1)
 })
+
+it('keeps the lower face rigid while applying the full-rig neck correction', () => {
+ const root = new Group(), chest = new Bone(), neck = new Bone(), head = new Bone(), tip = new Bone(), arm = new Bone(), elbow = new Bone()
+ const bones = [chest, neck, head, tip, arm, elbow]
+ bones.forEach((bone, i) => { bone.name = ['spine_03', 'neck_01', 'head', 'head_leaf', 'upperarm_l', 'lowerarm_l'][i] })
+ root.add(chest); chest.add(neck, arm); neck.add(head); head.add(tip); arm.add(elbow)
+ chest.position.y = .8; neck.position.y = .1; head.position.y = .08; tip.position.y = .25
+ arm.position.set(.18, .2, 0); elbow.position.set(.23, -.1, 0)
+ root.updateMatrixWorld(true)
+ const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([.09, .99, 0, .09, 1.03, 0], 3))
+ const indices = [2, 0, 0, 0, 2, 0, 0, 0], weights = [1, 0, 0, 0, 1, 0, 0, 0]
+ protect_humanoid_head(geometry, bones, indices, weights, true)
+ expect(weights[0]).toBeCloseTo(1, 6)
+ expect(weights[4]).toBeCloseTo(1, 6)
+ expect(indices[0]).toBe(2)
+ expect(indices[4]).toBe(2)
+})

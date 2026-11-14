@@ -40,9 +40,11 @@ export function protect_humanoid_head(geometry: BufferGeometry, bones: Bone[], i
     const height=delta.dot(axis), radial=Math.sqrt(Math.max(0,delta.lengthSq()-height*height))
     let amount=smooth((height+neckLength*.65)/(neckLength*.65)) *
       (largeHead ? 1 : 1-smooth((radial/length-1.05)/.45)) * (1-smooth((height/length-1.65)/.55))
-    const neckRegion = refineNeck && chestIndex >= 0
+    const neckRegion = refineNeck && chestIndex >= 0 && height < 0
       ? smooth((height + neckLength * 1.65) / (neckLength * .65)) *
-        (1 - smooth((height - coreStart) / (length * .12))) *
+        // At the skull pivot, the neck correction must stop taking weight
+        // from the lower face, including when the shoulder is close by.
+        (1 - smooth((height + neckLength * .30) / (neckLength * .30))) *
         (1 - smooth((radial / neckLength - .85) / .65))
       : 0
     if (Math.max(amount, neckRegion)<1e-6) continue
