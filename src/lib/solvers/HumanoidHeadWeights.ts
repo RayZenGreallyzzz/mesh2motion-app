@@ -22,6 +22,7 @@ export function protect_humanoid_head(geometry: BufferGeometry, bones: Bone[], i
   const pelvis = bones.find(b => b.name === 'pelvis')?.getWorldPosition(new Vector3())
   const torsoLength = pelvis ? neckBase.distanceTo(pelvis) : length
   const largeHead = !!pelvis && length > torsoLength * .8
+  const coreStart = Math.max(neckLength * .5, length * .2)
   const axis = end.clone().sub(base).normalize(), segments: Array<{ a: Vector3, b: Vector3, radius: number }> = []
   for (const b of bones) if (/^(?:upperarm|lowerarm|hand|thumb_\d+|index_\d+|middle_\d+|ring_\d+|pinky_\d+)_[lr]$/.test(b.name)) {
     const a = b.getWorldPosition(new Vector3())
@@ -52,6 +53,12 @@ export function protect_humanoid_head(geometry: BufferGeometry, bones: Bone[], i
     // central head axis. That does not make it an arm. Only the local arm/hand
     // capsules exclude this head correction; raised hands stay protected.
     amount*=largeHead ? armExclusion : smooth((armDistance-headDistance)/(length*.30))
+    // A lateral shoulder can be closer than the skull axis even at a vertex
+    // inside the skull. Use distance to the actual arm surface corridor here.
+    const skullCore = smooth((height - coreStart + length * .08) / (length * .08)) *
+      (1 - smooth((radial / length - .45) / .15)) *
+      (1 - smooth((height / length - 1.35) / .15))
+    amount = Math.max(amount, skullCore * armExclusion)
     if (amount<1e-6) continue
     const at=i*4, entries=new Map<number,number>()
     for(let k=0;k<4;k++) entries.set(indices[at+k],(entries.get(indices[at+k])??0)+weights[at+k]*(1-amount))

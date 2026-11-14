@@ -32,3 +32,18 @@ it('leaves facial and unrelated skeletons unchanged',()=>{
   expect(f.ids).toEqual(ii);expect(f.weights).toEqual(ww)
  }
 })
+
+it('keeps the skull rigid when a shoulder is closer than the head axis', () => {
+ const root = new Group(), neck = new Bone(), head = new Bone(), tip = new Bone(), arm = new Bone(), elbow = new Bone()
+ const bones = [neck, head, tip, arm, elbow]
+ bones.forEach((bone, i) => { bone.name = ['neck_01', 'head', 'head_leaf', 'upperarm_l', 'lowerarm_l'][i] })
+ root.add(neck, arm); neck.add(head); head.add(tip); arm.add(elbow)
+ neck.position.set(0, .9, 0); head.position.y = .06; tip.position.y = .3
+ arm.position.set(.22, .97, 0); elbow.position.set(.2, 0, 0)
+ root.updateMatrixWorld(true)
+ const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([.13, 1.025, 0], 3))
+ const indices = [3, 0, 0, 0], weights = [1, 0, 0, 0]
+ protect_humanoid_head(geometry, bones, indices, weights)
+ expect(indices[0]).toBe(1)
+ expect(weights[0]).toBeCloseTo(1, 6)
+})
