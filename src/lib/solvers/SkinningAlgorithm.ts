@@ -100,8 +100,9 @@ export default class SkinningAlgorithm {
           fullHumanoid && this.skeleton_type === SkeletonType.Woman)
         protect_humanoid_chest(this.geometry, this.bones_master_data, skin_indices, skin_weights)
         protect_humanoid_head(this.geometry, this.bones_master_data, skin_indices, skin_weights, fullHumanoid)
-        new HumanoidJointWeightCorrector(this.geometry, this.bones_master_data)
-          .apply(skin_indices, skin_weights)
+        const joints = new HumanoidJointWeightCorrector(this.geometry, this.bones_master_data)
+        joints.apply(skin_indices, skin_weights)
+        if (fullHumanoid && this.skeleton_type === SkeletonType.Woman) joints.blend_shoulders(skin_indices, skin_weights)
       }
       return [skin_indices, skin_weights]
     }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import {
-  AnimationClip, AnimationMixer, Bone, BufferGeometry, CylinderGeometry, Float32BufferAttribute,
+  AnimationClip, AnimationMixer, Bone, BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group,
   MeshBasicMaterial, Quaternion, QuaternionKeyframeTrack, Skeleton, SkinnedMesh, Uint16BufferAttribute, Vector3
 } from 'three'
 import SkinningAlgorithm from './SkinningAlgorithm.ts'
@@ -76,4 +76,40 @@ describe('Humanoid elbow and knee weights', () => {
     expect(weights[9]).toBeCloseTo(.45, 6)
     expect(weights.slice(12)).toEqual([1,0,0,0])
   })
+})
+
+it('reduces the underarm crease during rotation with the existing shoulder bones', () => {
+  const root = new Group(), chest = new Bone(), head = new Bone()
+  chest.name = 'spine_03'; head.name = 'head'; root.add(chest); chest.add(head)
+  const left = limb('arm', 'l'), right = limb('arm', 'r')
+  const leftClavicle = new Bone(), rightClavicle = new Bone()
+  leftClavicle.name = 'clavicle_l'; rightClavicle.name = 'clavicle_r'
+  chest.add(leftClavicle, rightClavicle)
+  leftClavicle.add(left.upper); rightClavicle.add(right.upper)
+  left.upper.position.x = .5; right.upper.position.x = -.5
+  left.lower.position.set(1, 0, 0); right.lower.position.set(-1, 0, 0)
+  root.updateMatrixWorld(true)
+  const bones = [chest, head, leftClavicle, rightClavicle, ...left.bones, ...right.bones]
+  const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([
+    .495, -.15, 0, .505, -.15, 0, .5, .5, 0
+  ], 3))
+  const ids = [0, 2, 4, 0, 0, 2, 4, 0, 1, 0, 0, 0]
+  const weights = [.85, .1, .05, 0, .05, .1, .85, 0, 1, 0, 0, 0]
+  const moved = (indices: number[], skin: number[]) => {
+    left.upper.quaternion.identity(); root.updateMatrixWorld(true)
+    const mesh = new SkinnedMesh(geometry.clone())
+    mesh.geometry.setAttribute('skinIndex', new Uint16BufferAttribute(indices, 4))
+    mesh.geometry.setAttribute('skinWeight', new Float32BufferAttribute(skin, 4))
+    mesh.bind(new Skeleton(bones))
+    left.upper.quaternion.setFromAxisAngle(new Vector3(0, 0, 1), -Math.PI / 2)
+    root.updateMatrixWorld(true)
+    return mesh.getVertexPosition(0, new Vector3()).distanceTo(mesh.getVertexPosition(1, new Vector3()))
+  }
+  const baseline = moved(ids, weights)
+  left.upper.quaternion.identity(); root.updateMatrixWorld(true)
+  new HumanoidJointWeightCorrector(geometry, bones).blend_shoulders(ids, weights)
+  expect(moved(ids, weights)).toBeLessThan(baseline * .3)
+  expect(ids.slice(8)).toEqual([1, 0, 0, 0])
+  expect(weights.slice(8)).toEqual([1, 0, 0, 0])
+  for (let i = 0; i < 3; i++) expect(weights.slice(i*4, i*4+4).reduce((a,b)=>a+b,0)).toBeCloseTo(1, 6)
 })

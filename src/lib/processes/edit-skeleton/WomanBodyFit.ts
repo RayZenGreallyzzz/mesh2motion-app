@@ -55,7 +55,7 @@ export function refine_woman_rig(points: readonly Vector3[], bones: Bone[], fram
   const backLimit = rib.length ? quantile(rib.map(p => p.z), .45) : chestPosition.z
   const backRib = rib.filter(p => p.z <= backLimit)
   const shoulderHalf = MathUtils.clamp((backRib.length >= 12 ? quantile(backRib.map(p => Math.abs(p.x - cx)), .90) : h * .09) + h * .015, h * .09, h * .135)
-  for (const arm of arms) {
+  const fittedArms = arms.map(arm => {
     const sign = Math.sign(arm.shoulder.x - cx) || 1
     const section = (x: number, fallback: Vector3, restrict: boolean): Vector3 => {
       let samples: Vector3[] = []
@@ -109,6 +109,39 @@ export function refine_woman_rig(points: readonly Vector3[], bones: Bone[], fram
         descending(elbow, elbow.clone(), arm.elbow); descending(wrist, wrist.clone(), arm.hand)
       } else arm.upper.userData.rigFitWarning = true
     }
+    const shoulderReach = sign * (shoulder.x - cx)
+    // Trace the lower contour where the rib cage turns into the upper arm.
+    // A wide rib slice or a local clothing bulge can overestimate the socket.
+    const step = h * .009
+    const first = Math.max(h * .04, shoulderReach - h * .095)
+    const heightBins: number[][] = Array.from({ length: 15 }, () => [])
+    for (const p of points) {
+      if (p.y < shoulder.y - h * .13 || p.y > shoulder.y + h * .04 || Math.abs(p.z - shoulder.z) > h * .045) continue
+      const bin = Math.round((sign * (p.x - cx) - first) / step)
+      if (heightBins[bin]) heightBins[bin].push(p.y)
+    }
+    const underside = heightBins.map(row => row.length >= 5 ? quantile(row, .12) : undefined)
+    let rise = h * .028
+    let socket = shoulderReach
+    for (let i = 2; i + 3 < underside.length; i++) {
+      const before = underside[i - 2], after = underside[i], later = underside[i + 3]
+      if (before === undefined || after === undefined || later === undefined) continue
+      const gain = Math.min(later, after) - before
+      const estimate = first + i * step + h * .025
+      if (after > shoulder.y - h * .062 && estimate < shoulderReach - step && gain > rise) {
+        rise = gain
+        socket = estimate
+      }
+    }
+    return { arm, shoulder, elbow, wrist, socket: Math.max(socket, shoulderReach - h * .055), shoulderReach, sign }
+  })
+  // A torso bulge on only one side is insufficient to change the joint width.
+  // Both armpit contours should support the same medial shift.
+  const supported = fittedArms.length === 2 &&
+    fittedArms.every(fit => fit.shoulderReach - fit.socket > h * .009) &&
+    Math.abs(fittedArms[0].socket - fittedArms[1].socket) < h * .023
+  for (const { arm, shoulder, elbow, wrist, socket, sign } of fittedArms) {
+    if (supported) shoulder.x = cx + sign * socket
     place(arm.clavicle, new Vector3(cx + (shoulder.x - cx) * .55, shoulder.y, chestPosition.z * .45 + shoulder.z * .55))
     place(arm.upper, shoulder); place(arm.elbow, elbow); place(arm.hand, wrist)
     place_hand_shape(arm.hand, arm.shape, arm.hand.getWorldPosition(new Vector3()).sub(arm.elbow.getWorldPosition(new Vector3())))
