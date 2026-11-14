@@ -336,11 +336,26 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
 
     // Legs.
     const legYAt = (ratio: number) => armEstimate?.shortBody ? minY + (pelvisY - minY) * ratio / .52 : yAt(ratio)
-    const legCenterAt = (sign: number, ratio: number, fallback: number): number => {
+    const legCenterAt = (sign: number, ratio: number, fallback: number, hand?: THREE.Vector3): number => {
       const xs = points.filter(p => Math.abs(p.y - legYAt(ratio)) < bodyHeight * 0.025 &&
         (p.x - centerX) * sign > height * 0.01)
         .map(p => p.x).sort((a, b) => a - b)
       if (xs.length < 8) return fallback
+      // In an A-pose the hip slice can include a second, disconnected band
+      // of hand and forearm samples. Dense fingers can outnumber the leg.
+      if (hand && Math.abs(hand.y - legYAt(ratio)) < bodyHeight * .12) {
+        let split = 0
+        let gap = bodyHeight * 0.055
+        for (let i = 8; i <= xs.length - 8; i++) {
+          const distance = xs[i] - xs[i - 1]
+          const beyondGap = sign > 0 ? hand.x >= xs[i] : hand.x <= xs[i - 1]
+          if (distance > gap && beyondGap) { gap = distance; split = i }
+        }
+        if (split) {
+          if (sign > 0) xs.length = split
+          else xs.splice(0, split)
+        }
+      }
       return (xs[Math.floor((xs.length - 1) * 0.15)] + xs[Math.floor((xs.length - 1) * 0.85)]) * 0.5
     }
     for (const side of ['l', 'r'] as const) {
@@ -349,12 +364,13 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       const shin = sideBone('shin', side)
       const foot = sideBone('foot', side)
       const toe = sideBone('toe', side)
+      const hand = sideBone('hand', side)
       // Each height has its own leg cross-section. In a wide stance the old
       // ankle-centred knee search clipped away the inner knee, or found too few
       // samples and used the ankle itself. Inferring the hip from that knee
       // then moved the thigh outside the pelvis. Sample each level separately.
       const xFoot = legCenterAt(sign, 0.07, centerX + sign * hipHalf)
-      const xHip = legCenterAt(sign, 0.50, centerX + sign * hipHalf)
+      const xHip = legCenterAt(sign, 0.50, centerX + sign * hipHalf, hand && position(hand))
       const xKnee = legCenterAt(sign, 0.285, (xHip + xFoot) * 0.5)
 
       const hipY = legYAt(0.50)

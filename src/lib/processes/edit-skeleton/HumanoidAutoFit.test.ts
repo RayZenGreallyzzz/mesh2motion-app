@@ -53,4 +53,22 @@ describe('Humanoid fitting against real geometry', () => {
     const restored = capture_hand_shape(hand, fore)
     for (const [bone, offset] of original.offsets) expect(restored.offsets.get(bone)!.distanceTo(offset)).toBeLessThan(1e-6)
   })
+
+  it.each([
+    'static/test-files/bone-correction-tests/human-a-pose.glb',
+    'static/test-files/human-interleaved-buffer-mesh.glb'
+  ])('keeps the hips above the legs when hands overlap the hip height (%s)', async path => {
+    const model = (await read_glb(path)).scene
+    const rig = (await read_glb('static/rigs/rig-human.glb')).scene
+    const bones: Bone[] = []
+    rig.traverse(b => { if (b instanceof Bone) bones.push(b) })
+    fit_humanoid_rig(model, new Skeleton(bones), null, () => {})
+    const at = (name: string) => rig.getObjectByName(name)!.getWorldPosition(new Vector3())
+    const pelvis = at('pelvis')
+    for (const side of ['l', 'r']) {
+      const hip = at('thigh_' + side), knee = at('calf_' + side), wrist = at('hand_' + side)
+      expect(Math.abs(hip.x - pelvis.x)).toBeLessThan(Math.abs(wrist.x - pelvis.x) * .5)
+      expect(Math.abs(hip.x - knee.x)).toBeLessThan(hip.distanceTo(knee) * .35)
+    }
+  })
 })
