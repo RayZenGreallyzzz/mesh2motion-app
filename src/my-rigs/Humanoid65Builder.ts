@@ -132,7 +132,7 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     const bones:Bone[]=[];scene.traverse(o=>{if((o as Bone).isBone)bones.push(o as Bone)})
     if(bones.length!==65)throw new Error('Полный человеческий скелет должен содержать 65 костей')
     await report('Подготавливаю расчёт весов…')
-    const solver=new SkinningAlgorithm(scene,SkeletonType.Human)
+    const solver=new SkinningAlgorithm(scene,options.profile==='woman'?SkeletonType.Woman:SkeletonType.Human)
     const positions=new Float32Array(vertexCount*3)
     const triangles=new Uint32Array(geometries.reduce((n,g)=>n+(g.index?.count??g.getAttribute('position').count),0))
     let vertexOffset=0,triangleOffset=0

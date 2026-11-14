@@ -68,7 +68,7 @@ export default class SkinningAlgorithm {
     this.arm_plane_offset = offset
   }
 
-  public calculate_indexes_and_weights (progress?: (message: string) => void): number[][] {
+  public calculate_indexes_and_weights (progress?: (message: string) => void, fullHumanoid = false): number[][] {
     const skin_indices: number[] = []
     const skin_weights: number[] = []
 
@@ -96,9 +96,10 @@ export default class SkinningAlgorithm {
       }
 
       if (is_humanoid_skeleton_type(this.skeleton_type)) {
-        protect_humanoid_torso(this.geometry, this.bones_master_data, skin_indices, skin_weights)
+        protect_humanoid_torso(this.geometry, this.bones_master_data, skin_indices, skin_weights,
+          fullHumanoid && this.skeleton_type === SkeletonType.Woman)
         protect_humanoid_chest(this.geometry, this.bones_master_data, skin_indices, skin_weights)
-        protect_humanoid_head(this.geometry, this.bones_master_data, skin_indices, skin_weights)
+        protect_humanoid_head(this.geometry, this.bones_master_data, skin_indices, skin_weights, fullHumanoid)
         new HumanoidJointWeightCorrector(this.geometry, this.bones_master_data)
           .apply(skin_indices, skin_weights)
       }

@@ -36,7 +36,7 @@ export function solve_weight_job (job: WeightJob | PackedWeightJob, progress?: (
   solver.set_geometry(geometry)
   solver.set_head_weight_correction_enabled(job.head)
   solver.set_preview_plane_height(job.height)
-  try { return solver.calculate_indexes_and_weights(progress) }
+  try { return solver.calculate_indexes_and_weights(progress, 'packed' in job) }
   finally { geometry.dispose() }
 }
 

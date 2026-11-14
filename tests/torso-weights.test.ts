@@ -32,3 +32,33 @@ it('removes distant arm leakage from the waist but preserves descending arms, sh
  group.quaternion.copy(new Quaternion().setFromAxisAngle(new Vector3(1,2,3).normalize(),1.2));group.position.set(3,-2,5);group.scale.setScalar(4)
  const rotated=run();rotated.weights.forEach((w,i)=>expect(w).toBeCloseTo(normal.weights[i],6));expect(rotated.ids).toEqual(normal.ids)
 })
+
+it('uses the same spine blend for adjacent rib vertices with different shoulder weights', () => {
+ const root = new Group(), bones: Bone[] = []
+ const add = (name: string, parent: Bone | Group, x: number, y: number) => {
+   const bone = new Bone(); bone.name = name; bone.position.set(x, y, 0)
+   parent.add(bone); bones.push(bone); return bone
+ }
+ const pelvis = add('pelvis', root, 0, 1)
+ const low = add('spine_01', pelvis, 0, .2)
+ const high = add('spine_02', low, 0, .2)
+ const chest = add('spine_03', high, 0, .2)
+ for (const [side, sign] of [['l', 1], ['r', -1]] as const) {
+   const clavicle = add('clavicle_' + side, chest, sign * .1, 0)
+   const upper = add('upperarm_' + side, clavicle, sign * .1, 0)
+   const elbow = add('lowerarm_' + side, upper, sign * .25, 0)
+   add('hand_' + side, elbow, sign * .25, 0)
+ }
+ root.updateMatrixWorld(true)
+ const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([.09, 1.3, -.07, .0901, 1.3, -.07, .2, 1.6, 0], 3))
+ const clavicle = bones.findIndex(b => b.name === 'clavicle_l')
+ const indices = [clavicle, bones.indexOf(low), 0, 0, bones.indexOf(chest), 0, 0, 0, clavicle, 0, 0, 0]
+ const weights = [.8, .2, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+ protect_humanoid_torso(geometry, bones, indices, weights, true)
+ expect(indices.slice(0, 4)).toEqual(indices.slice(4, 8))
+ expect(weights.slice(0, 4)).toEqual(weights.slice(4, 8))
+ expect(weights[0]).toBeCloseTo(.5)
+ expect(weights[1]).toBeCloseTo(.5)
+ expect(indices[8]).toBe(clavicle)
+ expect(weights[8]).toBe(1)
+})
