@@ -1,7 +1,7 @@
 import {
   AnimationMixer, Box3, Color, GridHelper, HemisphereLight, DirectionalLight,
   PerspectiveCamera, PMREMGenerator, Scene, SkeletonHelper, Vector3, WebGLRenderer,
-  Group, Mesh, MeshBasicMaterial, SphereGeometry, Plane, Raycaster, Vector2, LineSegments, BufferGeometry, Float32BufferAttribute, LineBasicMaterial,
+  Group, Mesh, MeshBasicMaterial, SphereGeometry, Plane, Raycaster, Vector2, LineSegments, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, Matrix4,
   type AnimationAction, type AnimationClip, type Intersection, type Object3D, type SkinnedMesh
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -39,6 +39,7 @@ export class RigViewer {
   private native_change?: (name: string, point: [number, number, number]) => void
   private native_drag?: { name: string, mesh: Mesh, plane: Plane, offset: Vector3, pointer: number }
   private mesh_picker?: (hit: Intersection<Mesh>) => void
+  private screen_picker?: (x: number, y: number) => void
   private mesh_touch?: { pointer: number, x: number, y: number }
   on_time: (time: number, duration: number) => void = () => {}
 
@@ -68,7 +69,7 @@ export class RigViewer {
       ray.setFromCamera(new Vector2((event.clientX - r.left) / r.width * 2 - 1, 1 - (event.clientY - r.top) / r.height * 2), this.camera)
     }
     canvas.addEventListener('pointerdown', event => {
-      if (this.mesh_picker) {
+      if (this.mesh_picker || this.screen_picker) {
         if (event.button !== 0 || this.mesh_touch) return
         this.mesh_touch = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
         canvas.setPointerCapture(event.pointerId)
@@ -101,9 +102,14 @@ export class RigViewer {
         this.mesh_touch = undefined
         if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
         if (event.type === 'pointerup' && Math.hypot(touch.x - event.clientX, touch.y - event.clientY) < 14 && this.asset) {
-          pointer(event)
-          const hit = ray.intersectObject(this.asset.scene, true).find(item => item.face && (item.object as Mesh).isMesh)
-          if (hit) this.mesh_picker?.(hit as Intersection<Mesh>)
+          if (this.screen_picker) {
+            const bounds = canvas.getBoundingClientRect()
+            this.screen_picker(event.clientX - bounds.left, event.clientY - bounds.top)
+          } else {
+            pointer(event)
+            const hit = ray.intersectObject(this.asset.scene, true).find(item => item.face && (item.object as Mesh).isMesh)
+            if (hit) this.mesh_picker?.(hit as Intersection<Mesh>)
+          }
         }
         event.preventDefault(); event.stopImmediatePropagation()
         return
@@ -129,7 +135,7 @@ export class RigViewer {
       if (this.playing) this.mixer?.update(delta * this.speed)
       this.follow_motion()
       if (this.action) this.on_time(this.action.time, this.action.getClip().duration)
-      this.controls.update()
+      if (this.controls.enabled) this.controls.update()
       this.renderer.render(this.scene, this.camera)
     })
   }
@@ -258,11 +264,23 @@ export class RigViewer {
   set_speed (value: number): void { this.speed = value }
   set_mesh_picker (picker?: (hit: Intersection<Mesh>) => void): void {
     this.mesh_picker = picker
+    this.screen_picker = undefined
     const canvas = this.renderer.domElement, id = this.mesh_touch?.pointer
     if (id !== undefined && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id)
     this.mesh_touch = undefined
     this.controls.enabled = !picker
     canvas.style.cursor = picker ? 'crosshair' : ''
+  }
+  set_knife_picker (picker: (x: number, y: number) => void): void {
+    this.set_mesh_picker()
+    this.screen_picker = picker
+    this.controls.enabled = false
+    this.renderer.domElement.style.cursor = 'crosshair'
+  }
+  mesh_projection (mesh: Mesh): { matrix: Matrix4, width: number, height: number } {
+    const { width, height } = this.renderer.domElement.getBoundingClientRect()
+    this.camera.updateMatrixWorld()
+    return { matrix: new Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).multiply(mesh.matrixWorld), width, height }
   }
   view_direction (x: number, y: number, z: number): Vector3 {
     return new Vector3(x, y, z).applyQuaternion(this.camera.quaternion)

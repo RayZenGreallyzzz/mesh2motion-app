@@ -6,10 +6,13 @@ import type { RigViewer } from './RigViewer.ts'
 import type { RigAsset } from './RigAsset.ts'
 import { brush_selection, cut_selection, deform_selection, tint_selection, type MeshSelection } from './MeshEditGeometry.ts'
 import type { MeshEdit } from './MeshEditGlb.ts'
+import { knife_cut, knife_scope, type MeshProjection } from './MeshKnife.ts'
 
 type Snapshot = { mesh: Mesh, geometry: BufferGeometry, material: Material | Material[] }
-type Tool = 'camera' | 'select' | 'subtract' | 'axis'
+type Tool = 'camera' | 'select' | 'subtract' | 'axis' | 'knife'
+type ScreenPoint = [number, number]
 type Options = { apply(edits: MeshEdit[]): Promise<void>, status(message: string, error?: boolean): void }
+const svg_node = <K extends keyof SVGElementTagNameMap>(name: K): SVGElementTagNameMap[K] => document.createElementNS('http://www.w3.org/2000/svg', name)
 
 export class MeshEditPanel {
   readonly element = document.createElement('div')
@@ -26,6 +29,17 @@ export class MeshEditPanel {
   private readonly step = document.createElement('input')
   private readonly color = document.createElement('input')
   private readonly close_cut = document.createElement('input')
+  private readonly blade_width = document.createElement('input')
+  private readonly blade_controls = document.createElement('div')
+  private readonly brush_controls = document.createElement('div')
+  private readonly sheet = svg_node('svg')
+  private readonly blade = svg_node('line')
+  private readonly blade_mask = svg_node('rect')
+  private readonly drag_line = svg_node('line')
+  private readonly handles = [svg_node('circle'), svg_node('circle')]
+  private readonly blade_points: ScreenPoint[] = []
+  private blade_view?: MeshProjection
+  private readonly slice: HTMLButtonElement
   private readonly undo: HTMLButtonElement
   private readonly apply: HTMLButtonElement
   private readonly reset: HTMLButtonElement
@@ -40,7 +54,7 @@ export class MeshEditPanel {
   constructor(private readonly viewer: RigViewer, private readonly options: Options) {
     this.element.className = 'mesh-editor'
     const tool_row = document.createElement('div'); tool_row.className = 'mesh-editor-row'
-    for (const [tool, label] of [['camera', 'Камера'], ['select', 'Выделить'], ['subtract', 'Снять'], ['axis', 'Ось кончика']] as const) {
+    for (const [tool, label] of [['camera', 'Камера'], ['select', 'Выделить'], ['subtract', 'Снять'], ['axis', 'Ось кончика'], ['knife', 'Нож']] as const) {
       const button = this.button(label, () => this.set_tool(tool))
       this.tools.set(tool, button); tool_row.append(button)
     }
@@ -49,7 +63,7 @@ export class MeshEditPanel {
     this.message.className = 'hint mesh-editor-selection'; this.message.setAttribute('aria-live', 'polite')
     const clear = this.button('Снять всё', () => this.clear())
     const sizes = document.createElement('div'); sizes.className = 'mesh-editor-inputs'
-    sizes.append(this.slider(this.radius, 'Кисть', 1, 15, 4), this.slider(this.step, 'Сила правки', 1, 80, 22))
+    sizes.append(this.slider(this.radius, 'Кисть', .1, 15, 2, '%', .1), this.slider(this.step, 'Сила правки', 1, 80, 22))
     const shift_label = document.createElement('p'); shift_label.className = 'hint'; shift_label.textContent = 'Сдвиг относительно камеры'
     const nudges = document.createElement('div'); nudges.className = 'mesh-editor-row'
     for (const [label, x, y, z] of [
@@ -68,7 +82,7 @@ export class MeshEditPanel {
     const cut = document.createElement('div'); cut.className = 'mesh-editor-row'
     const cap = document.createElement('label'); this.close_cut.type = 'checkbox'; this.close_cut.checked = true
     cap.append(this.close_cut, ' Закрыть срезы')
-    cut.append(this.button('Удалить выделенное', () => this.cut(), true), cap)
+    cut.append(this.button('Удалить выделенное', () => this.cut(), true))
     const tint = document.createElement('div'); tint.className = 'mesh-editor-row'
     this.color.type = 'color'; this.color.value = '#678ec4'; this.color.setAttribute('aria-label', 'Цвет тонировки')
     tint.append(this.color, this.button('Подкрасить', () => this.paint(), true))
@@ -78,7 +92,26 @@ export class MeshEditPanel {
     this.apply = this.button('Применить', () => { void this.commit() })
     this.apply.className = 'primary'
     finish.append(this.undo, this.reset, this.apply)
-    this.element.append(tool_row, hints, sizes, this.message, clear, shift_label, nudges, tips, cut, tint, finish)
+    this.brush_controls.className = this.blade_controls.className = 'mesh-editor-section'
+    this.brush_controls.append(sizes, clear, shift_label, nudges, tips, cut, tint)
+    this.slice = this.button('Разрезать', () => { void this.slice_mesh() })
+    this.slice.className = 'primary'
+    const blade_actions = document.createElement('div'); blade_actions.className = 'mesh-editor-row'
+    blade_actions.append(this.button('Сбросить полосу', () => this.clear_blade()), this.slice)
+    this.blade_controls.append(this.slider(this.blade_width, 'Ширина среза', .5, 32, 1, ' px', .5, () => this.draw_blade()), blade_actions)
+    this.element.append(tool_row, hints, this.message, this.brush_controls, this.blade_controls, cap, finish)
+    this.sheet.classList.add('mesh-knife-overlay'); this.sheet.setAttribute('aria-hidden', 'true')
+    this.blade.classList.add('mesh-knife-blade'); this.drag_line.classList.add('mesh-knife-drag')
+    const clip = svg_node('clipPath'); clip.id = 'studio-knife-area'; clip.append(this.blade_mask)
+    const defs = svg_node('defs'); defs.append(clip)
+    this.blade.setAttribute('clip-path', 'url(#studio-knife-area)')
+    this.sheet.append(defs, this.blade, this.drag_line, ...this.handles)
+    this.make_draggable(this.drag_line, undefined)
+    this.handles.forEach((handle, i) => {
+      handle.setAttribute('r', '9')
+      handle.classList.add('mesh-knife-handle')
+      this.make_draggable(handle, i)
+    })
     this.overlay.renderOrder = this.axis_marks.renderOrder = 1000
     this.overlay.frustumCulled = this.axis_marks.frustumCulled = false
     this.refresh()
@@ -93,6 +126,7 @@ export class MeshEditPanel {
     const span = this.viewer.model_size()
     this.span = Math.max(span, .00001)
     this.viewer.scene.add(this.overlay, this.axis_marks)
+    document.getElementById('viewport')?.append(this.sheet)
     this.set_tool('camera')
   }
 
@@ -101,6 +135,7 @@ export class MeshEditPanel {
     this.asset = undefined
     this.viewer.set_mesh_picker()
     this.overlay.removeFromParent(); this.axis_marks.removeFromParent()
+    this.sheet.remove()
   }
 
   private button (label: string, handler: () => void, action = false): HTMLButtonElement {
@@ -113,21 +148,26 @@ export class MeshEditPanel {
     return button
   }
 
-  private slider (input: HTMLInputElement, name: string, min: number, max: number, value: number): HTMLElement {
+  private slider (input: HTMLInputElement, name: string, min: number, max: number, value: number,
+    units = '%', step = 1, changed?: () => void): HTMLElement {
     const label = document.createElement('label'), amount = document.createElement('output')
-    input.type = 'range'; input.min = String(min); input.max = String(max); input.value = String(value)
-    const update = (): void => { amount.textContent = input.value + '%' }
+    input.type = 'range'; input.min = String(min); input.max = String(max); input.value = String(value); input.step = String(step)
+    const update = (): void => { amount.textContent = input.value + units; changed?.() }
     input.oninput = update; update()
     label.append(name, ' ', amount, input); return label
   }
 
   private set_tool (tool: Tool): void {
     this.tool = tool
+    this.clear_blade()
     if (tool === 'axis') { this.axis.length = 0; this.draw_selection() }
-    this.viewer.set_mesh_picker(tool === 'camera' ? undefined : hit => {
+    if (tool === 'knife') this.viewer.set_knife_picker((x, y) => {
+      try { this.pick_blade(x, y) } catch (error) { this.options.status((error as Error).message, true) }
+    })
+    else this.viewer.set_mesh_picker(tool === 'camera' ? undefined : hit => {
       try { this.pick(hit) } catch (error) { this.options.status((error as Error).message, true) }
     })
-    this.refresh()
+    this.draw_selection(); this.refresh()
   }
 
   private pick ({object, face, point}: Intersection<Mesh>): void {
@@ -158,7 +198,7 @@ export class MeshEditPanel {
 
   private draw_selection (): void {
     const values: number[] = [], mesh = this.active_mesh, point = new Vector3()
-    if (mesh) {
+    if (mesh && this.tool !== 'knife') {
       const stride = Math.max(1, Math.ceil(this.selection.size / 9000))
       let n = 0
       for (const i of this.selection.keys()) {
@@ -178,7 +218,96 @@ export class MeshEditPanel {
 
   private clear (): void {
     this.active_mesh = undefined; this.selection.clear(); this.axis.length = 0
+    this.clear_blade()
     this.draw_selection(); this.refresh()
+  }
+
+  private clear_blade (): void {
+    this.blade_points.length = 0; this.blade_view = undefined
+    this.draw_blade(); this.refresh()
+  }
+
+  private draw_blade (): void {
+    const [a, b] = this.blade_points
+    this.sheet.style.display = this.tool === 'knife' ? '' : 'none'
+    for (const line of [this.blade, this.drag_line]) {
+      line.style.display = a && b ? '' : 'none'
+      if (!a || !b) continue
+      line.setAttribute('x1', String(a[0])); line.setAttribute('y1', String(a[1]))
+      line.setAttribute('x2', String(b[0])); line.setAttribute('y2', String(b[1]))
+    }
+    this.blade.setAttribute('stroke-width', this.blade_width.value || '1')
+    for (const [i, handle] of this.handles.entries()) {
+      const point = this.blade_points[i]
+      handle.style.display = point ? '' : 'none'
+      if (!point) continue
+      handle.setAttribute('cx', String(point[0])); handle.setAttribute('cy', String(point[1]))
+    }
+  }
+
+  private make_draggable (shape: SVGElement, endpoint: number | undefined): void {
+    let drag: { id: number, x: number, y: number, points: ScreenPoint[] } | undefined
+    shape.addEventListener('pointerdown', event => {
+      if (this.pending || this.tool !== 'knife' || (endpoint === undefined && this.blade_points.length !== 2)) return
+      event.preventDefault(); event.stopPropagation(); shape.setPointerCapture(event.pointerId)
+      drag = {id: event.pointerId, x: event.clientX, y: event.clientY, points: this.blade_points.map(p => [...p])}
+    })
+    shape.addEventListener('pointermove', event => {
+      if (!drag || drag.id !== event.pointerId || !this.blade_view) return
+      const {width, height} = this.blade_view
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y
+      for (const [i, p] of drag.points.entries()) {
+        if (endpoint !== undefined && endpoint !== i) continue
+        this.blade_points[i] = [Math.max(0, Math.min(width, p[0] + dx)), Math.max(0, Math.min(height, p[1] + dy))]
+      }
+      this.draw_blade()
+    })
+    shape.addEventListener('lostpointercapture', () => { drag = undefined })
+  }
+
+  private pick_blade (x: number, y: number): void {
+    if (!this.active_mesh || !this.selection.size) {
+      this.options.status('Сначала выделите область вокруг перемычки.', true); return
+    }
+    const current = this.viewer.mesh_projection(this.active_mesh)
+    if (this.blade_points.length === 2 || !this.same_view(current)) this.clear_blade()
+    if (!this.blade_view) {
+      const scope = knife_scope(this.active_mesh.geometry, this.selection, current)
+      this.blade_mask.setAttribute('x', String(scope.min_x))
+      this.blade_mask.setAttribute('y', String(scope.min_y))
+      this.blade_mask.setAttribute('width', String(scope.max_x - scope.min_x))
+      this.blade_mask.setAttribute('height', String(scope.max_y - scope.min_y))
+    }
+    this.blade_view = current
+    this.blade_points.push([x, y])
+    this.draw_blade(); this.refresh()
+  }
+
+  private same_view (view: MeshProjection): boolean {
+    const old = this.blade_view
+    return Boolean(old && view.width === old.width && view.height === old.height &&
+      view.matrix.elements.every((value, i) => Math.abs(value - old.matrix.elements[i]) < .000001))
+  }
+
+  private async slice_mesh (): Promise<void> {
+    this.pending = true; this.refresh()
+    this.options.status('Выполняю разрез…')
+    try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+      const mesh = this.active_mesh!, projection = this.viewer.mesh_projection(mesh)
+      if (!this.same_view(projection)) {
+        this.clear_blade()
+        throw new Error('Вид изменился. Поставьте полосу ещё раз.')
+      }
+      const result = knife_cut(mesh.geometry, this.selection, projection, this.blade_points[0], this.blade_points[1],
+        Number(this.blade_width.value), this.close_cut.checked)
+      this.replace(mesh, result.geometry); this.clear(); this.set_tool('select')
+      this.options.status(result.open ? 'Разрез готов. Часть кромки осталась открытой.' : 'Разрез готов, кромки закрыты.')
+    } catch (error) {
+      this.options.status((error as Error).message, true)
+    } finally {
+      this.pending = false; this.refresh()
+    }
   }
 
   private translate (x: number, y: number, z: number): void {
@@ -275,13 +404,19 @@ export class MeshEditPanel {
 
   private refresh (): void {
     for (const [tool, button] of this.tools) {
-      button.setAttribute('aria-pressed', String(tool === this.tool)); button.disabled = this.pending
+      button.setAttribute('aria-pressed', String(tool === this.tool)); button.disabled = this.pending || (tool === 'knife' && !this.selection.size)
     }
     for (const button of this.actions) button.disabled = this.pending || !this.selection.size
     for (const button of this.tip_actions) button.disabled ||= this.axis.length !== 2
     this.apply.disabled = this.reset.disabled = this.pending || !this.has_edits
     this.undo.disabled = this.pending || !this.undo_stack.length
-    this.message.textContent = this.tool === 'axis'
+    this.blade_width.disabled = this.close_cut.disabled = this.pending
+    this.brush_controls.hidden = this.tool === 'knife'
+    this.blade_controls.hidden = this.tool !== 'knife'
+    this.slice.disabled = this.pending || this.blade_points.length !== 2
+    this.message.textContent = this.tool === 'knife'
+      ? 'Коснитесь двух концов шва. Полоса показывает сквозной срез внутри выделенного участка.'
+      : this.tool === 'axis'
       ? this.axis.length ? 'Коснитесь кончика.' : 'Коснитесь основания кончика.'
       : this.selection.size ? 'Выделено вершин: ' + this.selection.size.toLocaleString('ru') : 'Выделите прядь или перемычку.'
   }

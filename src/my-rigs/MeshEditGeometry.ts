@@ -95,24 +95,25 @@ export function tint_selection (source: BufferGeometry, selection: MeshSelection
   return result
 }
 
-type BoundaryEdge = { from: number, to: number, kept: number, removed: number }
+export type DirectedEdge = { from: number, to: number }
+type BoundaryEdge = DirectedEdge & { kept: number, removed: number }
 
-function cap_boundary (position: BufferGeometry['attributes'][string], edges: BoundaryEdge[], triangles: number[]): number {
-  const directed = new Map<string, BoundaryEdge[]>()
+export function cap_boundary (position: BufferGeometry['attributes'][string], edges: DirectedEdge[], triangles: number[]): number {
+  const directed = new Map<string, DirectedEdge[]>()
   for (const e of edges) {
     const key = xyz_key(position, e.from)
     const group = directed.get(key) ?? []
     group.push(e); directed.set(key, group)
   }
-  const seen = new Set<BoundaryEdge>()
+  const seen = new Set<DirectedEdge>()
   let filled = 0
   for (const start of edges) {
     if (seen.has(start)) continue
     const ring: number[] = []
-    let next: BoundaryEdge | undefined = start
+    let next: DirectedEdge | undefined = start
     while (next && !seen.has(next)) {
       seen.add(next); ring.push(next.from)
-      const choices: BoundaryEdge[] | undefined = directed.get(xyz_key(position, next.to))
+      const choices: DirectedEdge[] | undefined = directed.get(xyz_key(position, next.to))
       next = choices?.length === 1 ? choices[0] : undefined
     }
     if (next !== start || ring.length < 3 || ring.length > 2048) continue
