@@ -88,14 +88,23 @@ export class HumanoidJointWeightCorrector {
         const arm = this.smoothstep(-length * .27, length * .38, along)
         const collar = this.smoothstep(-length * .48, length * .06, along)
         const portions = [(1-arm)*(1-collar), (1-arm)*collar, arm]
-        const mixed = new Map<number, number>()
+        const protectedWeights: Array<[number, number]> = []
+        const mixed = ids.map((id, i): [number, number] => [id, owned * mask * portions[i]])
         for (let slot = 0; slot < 4; slot++) {
           const id = indices[base + slot]
-          const weight = weights[base + slot] * (ids.includes(id) ? 1-mask : 1)
-          mixed.set(id, (mixed.get(id) ?? 0) + weight)
+          const weight = weights[base + slot]
+          if (weight <= 0) continue
+          const localSlot = ids.indexOf(id)
+          if (localSlot >= 0) mixed[localSlot][1] += weight * (1-mask)
+          else protectedWeights.push([id, weight])
         }
-        ids.forEach((id, i) => mixed.set(id, (mixed.get(id) ?? 0) + owned * mask * portions[i]))
-        const sorted = continuous_skin_weights([...mixed])
+        // The four-slot limit applies to the blend, including when it adds a
+        // third local bone. Never let that new entry displace the neck or head.
+        const available = 4 - protectedWeights.length
+        if (available < 2) continue
+        const localWeights = continuous_skin_weights(mixed, available)
+        const sorted = protectedWeights.concat(localWeights.map(([id, ratio]) => [id, owned * ratio]))
+          .sort((a, b) => b[1] - a[1])
         for (let slot = 0; slot < 4; slot++) {
           indices[base + slot] = sorted[slot]?.[0] ?? 0
           weights[base + slot] = sorted[slot]?.[1] ?? 0

@@ -10,7 +10,7 @@ import { refine_humanoid_joints, visit_fit_geometry, type LimbChain } from './Hu
 // Refits must use template proportions, not feed the prior fitted offsets back.
 const fit_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
 
-export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human'): 'T-pose' | 'A-pose' | null {
+export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human', refineLimbs = true): 'T-pose' | 'A-pose' | null {
     const bones = skeleton.bones
     if (bones.length === 0) return null
 
@@ -390,6 +390,7 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
     bones[0]?.updateWorldMatrix(true, true)
     if (profile === 'woman') refine_woman_rig(points, bones, frame)
     fit_humanoid_head(points, bones, frame, armEstimate?.shortBody ? bodyHeight : undefined)
+    if (!refineLimbs) return tPose ? 'T-pose' : 'A-pose'
     const chains: LimbChain[] = []
     for (const side of ['l', 'r'] as const) {
       for (const [startRole, jointRole, endRole, kind] of [

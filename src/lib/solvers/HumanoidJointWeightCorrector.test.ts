@@ -79,7 +79,7 @@ describe('Humanoid elbow and knee weights', () => {
 })
 
 it('reduces the underarm crease during rotation with the existing shoulder bones', () => {
-  const root = new Group(), chest = new Bone(), head = new Bone()
+  const root = new Group(), chest = new Bone(), head = new Bone(), neck = new Bone()
   chest.name = 'spine_03'; head.name = 'head'; root.add(chest); chest.add(head)
   const left = limb('arm', 'l'), right = limb('arm', 'r')
   const leftClavicle = new Bone(), rightClavicle = new Bone()
@@ -88,13 +88,14 @@ it('reduces the underarm crease during rotation with the existing shoulder bones
   leftClavicle.add(left.upper); rightClavicle.add(right.upper)
   left.upper.position.x = .5; right.upper.position.x = -.5
   left.lower.position.set(1, 0, 0); right.lower.position.set(-1, 0, 0)
+  neck.name = 'neck_01'; chest.add(neck)
   root.updateMatrixWorld(true)
-  const bones = [chest, head, leftClavicle, rightClavicle, ...left.bones, ...right.bones]
+  const bones = [chest, head, leftClavicle, rightClavicle, ...left.bones, ...right.bones, neck]
   const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([
-    .495, -.15, 0, .505, -.15, 0, .5, .5, 0
+    .495, -.15, 0, .505, -.15, 0, .5, .5, 0, .50, -.15, 0, .50, -.16, 0
   ], 3))
-  const ids = [0, 2, 4, 0, 0, 2, 4, 0, 1, 0, 0, 0]
-  const weights = [.85, .1, .05, 0, .05, .1, .85, 0, 1, 0, 0, 0]
+  const ids = [0, 2, 4, 0, 0, 2, 4, 0, 1, 0, 0, 0, 0, 4, 1, 10, 4, 5, 1, 10]
+  const weights = [.85, .1, .05, 0, .05, .1, .85, 0, 1, 0, 0, 0, .44, .42, .07, .07, .4, .3, .2, .1]
   const moved = (indices: number[], skin: number[]) => {
     left.upper.quaternion.identity(); root.updateMatrixWorld(true)
     const mesh = new SkinnedMesh(geometry.clone())
@@ -109,7 +110,12 @@ it('reduces the underarm crease during rotation with the existing shoulder bones
   left.upper.quaternion.identity(); root.updateMatrixWorld(true)
   new HumanoidJointWeightCorrector(geometry, bones).blend_shoulders(ids, weights)
   expect(moved(ids, weights)).toBeLessThan(baseline * .3)
-  expect(ids.slice(8)).toEqual([1, 0, 0, 0])
-  expect(weights.slice(8)).toEqual([1, 0, 0, 0])
-  for (let i = 0; i < 3; i++) expect(weights.slice(i*4, i*4+4).reduce((a,b)=>a+b,0)).toBeCloseTo(1, 6)
+  expect(ids.slice(8, 12)).toEqual([1, 0, 0, 0])
+  expect(weights.slice(8, 12)).toEqual([1, 0, 0, 0])
+  const mixed = new Map(ids.slice(12, 16).map((id, slot) => [id, weights[12 + slot]]))
+  expect(mixed.get(1)).toBeCloseTo(.07, 6)
+  expect(mixed.get(10)).toBeCloseTo(.07, 6)
+  expect(ids.slice(16)).toEqual([4, 5, 1, 10])
+  expect(weights.slice(16)).toEqual([.4, .3, .2, .1])
+  for (let i = 0; i < 5; i++) expect(weights.slice(i*4, i*4+4).reduce((a,b)=>a+b,0)).toBeCloseTo(1, 6)
 })

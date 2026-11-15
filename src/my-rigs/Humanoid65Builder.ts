@@ -87,9 +87,14 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     }
     const vertexCount=points.length
     if(vertexCount<32)throw new Error('В модели недостаточно геометрии для подгонки человека')
-    const elbowFractions = new Map((['l','r'] as const).map(side => {const a=world(get('upperarm_'+side)),b=world(get('lowerarm_'+side)),c=world(get('hand_'+side));return [side,a.distanceTo(b)/(a.distanceTo(b)+b.distanceTo(c))]}))
+    const elbowFractions = new Map((['l', 'r'] as const).map(side => {
+      const elbow = get('lowerarm_' + side)
+      const upperLength = world(get('upperarm_' + side)).distanceTo(world(elbow))
+      const lowerLength = world(get('hand_' + side)).distanceTo(world(elbow))
+      return [elbow, upperLength / (upperLength + lowerLength)] as const
+    }))
     await report('Подгоняю полный скелет под геометрию…')
-    if(!fit_humanoid_rig(asset.scene,new Skeleton(originalBones),null,()=>{},options.profile??'human'))throw new Error('Не удалось подогнать человеческий шаблон. Нужна исходная T- или A-поза.')
+    if(!fit_humanoid_rig(asset.scene,new Skeleton(originalBones),null,()=>{},options.profile??'human', false))throw new Error('Не удалось подогнать человеческий шаблон. Нужна исходная T- или A-поза.')
     let bottom=Infinity,top=-Infinity;for(const p of points){bottom=Math.min(bottom,p.y);top=Math.max(top,p.y)}
     const hints=new Map([...asset.nodes.values()].filter(n=>n.is_joint).map(n=>[n.name,n.object.getWorldPosition(new Vector3())]))
     const bodyNames=['pelvis','spine_01','spine_02','spine_03','neck_01','head','clavicle_l','upperarm_l','lowerarm_l','hand_l','clavicle_r','upperarm_r','lowerarm_r','hand_r','thigh_l','calf_l','foot_l','ball_l','thigh_r','calf_r','foot_r','ball_r']
@@ -122,10 +127,14 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       if(!headFitted||options.review_head)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
     points.length=0
-    await report('Уточняю локти и колени…')
-    for (const side of ['l','r'] as const) {const wrist=world(get('hand_'+side));place(get('lowerarm_'+side),world(get('upperarm_'+side)).lerp(wrist,elbowFractions.get(side)!));place(get('hand_'+side),wrist)}
     const chains:LimbChain[]=(['l','r'] as const).flatMap(s=>[{start:get('upperarm_'+s),joint:get('lowerarm_'+s),end:get('hand_'+s),kind:'elbow' as const},{start:get('thigh_'+s),joint:get('calf_'+s),end:get('foot_'+s),kind:'knee' as const}])
-    refine_humanoid_joints(asset.scene,chains,null,world(get('pelvis')).x,{elbow:{max_fraction:.70,max_shift:.18}})
+    if (!retainBody) {
+      await report('Уточняю локти и колени…')
+      // Use the template ratio only to constrain the search. Moving the elbow
+      // onto the shoulder–wrist line destroys its fitted depth and bend plane.
+      refine_humanoid_joints(asset.scene, chains, null, world(get('pelvis')).x, chain =>
+        chain.kind === 'elbow' ? { max_fraction: .70, max_shift: .18, reference_fraction: elbowFractions.get(chain.joint) } : undefined)
+    }
     // The template has an extra non-deforming scene driver. Preserve its TRS
     // as a Group; the 65 anatomical joints (including finger tips) remain bones.
     const root=get('root'),frame=new Group();frame.copy(root,false);root.parent?.add(frame);frame.add(get('pelvis'));root.removeFromParent();scene.updateWorldMatrix(true,true)
@@ -162,6 +171,6 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     asset.clips.forEach((clip,i)=>target.clips[i]?.tracks.push(...clip.tracks.filter(t=>t.name.endsWith('.morphTargetInfluences')).map(t=>t.clone())))
     await report('Сохраняю полный риг и проверяю структуру GLB…')
     const bytes=write_humanoid65_glb(asset,scene,bones,weightedMeshes,target.clips)
-    return{bytes,report:{bones:bones.length,vertices:vertexCount,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
+    return{bytes,report:{bones:bones.length,vertices:vertexCount,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:retainBody ? {source:'retained'} : c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
   } finally {geometries.forEach(g=>g.dispose())}
 }

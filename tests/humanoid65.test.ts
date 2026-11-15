@@ -49,6 +49,38 @@ describe('complete humanoid binding',()=>{
   const result=await build_humanoid65(source,{template,head_landmarks:review!.points,direct_solver:true})
   expect(result.report.head_fit_source).toBe('manual');validate_humanoid65(await parse(result.bytes));expect(new Uint8Array(bytes)).toEqual(original)
  },30000)
+ it('preserves reviewed elbow and knee placements when completing a body rig', async () => {
+  const path = 'static/models/model-human.glb'
+  const bytes = file(path), template = file('static/rigs/rig-human.glb')
+  const source = build_rig_asset(await read_glb(path), inspect_glb(bytes), bytes, 'Human')
+  const complete = await build_humanoid65(source, { template, direct_solver: true })
+  const body = await parse(complete.bytes)
+  for (const node of body.nodes.values()) {
+   if (/^(thumb|index|middle|ring|pinky)_/.test(node.name) || node.name === 'head_leaf') node.is_joint = false
+  }
+  const position = (rig: typeof body, name: string) => [...rig.nodes.values()].find(n => n.name === name && n.is_joint)!.object.getWorldPosition(new Vector3())
+  // Give the reviewed joints a small off-axis offset that the auto fit would
+  // otherwise replace. Recalculate the source bind matrices for this pose.
+  for (const name of ['lowerarm_l', 'calf_r']) {
+   const node = [...body.nodes.values()].find(n => n.name === name && n.is_joint)!
+   node.position.z += .025
+   node.object.position.copy(node.position)
+  }
+  body.scene.updateMatrixWorld(true)
+  body.scene.traverse(object => {
+   const mesh = object as SkinnedMesh
+   if (!mesh.isSkinnedMesh) return
+   const bindSpace = mesh.bindMatrixInverse.clone().invert().multiply(mesh.bindMatrix.clone().invert())
+   mesh.skeleton.bones.forEach((bone, i) => mesh.skeleton.boneInverses[i].copy(bone.matrixWorld).invert().multiply(bindSpace))
+  })
+  const result = await build_humanoid65(body, { template, direct_solver: true })
+  const rig = await parse(result.bytes)
+  expect(result.report.body_landmarks_retained).toBe(true)
+  for (const name of ['lowerarm_l', 'lowerarm_r', 'calf_l', 'calf_r']) {
+   expect(position(rig, name).distanceTo(position(body, name))).toBeLessThan(1e-6)
+  }
+  validate_humanoid65(rig)
+ }, 30000)
  it('cancels before modifying the source and rejects an incomplete hand template',async()=>{
   const bytes=file('static/models/model-human.glb'),source=build_rig_asset(await read_glb('static/models/model-human.glb'),inspect_glb(bytes),bytes,'Human'),abort=new AbortController();abort.abort()
   await expect(build_humanoid65(source,{template:file('static/rigs/rig-human.glb'),signal:abort.signal,direct_solver:true})).rejects.toThrow('отменён');expect(source.dirty).toBe(false)
