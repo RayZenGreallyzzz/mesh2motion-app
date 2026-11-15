@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { BufferGeometry, Float32BufferAttribute, Matrix4, ShapeUtils, Vector2 } from 'three'
+import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Matrix4, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three'
 import { expect, it } from 'vitest'
 import { knife_cut } from '../src/my-rigs/MeshKnife.ts'
 
@@ -24,11 +24,14 @@ function joined () {
   return mesh
 }
 
-it('cuts a half pixel through both sides of a millimetre bridge without removing nearby original vertices', () => {
+const plate = (center: Vector3, dimensions: Vector3, angle = 0) =>
+  new Matrix4().compose(center, new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), angle), dimensions).invert()
+
+it('cuts a 1 mm slot through both sides of the bridge without removing nearby original vertices', () => {
   const mesh = joined()
   const before=Array.from(mesh.attributes.position.array)
-  const selection = new Map([2, 3, 8, 9, 1, 4, 7, 10].map(i => [i,1]))
-  const {geometry,open,cut} = knife_cut(mesh,selection,{matrix:new Matrix4(),width:1000,height:1000},[500,495],[500,505],.5,true)
+  const {geometry,open,cut,seam} = knife_cut(mesh, plate(new Vector3(0, 0, .02), new Vector3(.001, .02, .4)), true)
+  expect(seam).toBe(1)
   expect(cut).toBeGreaterThan(0)
   expect(open).toBe(false)
   const attr = geometry.attributes.position, index = geometry.index!
@@ -55,10 +58,9 @@ it('cuts a half pixel through both sides of a millimetre bridge without removing
   }
 })
 
-it('keeps a finite blade from removing material beyond the endpoints', () => {
+it('keeps the cut inside the finite height and thickness of the glass', () => {
   const source = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([-1,-1,0,1,-1,0,0,1,0],3))
-  const selection = new Map([0,1,2].map(i=>[i,1]))
-  const {geometry, open} = knife_cut(source,selection,{matrix:new Matrix4(),width:100,height:100},[50,46],[50,54],2,true)
+  const {geometry, open} = knife_cut(source, plate(new Vector3(),new Vector3(.04,.16,.35)), true)
   const attr = geometry.attributes.position, index = geometry.index!
   let kept_area=0
   for(let i=0; i<index.count;i+=3){
@@ -67,4 +69,25 @@ it('keeps a finite blade from removing material beyond the endpoints', () => {
   }
   expect(open).toBe(true)
   expect(kept_area).toBeCloseTo(2-.04*.16,6)
+})
+
+it('keeps all triangles of a body behind the rotated plate', () => {
+  const a = new BoxGeometry(.3,.2,.06)
+  const b = new BoxGeometry(.3,.2,.06).translate(0,0,.48)
+  const vertices = [...a.attributes.position.array, ...b.attributes.position.array]
+  const indices = [...a.index!.array, ...Array.from(b.index!.array,i => i + a.attributes.position.count)]
+  const source = new BufferGeometry().setAttribute('position', new Float32BufferAttribute(vertices,3)).setIndex(indices)
+  const {geometry, open} = knife_cut(source, plate(new Vector3(),new Vector3(.001,.3,.2), .35), true)
+  expect(open).toBe(false)
+  const faces = (geom: BufferGeometry) => {
+    const p = geom.attributes.position, index = geom.index!
+    const out: string[] = []
+    for(let i=0; i<index.count;i+=3){
+      const ids=[index.getX(i), index.getX(i+1), index.getX(i+2)]
+      if(ids.every(id=>p.getZ(id)>.4))out.push(ids.map(id=>[p.getX(id),p.getY(id),p.getZ(id)].join()).join('|'))
+    }
+    return out
+  }
+  expect(faces(geometry)).toEqual(faces(source))
+  expect(faces(geometry)).toHaveLength(12)
 })

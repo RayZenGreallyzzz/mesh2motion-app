@@ -72,13 +72,13 @@ export class StudioWorkspace {
     if (this.active === 'edit' && !this.editor.leave(force)) return
     const old = this.active; this.active = undefined; for (const panel of this.panels.values()) panel.hidden = true
     for (const button of this.buttons.values()) { button.setAttribute('aria-expanded', 'false'); button.classList.remove('active') }
-    this.viewer.set_settings_overlay(0, 0, false); if (focus && old) this.buttons.get(old)?.focus()
+    this.viewer.set_settings_overlay(0, 0, false, old !== 'edit'); if (focus && old) this.buttons.get(old)?.focus()
   }
   sync_tab(library: boolean): void { if (this.active === 'motions' && library) this.open('library'); else if (this.active === 'library' && !library) this.open('motions') }
   private update_overlay(): void {
     if (!this.active) return
     const panel = this.panels.get(this.active)!, rect = panel.getBoundingClientRect(), bottom = window.innerWidth <= 620
-    if (rect.width && rect.height) this.viewer.set_settings_overlay(rect.width + 32, rect.height + 104, bottom)
+    if (rect.width && rect.height) this.viewer.set_settings_overlay(rect.width + 32, rect.height + 104, bottom, this.active !== 'edit')
   }
 }
 

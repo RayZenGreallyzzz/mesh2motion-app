@@ -1,7 +1,6 @@
-import { BufferAttribute, BufferGeometry, Matrix4, ShapeUtils, Vector2, Vector3, Vector4 } from 'three'
-import { cap_boundary, type DirectedEdge, type MeshSelection } from './MeshEditGeometry.ts'
+import { BufferAttribute, BufferGeometry, Matrix4, ShapeUtils, Vector2, Vector3 } from 'three'
+import { cap_boundary, type DirectedEdge } from './MeshEditGeometry.ts'
 
-export type MeshProjection = { matrix: Matrix4, width: number, height: number }
 type Point = [number, number]
 type Triangle = [number, number, number]
 type NewVertex = { vertices: Triangle, bary: number[] }
@@ -68,57 +67,25 @@ function subtract (hole: Point[], planes: Triangle[]): Point[][] {
   return loops
 }
 
-function position_in_view (matrix: Matrix4, width: number, height: number, position: BufferGeometry['attributes'][string], index: number, out: Vector4): void {
-  out.set(position.getX(index), position.getY(index), position.getZ(index), 1).applyMatrix4(matrix)
-  out.x = (out.x + out.w) * width / 2
-  out.y = (out.w - out.y) * height / 2
-}
-
-export function knife_scope (source: BufferGeometry, selection: MeshSelection, projection: MeshProjection): { min_x: number, max_x: number, min_y: number, max_y: number } {
-  const attr = source.attributes.position
-  const {matrix, width, height} = projection
-  const point = new Vector4()
-  let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity
-  for (const id of selection.keys()) {
-    position_in_view(matrix, width, height, attr, id, point)
-    if (point.w <= eps) continue
-    min_x = Math.min(min_x, point.x / point.w); max_x = Math.max(max_x, point.x / point.w)
-    min_y = Math.min(min_y, point.y / point.w); max_y = Math.max(max_y, point.y / point.w)
-  }
-  // The visible selection bounds keep the tool local. The blade passes
-  // through depth so it also cuts the back of a fused surface.
-  const margin = 1
-  min_x -= margin; max_x += margin; min_y -= margin; max_y += margin
-  if (!Number.isFinite(min_x + max_x + min_y + max_y)) throw new Error('Сначала выделите область вокруг шва.')
-  return { min_x, max_x, min_y, max_y }
-}
-
-export function knife_cut (source: BufferGeometry, selection: MeshSelection, projection: MeshProjection, start: Point, end: Point,
-  width_px: number, close: boolean): { geometry: BufferGeometry, cut: number, open: boolean } {
-  const length = Math.hypot(end[0] - start[0], end[1] - start[1])
-  if (length < 5) throw new Error('Точки ножа слишком близко. Укажите два конца шва.')
-  const ux = (end[0] - start[0]) / length, uy = (end[1] - start[1]) / length
-  const half = width_px * .5, attr = source.attributes.position, point = new Vector4()
-  const {matrix, width, height} = projection
-  const { min_x, max_x, min_y, max_y } = knife_scope(source, selection, projection)
-  const min_line_x = Math.min(start[0], end[0]) - half, max_line_x = Math.max(start[0], end[0]) + half
-  const min_line_y = Math.min(start[1], end[1]) - half, max_line_y = Math.max(start[1], end[1]) + half
-  const low_x = Math.max(min_x, min_line_x), high_x = Math.min(max_x, max_line_x)
-  const low_y = Math.max(min_y, min_line_y), high_y = Math.min(max_y, max_line_y)
-  const screen = new Float32Array(attr.count * 3)
+/** Subtract the finite glass plate. The matrix maps mesh vertices into
+ * the plate's unit box. Its three extents and orientation come from the gizmo. */
+export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boolean):
+  { geometry: BufferGeometry, cut: number, open: boolean, seam?: number } {
+  const attr = source.attributes.position, point = new Vector3()
+  const local = new Float64Array(attr.count * 3)
   for (let i = 0; i < attr.count; i++) {
-    position_in_view(matrix, width, height, attr, i, point)
-    screen[i * 3] = point.x; screen[i * 3 + 1] = point.y; screen[i * 3 + 2] = point.w
+    point.fromBufferAttribute(attr, i).applyMatrix4(to_blade).toArray(local, i * 3)
   }
   const values = (id: number): number[] => {
-    const w = screen[id * 3 + 2], x = screen[id * 3], y = screen[id * 3 + 1]
-    const dx = x - start[0] * w, dy = y - start[1] * w
-    const along = dx * ux + dy * uy, across = -dx * uy + dy * ux
-    return [along, length * w - along, half * w + across, half * w - across,
-      x - min_x * w, max_x * w - x, y - min_y * w, max_y * w - y]
+    const x = local[id * 3], y = local[id * 3 + 1], z = local[id * 3 + 2]
+    return [.5 + x, .5 - x, .5 + y, .5 - y, .5 + z, .5 - z]
   }
-  const add: NewVertex[] = [], edges = new Map<string, number>(), cap_edges: [DirectedEdge[], DirectedEdge[]] = [[], []]
-  const triangles: number[] = []
+  const add: NewVertex[] = [], edges = new Map<string, number>()
+  const cap_edges: DirectedEdge[][] = Array.from({length: 6}, () => [])
+  const material_faces = new Map<number, number[]>()
+  const groups = source.groups
+  let group_index = 0
+  let triangles: number[] = []
   const index = source.index, count = index?.count ?? attr.count
   const emit = (points: Point[], holes: Point[][], id: (p: Point) => number): void => {
     const flat = (row: Point[]) => row.map(p => new Vector2(...p))
@@ -132,12 +99,16 @@ export function knife_cut (source: BufferGeometry, selection: MeshSelection, pro
   let cut = 0, uncapped = 0
   for (let i = 0; i + 2 < count; i += 3) {
     const a = index?.getX(i) ?? i, b = index?.getX(i + 1) ?? i + 1, c = index?.getX(i + 2) ?? i + 2
-    const va = screen[a*3+2], vb = screen[b*3+2], vc = screen[c*3+2]
-    const ax = screen[a*3]/va, bx = screen[b*3]/vb, cx = screen[c*3]/vc
-    const ay = screen[a*3+1]/va, by = screen[b*3+1]/vb, cy = screen[c*3+1]/vc
-    if (Math.min(va, vb, vc) <= eps ||
-        Math.max(ax, bx, cx) < low_x || Math.min(ax, bx, cx) > high_x ||
-        Math.max(ay, by, cy) < low_y || Math.min(ay, by, cy) > high_y) { triangles.push(a,b,c); continue }
+    while (groups[group_index] && i >= groups[group_index].start + groups[group_index].count) group_index++
+    const material = groups[group_index]?.materialIndex ?? 0
+    triangles = material_faces.get(material) ?? []
+    material_faces.set(material, triangles)
+    let outside_bounds = false
+    for (let axis = 0; axis < 3; axis++) {
+      const ax = local[a * 3 + axis], bx = local[b * 3 + axis], cx = local[c * 3 + axis]
+      if (Math.max(ax, bx, cx) < -.5 || Math.min(ax, bx, cx) > .5) { outside_bounds = true; break }
+    }
+    if (outside_bounds) { triangles.push(a,b,c); continue }
     const av = values(a), bv = values(b), cv = values(c)
     const planes: Triangle[] = av.map((v, k) => [v, bv[k], cv[k]])
     const hole = intersection(planes)
@@ -173,20 +144,19 @@ export function knife_cut (source: BufferGeometry, selection: MeshSelection, pro
     for (let k = 0; k < hole.length; k++) {
       const a = hole[k], b = hole[(k + 1) % hole.length]
       if ([0,1,2].some(edge => on_edge(a, edge) && on_edge(b, edge))) continue
-      const on_side = (side: number) => Math.abs(value_at(planes[side], a)) < .001 && Math.abs(value_at(planes[side], b)) < .001
-      const side = on_side(2) ? 0 : on_side(3) ? 1 : -1
-      if (side === 0 || side === 1) cap_edges[side].push({from: id(a), to: id(b)})
+      const side = planes.findIndex(plane => Math.abs(value_at(plane, a)) < 1e-7 && Math.abs(value_at(plane, b)) < 1e-7)
+      if (side >= 0) cap_edges[side].push({from: id(a), to: id(b)})
       else uncapped++
     }
   }
-  if (!cut) throw new Error('Лезвие не пересекло сетку в выделенной области. Проверьте положение точек.')
-  if (!triangles.length) throw new Error('Лезвие захватывает всю выделенную деталь. Уменьшите ширину.')
+  if (!cut) throw new Error('Пластина не пересекает поверхность. Проверьте её глубину сбоку.')
+  if (![...material_faces.values()].some(faces => faces.length)) throw new Error('Пластина захватывает всю деталь. Уменьшите её размер.')
   const active: number[] = [], lookup = new Int32Array(attr.count + add.length).fill(-1)
   const compact = (id: number): number => {
     if (lookup[id] < 0) { lookup[id] = active.length; active.push(id) }
     return lookup[id]
   }
-  triangles.forEach(compact)
+  for (const faces of material_faces.values()) faces.forEach(compact)
   for (const side of cap_edges) for (const edge of side) { compact(edge.from); compact(edge.to) }
   const result = new BufferGeometry()
   const transfer = (input: BufferGeometry['attributes'][string], normal = false): BufferAttribute => {
@@ -229,11 +199,21 @@ export function knife_cut (source: BufferGeometry, selection: MeshSelection, pro
     if (morphs) result.morphAttributes[name] = morphs.map(morph => transfer(morph))
   }
   result.morphTargetsRelative = source.morphTargetsRelative
-  const compact_faces = triangles.map(id => lookup[id])
+  const compact_faces: number[] = [], caps: number[] = []
+  for (const [material, faces] of [...material_faces].sort(([a], [b]) => a - b)) {
+    if (!faces.length) continue
+    result.addGroup(compact_faces.length, faces.length, material)
+    for (const id of faces) compact_faces.push(lookup[id])
+  }
   for (const side of cap_edges) {
     const mapped = side.map(e => ({from: lookup[e.from], to: lookup[e.to]}))
-    uncapped += mapped.length - cap_boundary(result.attributes.position, mapped, compact_faces)
+    uncapped += mapped.length - cap_boundary(result.attributes.position, mapped, caps)
   }
+  const seam = caps.length ? Math.max(0, ...material_faces.keys()) + 1 : undefined
+  if (seam !== undefined) {
+    result.addGroup(compact_faces.length, caps.length, seam)
+    for (const id of caps) compact_faces.push(id)
+  } else if (!groups.length) result.clearGroups()
   result.setIndex(new BufferAttribute(Uint32Array.from(compact_faces), 1))
-  return { geometry: result, cut, open: !close || uncapped > 0 }
+  return { geometry: result, cut, open: !close || uncapped > 0, seam }
 }

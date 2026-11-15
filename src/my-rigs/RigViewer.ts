@@ -1,10 +1,11 @@
 import {
   AnimationMixer, Box3, Color, GridHelper, HemisphereLight, DirectionalLight,
   PerspectiveCamera, PMREMGenerator, Scene, SkeletonHelper, Vector3, WebGLRenderer,
-  Group, Mesh, MeshBasicMaterial, SphereGeometry, Plane, Raycaster, Vector2, LineSegments, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, Matrix4,
+  Group, Mesh, MeshBasicMaterial, SphereGeometry, Plane, Raycaster, Vector2, LineSegments, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, Quaternion,
   type AnimationAction, type AnimationClip, type Intersection, type Object3D, type SkinnedMesh
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { TransformControls, type TransformControlsMode } from 'three/examples/jsm/controls/TransformControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { restore_rig_pose, type RigAsset } from './RigAsset.ts'
 import { register_asset_renderer } from '../lib/AssetCodecs.ts'
@@ -39,7 +40,9 @@ export class RigViewer {
   private native_change?: (name: string, point: [number, number, number]) => void
   private native_drag?: { name: string, mesh: Mesh, plane: Plane, offset: Vector3, pointer: number }
   private mesh_picker?: (hit: Intersection<Mesh>) => void
-  private screen_picker?: (x: number, y: number) => void
+  private pick_nearby = false
+  private blade_gizmo?: TransformControls
+  private on_gizmo_change?: () => void
   private mesh_touch?: { pointer: number, x: number, y: number }
   on_time: (time: number, duration: number) => void = () => {}
 
@@ -64,16 +67,24 @@ export class RigViewer {
     this.room = new StudioRoom(this.scene); this.room.set_visible(true); this.grid.visible = false
     this.scene.add(this.native_markers)
     const canvas = this.renderer.domElement, ray = new Raycaster()
+    const touches = new Set<number>()
+    let gizmo_pinch = false
     const pointer = (event: PointerEvent): void => {
       const r = canvas.getBoundingClientRect()
       ray.setFromCamera(new Vector2((event.clientX - r.left) / r.width * 2 - 1, 1 - (event.clientY - r.top) / r.height * 2), this.camera)
     }
     canvas.addEventListener('pointerdown', event => {
-      if (this.mesh_picker || this.screen_picker) {
-        if (event.button !== 0 || this.mesh_touch) return
-        this.mesh_touch = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
-        canvas.setPointerCapture(event.pointerId)
-        event.preventDefault(); event.stopImmediatePropagation()
+      if (event.pointerType === 'touch') {
+        touches.add(event.pointerId)
+        if (touches.size > 1 && this.blade_gizmo?.enabled) {
+          this.blade_gizmo.pointerUp(null)
+          this.blade_gizmo.enabled = false
+          gizmo_pinch = true
+        }
+      }
+      if (this.mesh_picker) {
+        this.mesh_touch = event.isPrimary && event.button === 0
+          ? { pointer: event.pointerId, x: event.clientX, y: event.clientY } : undefined
         return
       }
       if (!this.native_change || !this.native_markers.children.length) return
@@ -91,27 +102,42 @@ export class RigViewer {
       this.controls.enabled = false; canvas.setPointerCapture(event.pointerId); event.preventDefault(); event.stopImmediatePropagation()
     }, true)
     canvas.addEventListener('pointermove', event => {
+      if (this.mesh_touch?.pointer === event.pointerId &&
+          Math.hypot(this.mesh_touch.x - event.clientX, this.mesh_touch.y - event.clientY) > 12) this.mesh_touch = undefined
       const drag = this.native_drag; if (!drag || drag.pointer !== event.pointerId) return
       pointer(event); const hit = ray.ray.intersectPlane(drag.plane, new Vector3())
       if (hit) { drag.mesh.position.copy(hit.add(drag.offset)); this.native_change?.(drag.name, [-hit.x, hit.y, hit.z]) }
       event.preventDefault(); event.stopImmediatePropagation()
     }, true)
     const finish = (event: PointerEvent): void => {
+      touches.delete(event.pointerId)
+      if (gizmo_pinch && !touches.size) {
+        gizmo_pinch = false
+        queueMicrotask(() => { if (this.blade_gizmo?.object) this.blade_gizmo.enabled = true })
+      }
       const touch = this.mesh_touch
       if (touch?.pointer === event.pointerId) {
         this.mesh_touch = undefined
-        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
-        if (event.type === 'pointerup' && Math.hypot(touch.x - event.clientX, touch.y - event.clientY) < 14 && this.asset) {
-          if (this.screen_picker) {
-            const bounds = canvas.getBoundingClientRect()
-            this.screen_picker(event.clientX - bounds.left, event.clientY - bounds.top)
-          } else {
-            pointer(event)
-            const hit = ray.intersectObject(this.asset.scene, true).find(item => item.face && (item.object as Mesh).isMesh)
-            if (hit) this.mesh_picker?.(hit as Intersection<Mesh>)
+        if (event.type === 'pointerup' && Math.hypot(touch.x - event.clientX, touch.y - event.clientY) < 12 && this.asset) {
+          pointer(event)
+          const find = () => ray.intersectObject(this.asset!.scene, true).find(item => item.face && (item.object as Mesh).isMesh)
+          let hit = find()
+          if (!hit && this.pick_nearby) {
+            const center = ray.ray.clone(), rect = canvas.getBoundingClientRect()
+            for (const offset of [-12, 12, -24, 24]) {
+              ray.setFromCamera(new Vector2((event.clientX + offset - rect.left) / rect.width * 2 - 1,
+                1 - (event.clientY - rect.top) / rect.height * 2), this.camera)
+              hit = find()
+              if (hit) {
+                const plane = new Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new Vector3()), hit.point)
+                const point = center.intersectPlane(plane, new Vector3())
+                if (point) hit = { ...hit, point }
+                break
+              }
+            }
           }
+          if (hit) this.mesh_picker?.(hit as Intersection<Mesh>)
         }
-        event.preventDefault(); event.stopImmediatePropagation()
         return
       }
       if (!this.native_drag || this.native_drag.pointer !== event.pointerId) return
@@ -262,26 +288,32 @@ export class RigViewer {
   set_follow (enabled: boolean): void { this.follow_enabled = enabled; if (enabled) this.fit(true) }
 
   set_speed (value: number): void { this.speed = value }
-  set_mesh_picker (picker?: (hit: Intersection<Mesh>) => void): void {
+  set_mesh_picker (picker?: (hit: Intersection<Mesh>) => void, nearby = false): void {
     this.mesh_picker = picker
-    this.screen_picker = undefined
-    const canvas = this.renderer.domElement, id = this.mesh_touch?.pointer
-    if (id !== undefined && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id)
+    this.pick_nearby = nearby
     this.mesh_touch = undefined
-    this.controls.enabled = !picker
-    canvas.style.cursor = picker ? 'crosshair' : ''
+    this.renderer.domElement.style.cursor = picker ? 'crosshair' : ''
   }
-  set_knife_picker (picker: (x: number, y: number) => void): void {
-    this.set_mesh_picker()
-    this.screen_picker = picker
-    this.controls.enabled = false
-    this.renderer.domElement.style.cursor = 'crosshair'
+  edit_gizmo (target?: Object3D, mode: TransformControlsMode = 'translate', change?: () => void): void {
+    if (!target) {
+      if (this.blade_gizmo) { this.blade_gizmo.detach(); this.blade_gizmo.enabled = false }
+      this.on_gizmo_change = undefined
+      this.controls.enabled = true
+      return
+    }
+    if (!this.blade_gizmo) {
+      const gizmo = this.blade_gizmo = new TransformControls(this.camera, this.renderer.domElement)
+      gizmo.setSize(.85); gizmo.setSpace('local')
+      gizmo.addEventListener('dragging-changed', event => { this.controls.enabled = !event.value })
+      gizmo.addEventListener('objectChange', () => this.on_gizmo_change?.())
+      this.scene.add(gizmo.getHelper())
+    }
+    this.on_gizmo_change = change
+    this.blade_gizmo.enabled = true
+    this.blade_gizmo.setMode(mode)
+    this.blade_gizmo.attach(target)
   }
-  mesh_projection (mesh: Mesh): { matrix: Matrix4, width: number, height: number } {
-    const { width, height } = this.renderer.domElement.getBoundingClientRect()
-    this.camera.updateMatrixWorld()
-    return { matrix: new Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).multiply(mesh.matrixWorld), width, height }
-  }
+  camera_rotation (): Quaternion { return this.camera.getWorldQuaternion(new Quaternion()) }
   view_direction (x: number, y: number, z: number): Vector3 {
     return new Vector3(x, y, z).applyQuaternion(this.camera.quaternion)
   }
@@ -346,9 +378,9 @@ export class RigViewer {
 
   set_room_enabled(value: boolean): void { this.room.set_visible(value); this.fit(true, false) }
   set_grid_visible(value: boolean): void { this.grid.visible = value }
-  set_settings_overlay(width: number, height: number, bottom: boolean): void {
+  set_settings_overlay(width: number, height: number, bottom: boolean, refit = true): void {
     const changed = Math.abs(this.overlay.width - width) > 8 || Math.abs(this.overlay.height - height) > 8 || this.overlay.bottom !== bottom
-    this.overlay = { width, height, bottom }; this.apply_overlay(); if (changed) this.fit(true, false)
+    this.overlay = { width, height, bottom }; this.apply_overlay(); if (changed && refit) this.fit(true, false)
   }
   private apply_overlay(): void {
     const width = this.renderer.domElement.clientWidth, height = this.renderer.domElement.clientHeight

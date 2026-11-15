@@ -138,13 +138,21 @@ export function cap_boundary (position: BufferGeometry['attributes'][string], ed
 
 export function cut_selection (source: BufferGeometry, selection: MeshSelection, close: boolean): { geometry: BufferGeometry, removed: number, open: boolean } {
   const position = source.attributes.position, triangles: number[] = []
+  const faces_by_material = new Map<number, number[]>()
   const edge_stats = new Map<string, BoundaryEdge>()
-  let removed = 0
+  let removed = 0, group_index = 0, offset = 0
   each_face(source, (a, b, c) => {
+    while (source.groups[group_index] && offset >= source.groups[group_index].start + source.groups[group_index].count) group_index++
+    const material = source.groups[group_index]?.materialIndex ?? 0
+    offset += 3
     const a_in = selection.has(a), b_in = selection.has(b), c_in = selection.has(c)
     const cut = a_in && b_in && c_in
     if (cut) removed++
-    else triangles.push(a, b, c)
+    else {
+      const faces = faces_by_material.get(material) ?? []
+      faces.push(a, b, c)
+      faces_by_material.set(material, faces)
+    }
     if (!close || Number(a_in) + Number(b_in) + Number(c_in) < 2) return
     for (const [i, j] of [[a, b], [b, c], [c, a]]) {
       if (!selection.has(i) || !selection.has(j)) continue
@@ -158,9 +166,16 @@ export function cut_selection (source: BufferGeometry, selection: MeshSelection,
     }
   })
   if (!removed) throw new Error('Выделите целый участок сетки для удаления.')
-  if (!triangles.length) throw new Error('Выделение охватывает всю деталь. Уменьшите область среза.')
+  if (!faces_by_material.size) throw new Error('Выделение охватывает всю деталь. Уменьшите область среза.')
   const boundary = [...edge_stats.values()].filter(e => e.kept === 1 && e.removed === 1)
-  const filled = close ? cap_boundary(position, boundary, triangles) : 0
+  const base = faces_by_material.get(0) ?? []
+  const filled = close ? cap_boundary(position, boundary, base) : 0
+  if (base.length) faces_by_material.set(0, base)
+  const geometry = new BufferGeometry()
+  for (const [material, faces] of [...faces_by_material].sort(([a], [b]) => a - b)) {
+    if (source.groups.length) geometry.addGroup(triangles.length, faces.length, material)
+    for (const vertex of faces) triangles.push(vertex)
+  }
   const active: number[] = [], reindex = new Int32Array(position.count).fill(-1)
   const index = new Uint32Array(triangles.length)
   for (let i = 0; i < triangles.length; i++) {
@@ -168,7 +183,6 @@ export function cut_selection (source: BufferGeometry, selection: MeshSelection,
     if (reindex[vertex] < 0) { reindex[vertex] = active.length; active.push(vertex) }
     index[i] = reindex[vertex]
   }
-  const geometry = new BufferGeometry()
   for (const [key, value] of Object.entries(source.attributes)) geometry.setAttribute(key, packed(value, active))
   for (const key of ['position', 'normal', 'color'] as const) {
     const values = source.morphAttributes[key]

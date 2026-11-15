@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Mesh, Vector3 } from 'three'
+import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Mesh, MeshStandardMaterial, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { brush_selection, cut_selection, deform_selection, tint_selection } from '../src/my-rigs/MeshEditGeometry.ts'
 import { write_mesh_edits } from '../src/my-rigs/MeshEditGlb.ts'
@@ -77,5 +77,15 @@ describe('model editing', () => {
     expect(meshes[0].geometry.attributes.position.getZ(0)).toBe(1)
     expect(meshes[1].geometry.attributes.position.getZ(0)).toBe(0)
     expect(Array.from(new Float32Array(glb,28+padded))).toEqual(pos)
+
+    edit.setIndex([0,1,2,0,2,1])
+    edit.addGroup(0,3,0); edit.addGroup(3,3,1)
+    const colored = write_mesh_edits(glb, [{id:'n0', original:source, geometry:edit, seam_colors:new Map([[1,[.4,.2,.1]]])}])
+    const changed = await new GLTFLoader().parseAsync(colored,'')
+    const [body, cap] = changed.scene.children[0].children as Mesh[]
+    expect(body.geometry.index?.count).toBe(3)
+    expect(body.material).not.toBe(cap.material)
+    expect(cap.geometry.index?.count).toBe(3)
+    expect((cap.material as MeshStandardMaterial).color.toArray()).toEqual([.4,.2,.1])
   })
 })

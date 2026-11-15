@@ -1,7 +1,10 @@
-import type { BufferGeometry } from 'three'
+import { BufferAttribute, BufferGeometry } from 'three'
 import { inspect_glb, MAX_GLB_BYTES } from './GlbEnvelope.ts'
 
-export type MeshEdit = { id: string, original: BufferGeometry, geometry: BufferGeometry }
+export type MeshEdit = {
+  id: string, original: BufferGeometry, geometry: BufferGeometry,
+  seam_colors?: ReadonlyMap<number, readonly [number, number, number]>
+}
 
 const names: Record<string, string> = {
   POSITION: 'position', NORMAL: 'normal', TANGENT: 'tangent', TEXCOORD_0: 'uv',
@@ -22,14 +25,15 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
   }
   let length = (byte_length + 3) & ~3
   const blocks: { at: number, bytes: Uint8Array }[] = []
-  const append = (attribute: BufferGeometry['attributes'][string], kind: string): number => {
+  const append = (attribute: BufferGeometry['attributes'][string], kind: string, subset?: number[]): number => {
     const width = attribute.itemSize
-    const values = kind === 'indices' ? new Uint32Array(attribute.count) :
-      kind === 'JOINTS_0' ? new Uint16Array(attribute.count * width) : new Float32Array(attribute.count * width)
+    const count = subset?.length ?? attribute.count
+    const values = kind === 'indices' ? new Uint32Array(count) :
+      kind === 'JOINTS_0' ? new Uint16Array(count * width) : new Float32Array(count * width)
     const bounds = kind === 'POSITION'
     const min = Array(width).fill(Infinity), max = Array(width).fill(-Infinity)
-    for (let i = 0; i < attribute.count; i++) for (let c = 0; c < width; c++) {
-      const x = attribute.getComponent(i, c)
+    for (let i = 0; i < count; i++) for (let c = 0; c < width; c++) {
+      const x = attribute.getComponent(subset?.[i] ?? i, c)
       if (!Number.isFinite(x)) throw new Error('Правка содержит некорректные координаты.')
       values[i * width + c] = x
       if (bounds) { min[c] = Math.min(min[c], x); max[c] = Math.max(max[c], x) }
@@ -41,11 +45,11 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
     blocks.push({ at: length, bytes })
     length = (length + bytes.byteLength + 3) & ~3
     const componentType = kind === 'indices' ? 5125 : kind === 'JOINTS_0' ? 5123 : 5126
-    doc.accessors.push({ bufferView, componentType, count: attribute.count, type: width === 1 ? 'SCALAR' : 'VEC' + width, ...(bounds ? { min, max } : {}) })
+    doc.accessors.push({ bufferView, componentType, count, type: width === 1 ? 'SCALAR' : 'VEC' + width, ...(bounds ? { min, max } : {}) })
     return doc.accessors.length - 1
   }
   const copies = new Map<number, number>()
-  for (const {id, original: prior, geometry} of edits) {
+  for (const {id, original: prior, geometry, seam_colors} of edits) {
     const address = /^n(\d+)(?:\/p(\d+))?$/.exec(id), node_index = Number(address?.[1])
     const node = doc.nodes[node_index], source = doc.meshes[node?.mesh]
     if (!source) throw new Error('Не найдена деталь GLB для сохранения.')
@@ -54,7 +58,8 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
       if (shared) { node.mesh = doc.meshes.length; doc.meshes.push(structuredClone(source)) }
       copies.set(node_index, node.mesh)
     }
-    const primitive = doc.meshes[copies.get(node_index)!].primitives[Number(address?.[2] ?? 0)]
+    const primitives = doc.meshes[copies.get(node_index)!].primitives
+    const primitive = primitives[Number(address?.[2] ?? 0)]
     if (!primitive || (primitive.mode ?? 4) !== 4) throw new Error('Правка поддерживает треугольную сетку.')
     const draco = primitive.extensions?.KHR_draco_mesh_compression
     if (draco) delete primitive.extensions.KHR_draco_mesh_compression
@@ -65,7 +70,12 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
       if (!attr) throw new Error('Не удалось сохранить атрибут сетки ' + key)
       if (draco || attr !== prior.attributes[name]) primitive.attributes[key] = append(attr, key)
     }
-    if ((draco || geometry.index !== prior.index) && geometry.index) primitive.indices = append(geometry.index, 'indices')
+    const groups = geometry.groups.filter(group => (group.materialIndex ?? 0) > 0)
+    if (groups.length) {
+      const base = geometry.groups.find(group => !group.materialIndex)
+      if (!base || !geometry.index) throw new Error('После среза не осталось поверхности детали.')
+      primitive.indices = append(new BufferAttribute(geometry.index.array.subarray(base.start, base.start + base.count), 1), 'indices')
+    } else if ((draco || geometry.index !== prior.index) && geometry.index) primitive.indices = append(geometry.index, 'indices')
     for (const [index, target] of (primitive.targets ?? []).entries()) {
       for (const key of Object.keys(target)) {
         const name = names[key] as 'position' | 'normal' | 'color'
@@ -73,6 +83,40 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
         if (!attr) throw new Error('Недоступны данные морфа для сохранения.')
         if (draco || attr !== prior.morphAttributes[name]?.[index]) target[key] = append(attr, key)
       }
+    }
+    for (const group of groups) {
+      const vertices: number[] = [], remap = new Map<number, number>(), index = new Uint32Array(group.count)
+      for (let i = 0; i < group.count; i++) {
+        const vertex = geometry.index!.getX(group.start + i)
+        if (!remap.has(vertex)) { remap.set(vertex, vertices.length); vertices.push(vertex) }
+        index[i] = remap.get(vertex)!
+      }
+      const cap: { attributes: Record<string, number>, indices: number, material?: number, targets?: Record<string, number>[] } =
+        { attributes: {}, indices: append(new BufferAttribute(index, 1), 'indices'), material: primitive.material }
+      const color = seam_colors?.get(group.materialIndex!)
+      if (color) {
+        doc.materials ??= []
+        cap.material = doc.materials.length
+        doc.materials.push({ name: 'Цвет среза', doubleSided: true, pbrMetallicRoughness: {
+          baseColorFactor: [...color, 1], metallicFactor: 0, roughnessFactor: .85
+        } })
+      }
+      const normal_geometry = new BufferGeometry()
+      const p = geometry.attributes.position
+      normal_geometry.setAttribute('position', new BufferAttribute(Float32Array.from(vertices.flatMap(i => [p.getX(i), p.getY(i), p.getZ(i)])), 3))
+      normal_geometry.setIndex(new BufferAttribute(index, 1))
+      normal_geometry.computeVertexNormals()
+      for (const key of keys) {
+        if (color && (key === 'COLOR_0' || key === 'TANGENT')) continue
+        if (key === 'NORMAL') continue
+        cap.attributes[key] = append(geometry.attributes[names[key] ?? key.toLowerCase()], key, vertices)
+      }
+      cap.attributes.NORMAL = append(normal_geometry.attributes.normal, 'NORMAL')
+      normal_geometry.dispose()
+      cap.targets = primitive.targets?.map((target: Record<string, number>, i: number) =>
+        Object.fromEntries(Object.keys(target).map(key => [key,
+          append(geometry.morphAttributes[names[key] as 'position' | 'normal' | 'color']![i], key, vertices)])))
+      primitives.push(cap)
     }
   }
   doc.buffers[0].byteLength = length
