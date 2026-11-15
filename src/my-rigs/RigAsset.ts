@@ -55,8 +55,12 @@ export function build_rig_asset (gltf: GLTF, document: GlbDocument, buffer: Arra
     }
   })
   for (const [object, id] of by_object) {
+    const sourceIndex = gltf.parser.associations.get(object)?.nodes
+    // Three sanitizes dots and other punctuation for PropertyBinding. Keep
+    // the authored name for rig matching so e.g. "upperarm.l" retains its side.
+    const name = sourceIndex === undefined ? undefined : document.nodes?.[sourceIndex]?.name
     nodes.set(id, {
-      id, name: object.name || ('Узел ' + id), object,
+      id, name: name || object.name || ('Узел ' + id), object,
       parent_id: object.parent ? by_object.get(object.parent) ?? null : null,
       position: object.position.clone(), rotation: object.quaternion.clone(), scale: object.scale.clone(),
       world_rotation: object.getWorldQuaternion(new Quaternion()),

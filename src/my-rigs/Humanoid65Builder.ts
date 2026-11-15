@@ -132,8 +132,12 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       await report('Уточняю локти и колени…')
       // Use the template ratio only to constrain the search. Moving the elbow
       // onto the shoulder–wrist line destroys its fitted depth and bend plane.
-      refine_humanoid_joints(asset.scene, chains, null, world(get('pelvis')).x, chain =>
-        chain.kind === 'elbow' ? { max_fraction: .70, max_shift: .18, reference_fraction: elbowFractions.get(chain.joint) } : undefined)
+      refine_humanoid_joints(asset.scene, chains, null, world(get('pelvis')).x, {
+        checkPairedKnees: true,
+        search: chain => chain.kind === 'elbow'
+          ? { max_fraction: .70, max_shift: .18, reference_fraction: elbowFractions.get(chain.joint) }
+          : { min_fraction: .34, max_fraction: .66, max_shift: .17, reference_fraction: .50 }
+      })
     }
     // The template has an extra non-deforming scene driver. Preserve its TRS
     // as a Group; the 65 anatomical joints (including finger tips) remain bones.

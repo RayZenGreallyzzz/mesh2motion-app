@@ -164,8 +164,11 @@ function plan_transfer (source: RigAsset, target: RigAsset, mapping: RigMapping,
   for (const pair of pairs) {
     const role = sr.get(pair.from.node.id)
     pair.translate = role?.slot === BoneSlot.Pelvis || role?.slot === 'root' || !pairs.some(p => is_ancestor(source, p.from.node.id, pair.from.node.id))
-    // Calibrate the anatomical direction, keeping all original local axes/bind data.
-    if (!options.deformation && options.match_pose !== false && role && !role.leaf && role.slot !== 'root' && role.slot !== BoneSlot.Pelvis && role.slot !== BoneSlot.Unknown) {
+    // A/T matching may align limbs. The torso and head take only the
+    // animated change from the donor, so a difference in bind posture does
+    // not bend the target spine when the clip has no torso motion.
+    const preservesPosture = role && (role.slot === BoneSlot.Spine || role.slot === BoneSlot.Neck || role.slot === BoneSlot.Head)
+    if (!options.deformation && options.match_pose !== false && role && !role.leaf && !preservesPosture && role.slot !== 'root' && role.slot !== BoneSlot.Pelvis && role.slot !== BoneSlot.Unknown) {
       const children = pairs.filter(p => p !== pair && is_ancestor(source, pair.from.node.id, p.from.node.id) && (is_ancestor(target, pair.to.node.id, p.to.node.id) || p.attachment?.parent === pair.to) && p.from.wp.distanceToSquared(pair.from.wp) > EPS && p.to.wp.distanceToSquared(pair.to.wp) > EPS)
       children.sort((a, b) => a.from.wp.distanceToSquared(pair.from.wp) - b.from.wp.distanceToSquared(pair.from.wp))
       const child = children[0]

@@ -48,7 +48,7 @@ function pose(asset:RigAsset,clip:AnimationClip,time:number){restore_rig_pose(as
 
 describe('Unequal-skeleton motion transfer',()=>{
  it('recognizes an animation-only humanoid GLB hierarchy without skin declarations',()=>{
-  const original=fixture(false,41),objects=[...original.nodes.values()],associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
+  const original=fixture(false,41),objects=[...original.nodes.values()].sort((a,b)=>Number(a.id.slice(1))-Number(b.id.slice(1))),associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
   const source=build_rig_asset({scene:original.scene,animations:original.clips,parser:{associations}} as unknown as GLTF,{asset:{version:'2.0'},nodes:objects.map(n=>({name:n.name}))},new ArrayBuffer(0),'Animation only')
   expect(source.inferred_skeleton).toBe(true)
   const target=fixture(true,60),map=suggest_mapping(source,target),before=skin(target)
@@ -58,12 +58,42 @@ describe('Unequal-skeleton motion transfer',()=>{
  })
  it('does not infer bones from disconnected or ambiguous names or from an unanimated body',()=>{
   for(const mode of ['broken','unanimated','ambiguous']){
-   const original=fixture(false,41),objects=[...original.nodes.values()],associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
+   const original=fixture(false,41),objects=[...original.nodes.values()].sort((a,b)=>Number(a.id.slice(1))-Number(b.id.slice(1))),associations=new Map(objects.map(n=>[n.object,{nodes:Number(n.id.slice(1))}]))
    if(mode==='broken')original.scene.attach(joint(original,'calf_l').object)
    if(mode==='ambiguous')objects.find(n=>n.name.startsWith('extra_source_'))!.object.name='head'
-   const source=build_rig_asset({scene:original.scene,animations:mode==='unanimated'?[]:original.clips,parser:{associations}} as unknown as GLTF,{asset:{version:'2.0'},nodes:objects.map(n=>({name:n.name}))},new ArrayBuffer(0),'Scene')
+   const source=build_rig_asset({scene:original.scene,animations:mode==='unanimated'?[]:original.clips,parser:{associations}} as unknown as GLTF,{asset:{version:'2.0'},nodes:objects.map(n=>({name:n.object.name}))},new ArrayBuffer(0),'Scene')
    expect(source.inferred_skeleton).toBe(false);expect([...source.nodes.values()].some(n=>n.is_joint)).toBe(false)
   }
+ })
+ it('recognizes a skinless animation with separate wrist and hand joints', () => {
+  const original = fixture(false, 41), objects = [...original.nodes.values()]
+    .sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)))
+  const associations = new Map(objects.map(n => [n.object, { nodes: Number(n.id.slice(1)) }]))
+  const extra = [] as Bone[]
+  for (const side of ['l', 'r']) {
+    const hand = joint(original, 'hand_' + side).object
+    const forearm = hand.parent!
+    const wrist = new Bone()
+    wrist.name = 'wrist' + side
+    forearm.add(wrist); wrist.add(hand)
+    associations.set(wrist, { nodes: objects.length + extra.length })
+    extra.push(wrist)
+  }
+  const mannequin = new Group()
+  mannequin.name = 'Mannequin_Head'
+  original.scene.add(mannequin)
+  associations.set(mannequin, { nodes: objects.length + extra.length })
+  const source = build_rig_asset({ scene: original.scene, animations: original.clips, parser: { associations } } as unknown as GLTF,
+    { asset: { version: '2.0' }, nodes: [
+      ...objects.map(n => ({ name: n.name.replace(/_([lr])$/, '.$1') })),
+      ...extra.map(n => ({ name: n.name.replace(/^wrist/, 'wrist.') })), { name: mannequin.name }
+    ] },
+    new ArrayBuffer(0), 'Animation only with wrists')
+  expect(source.inferred_skeleton).toBe(true)
+  expect(!joint(source, 'wrist.l').is_joint).toBe(true)
+  expect(joint(source, 'hand.l').is_joint).toBe(true)
+  const target = fixture(true, 60), mapping = suggest_mapping(source, target)
+  expect(transfer_clips(source, target, mapping, [0])).toHaveLength(1)
  })
  it('transfers 41 to 60 bones while retaining hierarchy, weights, bind data and limb lengths',()=>{
   const source=fixture(false,41),target=fixture(true,60),map=suggest_mapping(source,target),before=skin(target)
@@ -81,6 +111,20 @@ describe('Unequal-skeleton motion transfer',()=>{
   const direction=(a:RigAsset,start:string,end:string)=>joint(a,end).object.getWorldPosition(new Vector3()).sub(joint(a,start).object.getWorldPosition(new Vector3())).normalize()
   expect(direction(source,'upperarm_l','lowerarm_l').dot(direction(target,'mixamorigLeftArm','mixamorigLeftForeArm'))).toBeGreaterThan(.99999)
   expect(direction(source,'lowerarm_l','hand_l').dot(direction(target,'mixamorigLeftForeArm','mixamorigLeftHand'))).toBeGreaterThan(.99999)
+ })
+ it('keeps the target torso in its own rest posture when the donor spine has no motion', () => {
+  const source = fixture(false, 41), target = fixture(true, 60)
+  joint(source, 'spine2').position.z += .15
+  source.clips = [new AnimationClip('Arm motion', 1, [source.clips[0].tracks.find(
+    track => track.name === joint(source, 'lowerarm_l').object.uuid + '.quaternion')!])]
+  restore_rig_pose(source)
+  const direction = () => [...target.nodes.values()].filter(n => /Hips|Spine|Head/.test(n.name))
+    .map(n => n.object.getWorldPosition(new Vector3()))
+  const rest = direction()
+  const clip = transfer_clips(source, target, suggest_mapping(source, target), [0], { match_pose: true })[0]
+  const mixer = pose(target, clip, .5)
+  direction().forEach((point, index) => expect(point.distanceTo(rest[index])).toBeLessThan(1e-5))
+  mixer.stopAllAction()
  })
  it('includes the motion of unmapped intermediate source bones',()=>{
   const source=fixture(false,41),target=fixture(true,60),map=suggest_mapping(source,target),spine=joint(source,'spine2');delete map[spine.id]

@@ -108,6 +108,31 @@ describe('Anatomical elbow and knee fitting', () => {
     expect(fitted!.point.distanceTo(new Vector3(.3, .5, 0))).toBeLessThan(.025)
   })
 
+  it('does not use contradictory knee notches on legs in the same stance', () => {
+    const model = new Group(), rig = new Group()
+    const chains = [-1, 1].map((sign, i) => {
+      const notch = i ? .51 : .63
+      const leg = new Mesh(new LatheGeometry([
+        new Vector2(.08, 0), new Vector2(.10, notch - .16), new Vector2(.045, notch),
+        new Vector2(.12, notch + .16), new Vector2(.13, 1)
+      ], 24))
+      leg.position.x = sign * .18; model.add(leg)
+      const start = new Bone(), joint = new Bone(), end = new Bone()
+      start.position.set(sign * .18, 1, 0); joint.position.y = end.position.y = -.5
+      rig.add(start); start.add(joint); joint.add(end)
+      return { start, joint, end, kind: 'knee' as const }
+    })
+    refine_humanoid_joints(model, chains, null, 0)
+    expect(Math.abs(chains[0].joint.getWorldPosition(new Vector3()).y -
+      chains[1].joint.getWorldPosition(new Vector3()).y)).toBeGreaterThan(.10)
+    for (const { joint, end } of chains) joint.position.y = end.position.y = -.5
+    refine_humanoid_joints(model, chains, null, 0, { checkPairedKnees: true })
+    for (const { joint } of chains) {
+      expect(joint.getWorldPosition(new Vector3()).y).toBeCloseTo(.5, 6)
+      expect(joint.userData.rigJointFit.source).toBe('fallback')
+    }
+  })
+
   it('keeps wrists, ankles and toe offsets when the parent joints move', async () => {
     const model = joint_character(.64, .58), { bones, skeleton } = await template()
     fit_humanoid_rig(model, skeleton, null, () => {})

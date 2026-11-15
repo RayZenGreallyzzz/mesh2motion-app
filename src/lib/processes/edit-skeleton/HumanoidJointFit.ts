@@ -9,6 +9,7 @@ export interface LimbChain {
 }
 
 interface JointSearch {
+  min_fraction?: number
   max_fraction?: number
   max_shift?: number
   reference_fraction?: number
@@ -172,10 +173,11 @@ export function estimate_limb_joint (
   // the distal end of a leg and implausibly large shifts of its coarse landmark.
   // These are search bounds along this limb, never a fixed percentage of height.
   const maxFraction = search?.max_fraction ?? (kind === 'knee' ? .74 : .88)
+  const minFraction = search?.min_fraction ?? .22
   let best: JointEstimate | null = null, bestScore = 0
   for (let i = 18; i <= 84; i++) {
     const section = profile[i], fraction = first + i * step
-    if (!section || fraction < .22 || fraction > maxFraction || Math.abs(fraction - prior) > (search?.max_shift ?? (kind === 'knee' ? .23 : 1))) continue
+    if (!section || fraction < minFraction || fraction > maxFraction || Math.abs(fraction - prior) > (search?.max_shift ?? (kind === 'knee' ? .23 : 1))) continue
     const before = profile.slice(i - 14, i - 5).filter((s): s is Section => s !== null)
     const after = profile.slice(i + 6, i + 15).filter((s): s is Section => s !== null)
     if (before.length < 6 || after.length < 6) continue
@@ -212,7 +214,10 @@ export function estimate_limb_joint (
 }
 
 /** Run after the Woman shoulder pass, which must not overwrite these joints. */
-export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number, search?: (chain: LimbChain) => JointSearch | undefined): void {
+export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], frame: Object3D | null, centerX: number, options?: {
+  search?(chain: LimbChain): JointSearch | undefined
+  checkPairedKnees?: boolean
+}): void {
   const surface = joint_fit_surface(model, frame)
   const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
   const at = (bone: Bone) => bone.getWorldPosition(new Vector3()).applyMatrix4(inverse)
@@ -222,9 +227,28 @@ export function refine_humanoid_joints (model: Object3D, chains: LimbChain[], fr
     bone.position.copy(bone.parent ? bone.parent.worldToLocal(world) : world)
     bone.updateWorldMatrix(true, true)
   }
-  for (const chain of chains) {
-    const { start, joint, end, kind } = chain
-    const estimate = estimate_limb_joint(surface, at(start), at(end), at(joint), centerX, kind, search?.(chain))
+  const fits = chains.map(chain => {
+    const start = at(chain.start), end = at(chain.end), joint = at(chain.joint)
+    const estimate = estimate_limb_joint(surface, start, end, joint, centerX, chain.kind, options?.search?.(chain))
+    return { chain, start, end, joint, estimate }
+  })
+  const knees = fits.filter(fit => fit.chain.kind === 'knee')
+  if (options?.checkPairedKnees && knees.length === 2) {
+    const [left, right] = knees
+    const limb = Math.min(left.start.distanceTo(left.end), right.start.distanceTo(right.end))
+    const sameLevel = (a: Vector3, b: Vector3) => Math.hypot(a.y - b.y, a.z - b.z) < limb * .07
+    if (limb > 1e-5 && sameLevel(left.start, right.start) && sameLevel(left.end, right.end)) {
+      const fraction = ({ start, end, joint, estimate }: typeof left) => {
+        const axis = end.clone().sub(start)
+        return estimate?.fraction ?? joint.clone().sub(start).dot(axis) / axis.lengthSq()
+      }
+      // Armour and clothing can add a single false notch at knee height.
+      // In a matched stance prefer the measured fallback over contradictory
+      // left/right notches. Staggered feet can legitimately imply two bends.
+      if (Math.abs(fraction(left) - fraction(right)) > .10) left.estimate = right.estimate = null
+    }
+  }
+  for (const { chain: { joint, end, kind }, estimate } of fits) {
     joint.userData.rigJointFit = estimate ? { source: 'surface', evidence: estimate.evidence, confidence: estimate.confidence } : { source: 'fallback' }
     if (!estimate) { joint.userData.rigFitWarning = true; continue }
     delete joint.userData.rigFitWarning
