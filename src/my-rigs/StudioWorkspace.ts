@@ -1,7 +1,8 @@
 import type { RigViewer } from './RigViewer.ts'
 import './studio-workspace.css'
 
-type Panel = 'file' | 'native' | 'motions' | 'library' | 'view'
+type Panel = 'file' | 'native' | 'motions' | 'library' | 'view' | 'edit'
+type MeshEditor = { element: HTMLElement, enter(): void, leave(force: boolean): boolean }
 
 /** Full-screen stage with settings and head review in toolbar popovers. */
 export class StudioWorkspace {
@@ -10,7 +11,7 @@ export class StudioWorkspace {
   private readonly panels = new Map<Panel, HTMLElement>()
   private readonly buttons = new Map<Panel, HTMLButtonElement>()
   private readonly toolbar = document.createElement('nav')
-  constructor(private readonly viewer: RigViewer, private readonly show_tab: (library: boolean) => void) {
+  constructor(private readonly viewer: RigViewer, private readonly show_tab: (library: boolean) => void, private readonly editor: MeshEditor) {
     document.body.classList.add('room-workspace')
     this.toolbar.className = 'studio-toolbar'; this.toolbar.setAttribute('aria-label', 'Вкладки студии')
     const layer = document.createElement('div'); layer.className = 'workspace-layer'
@@ -24,6 +25,7 @@ export class StudioWorkspace {
     }
     const file = pane('file', 'Файл и персонаж', 'Файл')
     document.querySelectorAll('.import-row').forEach(row => file.append(row)); file.append(document.getElementById('asset-info')!)
+    pane('edit', 'Правка модели', 'Правка').append(editor.element)
     const rig = pane('native', 'Создать риг', 'Риг')
     rig.append(document.getElementById('humanoid65-panel')!, document.getElementById('initial-pose')!)
     const native_details = document.createElement('details'), native_summary = document.createElement('summary'); native_summary.textContent = 'Нативные ориентиры тела · тест'; native_details.append(native_summary, document.getElementById('native-rig-panel')!); rig.append(native_details)
@@ -41,10 +43,14 @@ export class StudioWorkspace {
     const observer = new ResizeObserver(() => this.update_overlay()); for (const panel of this.panels.values()) observer.observe(panel)
     window.addEventListener('resize', () => this.update_overlay())
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && this.active && !(event.target as HTMLElement).closest('dialog[open]')) { event.preventDefault(); this.close() } })
-    document.addEventListener('click', event => { if (this.active && !(event.target as HTMLElement).closest('.workspace-dialog, .studio-toolbar, .pose-editor-panel, dialog')) this.close(false) })
+    document.addEventListener('click', event => { if (this.active && this.active !== 'edit' && !(event.target as HTMLElement).closest('.workspace-dialog, .studio-toolbar, .pose-editor-panel, dialog')) this.close(false) })
   }
   open(key: Panel): void {
+    const old = this.active
+    if (old !== key && old === 'edit' && !this.editor.leave(false)) return
+    if (key === 'edit' && this.buttons.get(key)?.disabled) return
     this.active = key
+    if (key === 'edit' && old !== key) this.editor.enter()
     if (key === 'motions' || key === 'library') this.show_tab(key === 'library')
     for (const [name, panel] of this.panels) panel.hidden = name !== key
     for (const [name, button] of this.buttons) { button.setAttribute('aria-expanded', String(name === key)); button.classList.toggle('active', name === key) }
@@ -61,7 +67,9 @@ export class StudioWorkspace {
     button.classList.toggle('review-pending', reviewing)
     if (reviewing) this.open('native')
   }
-  close(focus = true): void {
+  set_edit_enabled(enabled: boolean): void { this.buttons.get('edit')!.disabled = !enabled }
+  close(focus = true, force = false): void {
+    if (this.active === 'edit' && !this.editor.leave(force)) return
     const old = this.active; this.active = undefined; for (const panel of this.panels.values()) panel.hidden = true
     for (const button of this.buttons.values()) { button.setAttribute('aria-expanded', 'false'); button.classList.remove('active') }
     this.viewer.set_settings_overlay(0, 0, false); if (focus && old) this.buttons.get(old)?.focus()

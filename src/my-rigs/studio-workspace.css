@@ -14,6 +14,15 @@ body.room-workspace [hidden] { display: none !important; }
 .workspace-dialog-heading h2 { margin: 0; font-size: 18px; }
 .workspace-dialog-heading > button { min-width: 44px; font-size: 24px; padding: 2px; }
 .workspace-dialog .stage-tools { position: static; display: grid; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.mesh-editor { display: grid; gap: 10px; }
+.mesh-editor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mesh-editor-row button { min-height: 44px; }
+.mesh-editor-row button[aria-pressed="true"] { background: #365057; border-color: #7ab7aa; }
+.mesh-editor-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: 13px; }
+.mesh-editor-inputs input { width: 100%; }
+.mesh-editor input[type=color] { min-height: 44px; min-width: 48px; padding: 3px; }
+.mesh-editor .hint { margin: 0; }
+.mesh-editor-selection { color: #9de6ca; }
 .workspace-dialog .native-rig-panel { margin: 0; }
 .workspace-dialog .import-row { margin-bottom: 10px; }
 .workspace-dialog #clips { max-height: none; }

@@ -2,7 +2,7 @@ import {
   AnimationMixer, Box3, Color, GridHelper, HemisphereLight, DirectionalLight,
   PerspectiveCamera, PMREMGenerator, Scene, SkeletonHelper, Vector3, WebGLRenderer,
   Group, Mesh, MeshBasicMaterial, SphereGeometry, Plane, Raycaster, Vector2, LineSegments, BufferGeometry, Float32BufferAttribute, LineBasicMaterial,
-  type AnimationAction, type AnimationClip, type Object3D, type SkinnedMesh
+  type AnimationAction, type AnimationClip, type Intersection, type Object3D, type SkinnedMesh
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
@@ -38,6 +38,8 @@ export class RigViewer {
   private overlay = { width: 0, height: 0, bottom: false }
   private native_change?: (name: string, point: [number, number, number]) => void
   private native_drag?: { name: string, mesh: Mesh, plane: Plane, offset: Vector3, pointer: number }
+  private mesh_picker?: (hit: Intersection<Mesh>) => void
+  private mesh_touch?: { pointer: number, x: number, y: number }
   on_time: (time: number, duration: number) => void = () => {}
 
   constructor (container: HTMLElement) {
@@ -66,6 +68,13 @@ export class RigViewer {
       ray.setFromCamera(new Vector2((event.clientX - r.left) / r.width * 2 - 1, 1 - (event.clientY - r.top) / r.height * 2), this.camera)
     }
     canvas.addEventListener('pointerdown', event => {
+      if (this.mesh_picker) {
+        if (event.button !== 0 || this.mesh_touch) return
+        this.mesh_touch = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
+        canvas.setPointerCapture(event.pointerId)
+        event.preventDefault(); event.stopImmediatePropagation()
+        return
+      }
       if (!this.native_change || !this.native_markers.children.length) return
       const rect = canvas.getBoundingClientRect(); let target: Mesh | undefined, distance = 24 * 24
       for (const child of this.native_markers.children) {
@@ -87,6 +96,18 @@ export class RigViewer {
       event.preventDefault(); event.stopImmediatePropagation()
     }, true)
     const finish = (event: PointerEvent): void => {
+      const touch = this.mesh_touch
+      if (touch?.pointer === event.pointerId) {
+        this.mesh_touch = undefined
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
+        if (event.type === 'pointerup' && Math.hypot(touch.x - event.clientX, touch.y - event.clientY) < 14 && this.asset) {
+          pointer(event)
+          const hit = ray.intersectObject(this.asset.scene, true).find(item => item.face && (item.object as Mesh).isMesh)
+          if (hit) this.mesh_picker?.(hit as Intersection<Mesh>)
+        }
+        event.preventDefault(); event.stopImmediatePropagation()
+        return
+      }
       if (!this.native_drag || this.native_drag.pointer !== event.pointerId) return
       this.native_drag = undefined; this.controls.enabled = true; if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
       event.preventDefault(); event.stopImmediatePropagation()
@@ -235,6 +256,22 @@ export class RigViewer {
   set_follow (enabled: boolean): void { this.follow_enabled = enabled; if (enabled) this.fit(true) }
 
   set_speed (value: number): void { this.speed = value }
+  set_mesh_picker (picker?: (hit: Intersection<Mesh>) => void): void {
+    this.mesh_picker = picker
+    const canvas = this.renderer.domElement, id = this.mesh_touch?.pointer
+    if (id !== undefined && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id)
+    this.mesh_touch = undefined
+    this.controls.enabled = !picker
+    canvas.style.cursor = picker ? 'crosshair' : ''
+  }
+  view_direction (x: number, y: number, z: number): Vector3 {
+    return new Vector3(x, y, z).applyQuaternion(this.camera.quaternion)
+  }
+  model_size (): number {
+    if (!this.asset) return 0
+    const size = new Box3().setFromObject(this.asset.scene).getSize(new Vector3())
+    return Math.max(size.x, size.y, size.z)
+  }
   set_suspended (value: boolean): void { this.suspended = value; this.previous = 0 }
   show_skeleton (value: boolean): void { if (this.helper) this.helper.visible = value }
 

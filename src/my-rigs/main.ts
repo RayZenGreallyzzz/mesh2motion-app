@@ -21,6 +21,9 @@ import { NativeRigPanel } from './NativeRigPanel.ts'
 import { Humanoid65Panel } from './Humanoid65Panel.ts'
 import { validate_humanoid65, validate_native_skin } from './NativeRigValidation.ts'
 import { StudioWorkspace } from './StudioWorkspace.ts'
+import { MeshEditPanel } from './MeshEditPanel.ts'
+import { write_mesh_edits } from './MeshEditGlb.ts'
+import { write_clips_glb } from './GlbClipWriter.ts'
 
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
 const button = (id: string): HTMLButtonElement => element<HTMLButtonElement>(id)
@@ -35,6 +38,7 @@ let mapping: RigMapping = {}
 let selected_clip = -1
 let busy = false
 let pose_editing = false
+let mesh_editing = false
 let native_panel: NativeRigPanel | undefined
 let workspace: StudioWorkspace | undefined
 let humanoid_panel: Humanoid65Panel | undefined
@@ -44,11 +48,12 @@ const status = (message: string, error = false): void => {
 }
 
 function controls (): void {
-  const own_busy = busy || pose_editing
+  const own_busy = busy || pose_editing || mesh_editing
   humanoid_panel?.refresh(own_busy)
   const reviewing = humanoid_panel?.reviewing ?? false
   workspace?.set_head_review(reviewing)
   const locked = own_busy || reviewing
+  workspace?.set_edit_enabled(Boolean(asset?.vertex_count) && !busy && !pose_editing && !reviewing)
   button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
     button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
@@ -133,7 +138,39 @@ humanoid_panel = new Humanoid65Panel(element('humanoid65-panel'), {
     show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true)
   }
 })
-workspace = new StudioWorkspace(viewer, show_tab)
+const mesh_editor = new MeshEditPanel(viewer, {
+  status,
+  apply: async edits => {
+    await operation('Сохраняю правку модели…', async () => {
+      const current = asset!
+      const source = current.dirty ? write_clips_glb(current, current.clips.map((_, i) => i)) : current.source_bytes
+      if (!source) throw new Error('Сначала сохраните текущий риг с движениями и откройте GLB заново.')
+      const next = await load_rig_asset(write_mesh_edits(source, edits), current.name.replace(/ · правка$/, '') + ' · правка')
+      if (next.skeleton_count !== current.skeleton_count || next.clips.length !== current.clips.length) {
+        dispose_rig_scene(next.scene)
+        throw new Error('Не удалось сохранить все движения или скелеты. Правка ещё открыта.')
+      }
+      workspace?.close(false, true)
+      show_asset(next)
+      workspace?.open('motions')
+      status('Правка применена. Сохраните отдельный GLB через «Экспорт GLB».')
+    })
+  }
+})
+workspace = new StudioWorkspace(viewer, show_tab, {
+  element: mesh_editor.element,
+  enter: () => {
+    if (incoming) cancel_transfer()
+    mesh_editing = true; selected_clip = -1; button('pause').textContent = '▶'
+    mesh_editor.start(asset!); viewer.show_skeleton(false); controls()
+  },
+  leave: force => {
+    if (!force && (mesh_editor.is_pending || (mesh_editor.has_edits && !confirm('Закрыть правку без применения изменений?')))) return false
+    mesh_editor.end(); mesh_editing = false
+    viewer.show_skeleton(element<HTMLInputElement>('skeleton').checked); controls()
+    return true
+  }
+})
 let pose_calibration: ReturnType<typeof create_asset_pose_calibration> | undefined
 const pose_panel = new PoseEditorPanel(document.body, {
   applied: () => {
