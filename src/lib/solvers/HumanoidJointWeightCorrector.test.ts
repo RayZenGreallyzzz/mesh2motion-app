@@ -76,6 +76,28 @@ describe('Humanoid elbow and knee weights', () => {
     expect(weights[9]).toBeCloseTo(.45, 6)
     expect(weights.slice(12)).toEqual([1,0,0,0])
   })
+
+  it.each(['arm', 'leg'] as const)('softens the outer %s near a joint in the full rig', role => {
+    const { bones } = limb(role, 'l')
+    const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([
+      .44, .995, 0, .44, 1.005, 0, .52, 1, 0
+    ], 3))
+    const indices = [0, 2, 0, 0, 1, 2, 0, 0, 0, 1, 2, 0]
+    const weights = [.9, .1, 0, 0, .9, .1, 0, 0, .1, .8, .1, 0]
+    const corrector = new HumanoidJointWeightCorrector(geometry, bones)
+    const regular = weights.slice()
+    corrector.apply(indices.slice(), regular)
+    expect(regular).toEqual(weights)
+    corrector.apply(indices, weights, true)
+    const influence = (vertex: number, bone: number) => {
+      const start = vertex * 4
+      return weights.slice(start, start + 4).reduce((sum, weight, slot) =>
+        sum + (indices[start + slot] === bone ? weight : 0), 0)
+    }
+    expect(Math.abs(influence(0, 0) - influence(1, 0))).toBeLessThan(.65)
+    for (const vertex of [0, 1, 2]) expect(influence(vertex, 2)).toBeCloseTo(.1, 8)
+    expect(weights.slice(8)).toEqual(regular.slice(8))
+  })
 })
 
 it('reduces the underarm crease during rotation with the existing shoulder bones', () => {

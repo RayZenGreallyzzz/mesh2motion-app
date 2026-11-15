@@ -33,8 +33,8 @@ export class HumanoidJointWeightCorrector {
     this.bones = bones
   }
 
-  public apply (skinIndices: number[], skinWeights: number[]): void {
-    const pairs = this.build_joint_pairs()
+  public apply (skinIndices: number[], skinWeights: number[], soften = false): void {
+    const pairs = this.build_joint_pairs(soften)
     if (pairs.length === 0) return
 
     const positions = this.geometry.getAttribute('position')
@@ -113,7 +113,7 @@ export class HumanoidJointWeightCorrector {
     }
   }
 
-  private build_joint_pairs (): JointPair[] {
+  private build_joint_pairs (soften: boolean): JointPair[] {
     const result: JointPair[] = []
 
     for (const side of ['l', 'r'] as const) {
@@ -129,8 +129,11 @@ export class HumanoidJointWeightCorrector {
         const childPoint = Utility.world_position_from_object(tip)
         const reference = Math.min(parentPoint.distanceTo(joint), joint.distanceTo(childPoint))
         if (reference <= 1e-5) continue
+        // The wider full-rig gradient reaches the outside of the arm and calf
+        // while keeping the split local to the same two bones.
         result.push({ parentIndex, childIndex, joint, parentPoint, childPoint,
-          halfWidth: reference * 0.18, radius: reference * 0.42 })
+          halfWidth: reference * (soften ? 0.22 : 0.18),
+          radius: reference * (soften ? 0.50 : 0.42) })
       }
     }
 
