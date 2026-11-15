@@ -2,7 +2,8 @@ import { Bone, Box3, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Quat
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { fit_humanoid_rig } from '../lib/processes/edit-skeleton/HumanoidAutoFit.ts'
 import { humanoid_fit_yaw } from '../lib/processes/edit-skeleton/HumanoidFitFrame.ts'
-import { fit_humanoid_head, fit_humanoid_head_surface } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
+import { fit_humanoid_head, fit_humanoid_head_surface, fit_humanoid_head_volume } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
+import { fit_humanoid_body_volume } from '../lib/processes/edit-skeleton/HumanoidBodyVolumeFit.ts'
 import { joint_fit_surface, refine_humanoid_joints, type LimbChain } from '../lib/processes/edit-skeleton/HumanoidJointFit.ts'
 import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
 import SkinningAlgorithm from '../lib/solvers/SkinningAlgorithm.ts'
@@ -17,7 +18,7 @@ import { apply_body_points, HumanoidBodyReviewRequired, sample_body_depth, sugge
 
 export interface HumanoidMesh { source: Mesh, source_node: number, primitive: number, world: Matrix4, indices: Uint16Array, weights: Float32Array }
 export interface Humanoid65Options { template: ArrayBuffer, original_for_fit?: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean, head_landmarks?: HeadLandmarks, review_head?: boolean, body_points?: BodyCorrections, review_body?: boolean }
-export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, head_fit_source: 'vertices' | 'surface' | 'manual', joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
+export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, head_fit_source: 'vertices' | 'surface' | 'volume' | 'manual', joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
 const check = (signal?: AbortSignal): void => { if (signal?.aborted) throw new Error('Расчёт отменён. Исходный персонаж сохранён.') }
 const world = (bone: Bone): Vector3 => bone.getWorldPosition(new Vector3())
 function place(bone: Bone, point: Vector3): void { bone.parent?.updateWorldMatrix(true, false); bone.position.copy(bone.parent ? bone.parent.worldToLocal(point.clone()) : point); bone.updateWorldMatrix(true, true) }
@@ -135,6 +136,7 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     const hints=new Map([...asset.nodes.values()].filter(n=>n.is_joint).map(n=>[n.name,n.object.getWorldPosition(new Vector3())]))
     const bodyNames=['pelvis','spine_01','spine_02','spine_03','neck_01','head','clavicle_l','upperarm_l','lowerarm_l','hand_l','clavicle_r','upperarm_r','lowerarm_r','hand_r','thigh_l','calf_l','foot_l','ball_l','thigh_r','calf_r','foot_r','ball_r']
     const retainBody=bodyNames.every(name=>hints.has(name))&&hints.size<=24
+    let bodyVolume: ReturnType<typeof fit_humanoid_body_volume> | undefined
     if(retainBody){
       const shapes=new Map((['l','r'] as const).map(s=>[s,capture_hand_shape(get('hand_'+s),get('lowerarm_'+s))]))
       for(const bone of originalBones){const hint=hints.get(bone.name);if(hint)place(bone,hint)}
@@ -147,6 +149,9 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
         place_hand_shape(hand,shape,direction,Math.max(.4,Math.min(2.5,length/shape.length)))
       }
       const p=world(get('head'));place(get('head_leaf'),new Vector3(p.x,top,p.z))
+    } else {
+      await report('Проверяю положение таза и плеч внутри модели…')
+      bodyVolume = fit_humanoid_body_volume(fitModel, originalBones, fitFrame, top - bottom)
     }
     check(options.signal)
     await report('Уточняю шею и голову…')
@@ -163,8 +168,13 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
         if (toFitFrame) for (const point of points) point.applyMatrix4(toFitFrame)
         headFitted=fit_humanoid_head(points,originalBones,fitFrame,(shoulder-bottom)/.79)
       }
+      if (!headFitted && bodyVolume) {
+        headFitted = fit_humanoid_head_volume(bodyVolume, originalBones, fitFrame, top - bottom)
+        if (headFitted) headSource = 'volume'
+      }
       if((!headFitted||options.review_head) && !options.review_body)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
+    bodyVolume = undefined
     points.length=0
     const chains:LimbChain[]=(['l','r'] as const).flatMap(s=>[{start:get('upperarm_'+s),joint:get('lowerarm_'+s),end:get('hand_'+s),kind:'elbow' as const},{start:get('thigh_'+s),joint:get('calf_'+s),end:get('foot_'+s),kind:'knee' as const}])
     if (!retainBody) {

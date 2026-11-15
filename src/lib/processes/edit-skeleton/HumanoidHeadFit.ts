@@ -1,4 +1,5 @@
 import { type Bone, type Object3D, Matrix4, Vector3 } from 'three'
+import type { CreatureVolume } from './CreatureVolume.ts'
 
 const percentile = (values: number[], q: number): number => {
   values.sort((a, b) => a - b)
@@ -129,5 +130,47 @@ export function fit_humanoid_head_surface(surface: Float32Array, bones: Bone[], 
   // detached raised hands or the separate contours of distant ears/horns.
   const crown = Math.min(top, Math.max(...rows.filter(r=>r.y>y).map(r=>r.y+step), oldTip.y))
   place(head, new Vector3(x, y + height * .002, z)); place(tip, new Vector3(x, Math.max(oldTip.y,crown), z))
+  return true
+}
+
+/** Find the solid neck-to-skull transition when hair or accessories intersect
+ * the head contours. Require a central neck band and a distinct skull above. */
+export function fit_humanoid_head_volume(volume: CreatureVolume, bones: Bone[], frame: Object3D | null, height: number): boolean {
+  const get = (name: string) => bones.find(b => b.name === name)!
+  const inverse = frame?.matrixWorld.clone().invert() ?? new Matrix4()
+  const at = (name: string) => get(name).getWorldPosition(new Vector3()).applyMatrix4(inverse)
+  const shoulder = (at('upperarm_l').y + at('upperarm_r').y) * .5
+  const midline = at('pelvis').x, oldHead = at('head'), step = volume.step
+  const rows = new Map<number, {point: Vector3, radius: number}>()
+  for (const id of volume.cells) {
+    const p = volume.point(id)
+    if (p.y < shoulder + step || p.y > shoulder + height * .23 ||
+      Math.abs(p.x - midline) > step * 1.5 || Math.abs(p.z - oldHead.z) > height * .065) continue
+    const radius = volume.radius[id] * step
+    if (radius < step * 2 || radius <= (rows.get(p.y)?.radius ?? 0)) continue
+    rows.set(p.y, {point:p, radius})
+  }
+  const sections = [...rows.values()].sort((a,b) => a.point.y - b.point.y)
+  const transitions = sections.filter(section => {
+    const y = section.point.y
+    if (y < shoulder + step * 2.5 || y > shoulder + height * .085) return false
+    const neck = sections.filter(row => Math.abs(row.point.y - y) < step * 2.1)
+    const skull = sections.filter(row => row.point.y > y + height * .028 && row.point.y < y + height * .10 &&
+      row.radius >= section.radius * 1.7 && Math.abs(row.point.z - section.point.z) < height * .04)
+    return neck.length >= 4 && skull.length >= 3 && neck.some(row => row.point.y < y - step * .5)
+  })
+  if (!transitions.length) return false
+  const anchor = transitions.reduce((a,b) => a.radius < b.radius ? a : b).point.clone()
+  const neck = sections.filter(row => row.point.y < anchor.y - step * 1.5 && row.point.y >= shoulder + step)
+    .sort((a,b) => Math.abs(a.point.y - anchor.y + height * .026) - Math.abs(b.point.y - anchor.y + height * .026))[0]?.point
+  const upper = sections.filter(row => row.point.y > anchor.y && row.radius >= step * 3)
+  const top = upper.at(-1)?.point
+  if (!neck || !top || top.y - anchor.y < height * .06) return false
+  const place = (name: string, p: Vector3) => {
+    const bone = get(name), world = frame ? p.clone().applyMatrix4(frame.matrixWorld) : p.clone()
+    bone.position.copy(bone.parent ? bone.parent.worldToLocal(world) : world)
+    bone.updateWorldMatrix(true, true)
+  }
+  place('neck_01', neck); place('head', anchor); place('head_leaf', top)
   return true
 }
