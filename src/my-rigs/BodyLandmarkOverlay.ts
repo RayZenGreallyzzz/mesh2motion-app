@@ -22,16 +22,22 @@ export class BodyLandmarkOverlay {
     this.layer.className = 'body-landmarks'
     this.layer.setAttribute('aria-label', 'Ориентиры тела на модели')
     this.layer.hidden = true
+    for (const type of ['contextmenu', 'selectstart', 'dragstart']) {
+      this.layer.addEventListener(type, event => event.preventDefault())
+    }
     container.append(this.layer)
     for (const name of body_keys) {
-      const [label, symbol, color] = body_landmarks[name]
+      const [label, color] = body_landmarks[name]
       const button = document.createElement('button')
       button.type = 'button'; button.className = 'body-landmark-handle'
-      button.textContent = symbol; button.title = label
+      const marker = document.createElement('span')
+      marker.className = 'body-landmark-ring'; marker.setAttribute('aria-hidden', 'true')
+      button.append(marker)
       button.setAttribute('aria-label', label); button.style.setProperty('--landmark-color', color)
-      button.onclick = () => this.state?.select(name)
+      // Keyboard activation still chooses the named control.
+      button.onclick = event => { if (event.detail === 0) this.state?.select(name) }
       button.onpointerdown = event => this.start(button, name, event)
-      button.onpointermove = event => this.move(name, event)
+      button.onpointermove = event => this.move(event)
       const finish = (event: PointerEvent): void => {
         if (this.drag?.id === event.pointerId) this.drag = undefined
       }
@@ -73,22 +79,38 @@ export class BodyLandmarkOverlay {
     return this.ray.ray.intersectPlane(plane, new Vector3())
   }
 
-  private start (button: HTMLButtonElement, name: BodyLandmark, event: PointerEvent): void {
-    if (!this.state?.editable || this.drag || event.button !== 0) return
+  private closest (event: PointerEvent, fallback: BodyLandmark): BodyLandmark {
+    const { left, top } = this.layer.getBoundingClientRect()
+    let closest = fallback, distance = Infinity
+    for (const [name, button] of this.buttons) {
+      if (button.hidden) continue
+      const next = (event.clientX - left - parseFloat(button.style.left)) ** 2 +
+        (event.clientY - top - parseFloat(button.style.top)) ** 2
+      if (next < distance || (next === distance && name === this.state?.active)) {
+        closest = name; distance = next
+      }
+    }
+    return closest
+  }
+
+  private start (button: HTMLButtonElement, fallback: BodyLandmark, event: PointerEvent): void {
+    if (!this.state || this.drag || event.button !== 0) return
+    event.preventDefault()
+    const name = this.closest(event, fallback)
+    this.state.select(name)
+    if (!this.state.editable) return
     const point = new Vector3(...this.state.points[name])
     const plane = new Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new Vector3()), point)
     const hit = this.hit(event, plane)
     if (!hit) return
-    this.state.select(name)
     this.drag = { name, id: event.pointerId, plane, offset: point.sub(hit) }
     button.setPointerCapture(event.pointerId)
-    event.preventDefault()
   }
 
-  private move (name: BodyLandmark, event: PointerEvent): void {
+  private move (event: PointerEvent): void {
     const drag = this.drag
-    if (!drag || drag.id !== event.pointerId || drag.name !== name || !this.state?.editable) return
+    if (!drag || drag.id !== event.pointerId || !this.state?.editable) return
     const hit = this.hit(event, drag.plane)
-    if (hit) this.state.move(name, hit.add(drag.offset).toArray())
+    if (hit) this.state.move(drag.name, hit.add(drag.offset).toArray())
   }
 }

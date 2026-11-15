@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from 'three'
 import { Humanoid65Panel } from '../src/my-rigs/Humanoid65Panel.ts'
 import { HumanoidHeadReviewRequired, type HeadLandmarks } from '../src/my-rigs/HumanoidHeadReview.ts'
+import { HumanoidBodyReviewRequired, type BodyPoints } from '../src/my-rigs/HumanoidBodyLandmarks.ts'
 import type { RigAsset } from '../src/my-rigs/RigAsset.ts'
 import type { RigViewer } from '../src/my-rigs/RigViewer.ts'
 const { build } = vi.hoisted(() => ({ build: vi.fn() }))
@@ -13,7 +14,7 @@ function asset(): RigAsset {
 }
 function setup() {
  let original = asset()
- const viewer = { stop: vi.fn(), fit: vi.fn(), set_asset: vi.fn(), set_native_points: vi.fn(), set_native_bones: vi.fn(), native_view: vi.fn(), focus_points: vi.fn() }
+ const viewer = { stop: vi.fn(), fit: vi.fn(), set_asset: vi.fn(), set_native_points: vi.fn(), set_native_bones: vi.fn(), native_view: vi.fn(), focus_points: vi.fn(), set_body_landmarks: vi.fn() }
  const container = document.createElement('div'); document.body.replaceChildren(container)
  const show = vi.fn(async () => {})
  const panel = new Humanoid65Panel(container, { viewer: viewer as unknown as RigViewer, asset: () => original, operation: async (_, task) => task(), show, status: vi.fn() })
@@ -24,6 +25,26 @@ function setup() {
 beforeEach(() => {
  build.mockReset(); vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })))
 })
+
+it('uses the mirror checkbox for both sides and lets either side move independently when cleared', async () => {
+ const s = setup()
+ const initial: BodyPoints = { chin:[.1,1.6,0], pelvis:[.1,1,0], hand_l:[.75,1.3,.05], hand_r:[-.45,1.32,0],
+  lowerarm_l:[.52,1.35,0], lowerarm_r:[-.29,1.34,0], calf_l:[.24,.5,0], calf_r:[-.06,.44,0] }
+ build.mockRejectedValueOnce(new HumanoidBodyReviewRequired(initial,new Float32Array(),0,2))
+ s.button('Расставить точки тела').click()
+ await vi.waitFor(() => expect(s.panel.body_reviewing).toBe(true))
+ const mirror = s.container.querySelector<HTMLInputElement>('section[aria-label="Ручные ориентиры тела"] input[type="checkbox"]')!
+ expect(mirror.checked).toBe(true)
+ const guide = () => s.viewer.set_body_landmarks.mock.calls.at(-1)![0]
+ guide().move('hand_l',[.65,1.2,0])
+ expect(guide().points.hand_r[0]).toBeCloseTo(-.45,8)
+ expect(guide().points.hand_r[1]).toBeCloseTo(1.2,8)
+ mirror.click()
+ const right = [...guide().points.hand_r]
+ guide().move('hand_l',[.63,1.18,0])
+ expect(guide().points.hand_r).toEqual(right)
+})
+
 describe('native BODY23 head review handoff', () => {
  it('holds pending output, adapts marker coordinates, invalidates review after edits and resumes that output', async () => {
   const s = setup(), body = asset(), disposed = vi.fn(); (body.scene.children[0] as Mesh).geometry.addEventListener('dispose', disposed)

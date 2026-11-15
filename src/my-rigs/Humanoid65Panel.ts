@@ -4,7 +4,7 @@ import { build_humanoid65 } from './Humanoid65Builder.ts'
 import { HumanoidHeadReviewRequired, type HeadLandmarks, type HeadPoint } from './HumanoidHeadReview.ts'
 import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
 import { verify_original_for_fit } from './RigFitReference.ts'
-import { automatic_body_depth, body_keys, body_landmarks, HumanoidBodyReviewRequired, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
+import { body_keys, body_landmarks, HumanoidBodyReviewRequired, mirror_body_points, move_body_point, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
 
 export async function humanoid_template(): Promise<ArrayBuffer> {
   const response = await fetch(new URL('../rigs/rig-human.glb', location.href))
@@ -40,6 +40,7 @@ export class Humanoid65Panel {
   private readonly body_active = document.createElement('select')
   private readonly body_front = document.createElement('button')
   private readonly body_profile = document.createElement('button')
+  private readonly body_mirror = document.createElement('input')
   private readonly body_confirm = document.createElement('button')
   private readonly body_reset = document.createElement('button')
   private readonly body_cancel = document.createElement('button')
@@ -91,6 +92,13 @@ export class Humanoid65Panel {
     this.body_front.textContent = 'Спереди'; this.body_profile.textContent = 'Сбоку'
     this.body_front.onclick = () => this.body_view(false); this.body_profile.onclick = () => this.body_view(true)
     body_views.append(this.body_front, this.body_profile)
+    const symmetry = document.createElement('label'); symmetry.className = 'native-rig-review'
+    this.body_mirror.type = 'checkbox'; this.body_mirror.checked = true
+    this.body_mirror.onchange = () => {
+      if (this.body && this.body_mirror.checked) mirror_body_points(this.body)
+      this.refresh()
+    }
+    symmetry.append(this.body_mirror, ' Зеркало')
     const point_label = document.createElement('label')
     point_label.textContent = 'Активная метка'
     this.body_active.replaceChildren(...body_keys.map(name => new Option(body_landmarks[name][0], name)))
@@ -100,7 +108,10 @@ export class Humanoid65Panel {
     this.body_confirm.onclick = () => { void this.run() }
     this.body_reset.textContent = 'Сбросить точки'
     this.body_reset.onclick = () => {
-      if (this.body) Object.assign(this.body.points, structuredClone(this.body.initial))
+      if (this.body) {
+        Object.assign(this.body.points, structuredClone(this.body.initial))
+        if (this.body_mirror.checked) mirror_body_points(this.body)
+      }
       this.body_view(false)
     }
     this.body_cancel.textContent = 'Отменить расстановку'
@@ -108,7 +119,7 @@ export class Humanoid65Panel {
       this.clear_review(); this.options.viewer.fit(true)
       this.options.status('Расстановка отменена. Открытый риг сохранён.'); this.changed()
     }
-    this.body_review.append(help, body_views, point_label, this.body_confirm, this.body_reset, this.body_cancel)
+    this.body_review.append(help, body_views, symmetry, point_label, this.body_confirm, this.body_reset, this.body_cancel)
     this.standard_controls.className = 'body-landmark-review'
     this.standard_controls.append(title, info, label, this.build, this.open_body, this.manual, this.original, this.original_file)
     container.append(this.standard_controls, this.cancel, this.review, this.body_review); this.refresh()
@@ -128,7 +139,7 @@ export class Humanoid65Panel {
     this.cancel.hidden = !this.busy; this.review.hidden = !this.points
     this.body_review.hidden = !this.body
     this.standard_controls.hidden = !!this.body
-    for (const button of [this.body_front, this.body_profile, this.body_confirm, this.body_reset, this.body_cancel, this.body_active]) button.disabled = locked
+    for (const control of [this.body_front, this.body_profile, this.body_confirm, this.body_reset, this.body_cancel, this.body_active, this.body_mirror]) control.disabled = locked
     this.body_front.setAttribute('aria-pressed', String(!this.body_side))
     this.body_profile.setAttribute('aria-pressed', String(this.body_side))
     if (this.body) this.body_markers(locked)
@@ -205,7 +216,7 @@ export class Humanoid65Panel {
     this.options.viewer.set_body_landmarks({
       points: review.points, active: this.body_active.value as BodyLandmark, editable: !locked && !this.body_side,
       select: name => { this.body_active.value = name; this.body_markers(locked) },
-      move: (name, point) => { review.points[name] = automatic_body_depth(review, name, point) }
+      move: (name, point) => move_body_point(review, name, point, this.body_mirror.checked)
     })
   }
   private body_view(side: boolean): void {
@@ -216,6 +227,7 @@ export class Humanoid65Panel {
   }
   private show_body(review: HumanoidBodyReviewRequired): void {
     this.body = review; this.owner = this.options.asset()?.source_bytes
+    if (this.body_mirror.checked) mirror_body_points(review)
     this.body_active.value = 'pelvis'
     this.body_view(false)
     this.options.status('Установите кружки на запястьях, локтях, коленях, тазе и подбородке.')

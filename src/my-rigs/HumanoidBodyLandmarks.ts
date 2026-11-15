@@ -3,18 +3,20 @@ import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skel
 import { validate_head_landmarks, type HeadPoint } from './HumanoidHeadReview.ts'
 
 export const body_landmarks = {
-  chin: ['Подбородок', 'П', '#ffd478'],
-  pelvis: ['Таз', 'Т', '#ffd478'],
-  hand_l: ['Левая кисть', 'К', '#76ebbc'],
-  hand_r: ['Правая кисть', 'К', '#ffa4ce'],
-  lowerarm_l: ['Левый локоть', 'Л', '#76ebbc'],
-  lowerarm_r: ['Правый локоть', 'Л', '#ffa4ce'],
-  calf_l: ['Левое колено', 'Кн', '#76ebbc'],
-  calf_r: ['Правое колено', 'Кн', '#ffa4ce']
+  chin: ['Подбородок', '#c29cff'],
+  pelvis: ['Таз', '#ff72a5'],
+  hand_l: ['Левая кисть', '#4bcdfa'],
+  hand_r: ['Правая кисть', '#4bcdfa'],
+  lowerarm_l: ['Левый локоть', '#ffad51'],
+  lowerarm_r: ['Правый локоть', '#ffad51'],
+  calf_l: ['Левое колено', '#80eb72'],
+  calf_r: ['Правое колено', '#80eb72']
 } as const
 export type BodyLandmark = keyof typeof body_landmarks
 export type BodyPoints = Record<BodyLandmark, HeadPoint>
 export const body_keys = Object.keys(body_landmarks) as BodyLandmark[]
+const pairs = [['hand_l', 'hand_r'], ['lowerarm_l', 'lowerarm_r'], ['calf_l', 'calf_r']] as const
+const partner = new Map<BodyLandmark, BodyLandmark>(pairs.flatMap(([left, right]) => [[left, right], [right, left]]))
 type FindBone = (name: string) => Bone
 type PlaceBone = (bone: Bone, point: Vector3) => void
 const vertical = new Vector3(0, 1, 0)
@@ -63,6 +65,31 @@ export function automatic_body_depth (review: HumanoidBodyReviewRequired, name: 
     p.z = Math.max(seed.z - limit, Math.min(seed.z + limit, estimated))
   }
   return p.applyAxisAngle(vertical, review.yaw).toArray()
+}
+
+function project_body_point (review: HumanoidBodyReviewRequired, point: HeadPoint, amount: number): HeadPoint {
+  const lateral = new Vector3(1, 0, 0).applyAxisAngle(vertical, review.yaw)
+  const origin = new Vector3(...review.initial.pelvis), target = new Vector3(...point)
+  return target.addScaledVector(lateral, -amount * target.clone().sub(origin).dot(lateral)).toArray()
+}
+
+/** Match both halves in the fitted body's frame. A model's own midline
+ * remains the mirror plane when the camera turns or the pelvis marker moves. */
+export function mirror_body_points (review: HumanoidBodyReviewRequired): void {
+  for (const [left, right] of pairs) {
+    review.points[left] = new Vector3(...review.points[left])
+      .lerp(new Vector3(...project_body_point(review, review.points[right], 2)), .5).toArray()
+    review.points[right] = project_body_point(review, review.points[left], 2)
+  }
+  for (const name of ['chin', 'pelvis'] as const) review.points[name] = project_body_point(review, review.points[name], 1)
+}
+
+export function move_body_point (review: HumanoidBodyReviewRequired, name: BodyLandmark, point: HeadPoint, mirror: boolean): void {
+  const other = partner.get(name)
+  const target = mirror && !other ? project_body_point(review, point, 1) : point
+  const adjusted = automatic_body_depth(review, name, target)
+  review.points[name] = adjusted
+  if (mirror && other) review.points[other] = project_body_point(review, adjusted, 2)
 }
 
 export function suggested_body_points (get: FindBone, yaw: number, height: number): BodyPoints {

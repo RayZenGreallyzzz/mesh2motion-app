@@ -8,9 +8,14 @@ body.room-workspace [hidden] { display: none !important; }
 .studio-toolbar button { min-height: 44px; padding: 8px 13px; background: transparent; border-color: transparent; font-size: 14px; }
 .studio-toolbar button.active { background: #365057; border-color: #7ab7aa; color: #f0fff7; }
 .studio-toolbar button.review-pending { border-color: #edbd75; color: #ffe0a9; }
-.body-landmarks { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
-.body-landmark-handle { position: absolute; width: 48px; height: 48px; min-height: 48px; padding: 0; display: grid; place-items: center; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid var(--landmark-color); background: #101925c9; color: var(--landmark-color); font-weight: 700; font-size: 13px; box-shadow: 0 0 0 1px #15202e, 0 3px 8px #0008; pointer-events: auto; touch-action: none; cursor: grab; }
-.body-landmark-handle[aria-pressed="true"] { z-index: 1; outline: 2px solid #fff; outline-offset: 2px; }
+.body-landmarks { position: absolute; inset: 0; z-index: 8; pointer-events: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.body-landmark-handle { appearance: none; position: absolute; width: 48px; height: 48px; min-height: 48px; padding: 0; display: grid; place-items: center; transform: translate(-50%, -50%); border: 0; border-radius: 50%; background: transparent; color: var(--landmark-color); pointer-events: auto; touch-action: none; cursor: grab; -webkit-tap-highlight-color: transparent; }
+.body-landmark-handle:hover, .body-landmark-handle:active { background: transparent; }
+.body-landmark-handle[aria-pressed="true"] { z-index: 1; }
+.body-landmark-ring { display: grid; place-items: center; box-sizing: border-box; width: 32px; height: 32px; border: 2px solid currentColor; border-radius: 50%; pointer-events: none; }
+.body-landmark-ring::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.body-landmark-handle:focus-visible { outline: none; }
+.body-landmark-handle:focus-visible .body-landmark-ring { outline: 1px solid #fff; outline-offset: 2px; }
 .body-landmark-handle.readonly { cursor: default; }
 .body-landmark-review { display: grid; gap: 10px; }
 .body-landmark-review .hint { margin: 0; }
