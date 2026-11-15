@@ -1,6 +1,7 @@
 import { Bone, Box3, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, Vector3, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { fit_humanoid_rig } from '../lib/processes/edit-skeleton/HumanoidAutoFit.ts'
+import { humanoid_fit_yaw } from '../lib/processes/edit-skeleton/HumanoidFitFrame.ts'
 import { fit_humanoid_head, fit_humanoid_head_surface } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
 import { joint_fit_surface, refine_humanoid_joints, type LimbChain } from '../lib/processes/edit-skeleton/HumanoidJointFit.ts'
 import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
@@ -87,6 +88,18 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     }
     const vertexCount=points.length
     if(vertexCount<32)throw new Error('В модели недостаточно геометрии для подгонки человека')
+    let bottom=Infinity,top=-Infinity;for(const p of points){bottom=Math.min(bottom,p.y);top=Math.max(top,p.y)}
+    const yaw = humanoid_fit_yaw(points, bottom, top - bottom)
+    const fitFrame = yaw ? new Group() : null
+    if (fitFrame) {
+      fitFrame.rotation.y = yaw
+      fitFrame.updateMatrixWorld(true)
+      // Rotate just the authored skeleton into the same frame as the mesh.
+      // Keep the input geometry and its original scene placement intact.
+      for (const child of scene.children) child.applyMatrix4(fitFrame.matrix)
+      scene.updateWorldMatrix(true, true)
+    }
+    const toFitFrame = fitFrame?.matrixWorld.clone().invert()
     const elbowFractions = new Map((['l', 'r'] as const).map(side => {
       const elbow = get('lowerarm_' + side)
       const upperLength = world(get('upperarm_' + side)).distanceTo(world(elbow))
@@ -94,8 +107,7 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       return [elbow, upperLength / (upperLength + lowerLength)] as const
     }))
     await report('Подгоняю полный скелет под геометрию…')
-    if(!fit_humanoid_rig(asset.scene,new Skeleton(originalBones),null,()=>{},options.profile??'human', false))throw new Error('Не удалось подогнать человеческий шаблон. Нужна исходная T- или A-поза.')
-    let bottom=Infinity,top=-Infinity;for(const p of points){bottom=Math.min(bottom,p.y);top=Math.max(top,p.y)}
+    if(!fit_humanoid_rig(asset.scene,new Skeleton(originalBones),fitFrame,()=>{},options.profile??'human', false))throw new Error('Не удалось подогнать человеческий шаблон. Нужна исходная T- или A-поза.')
     const hints=new Map([...asset.nodes.values()].filter(n=>n.is_joint).map(n=>[n.name,n.object.getWorldPosition(new Vector3())]))
     const bodyNames=['pelvis','spine_01','spine_02','spine_03','neck_01','head','clavicle_l','upperarm_l','lowerarm_l','hand_l','clavicle_r','upperarm_r','lowerarm_r','hand_r','thigh_l','calf_l','foot_l','ball_l','thigh_r','calf_r','foot_r','ball_r']
     const retainBody=bodyNames.every(name=>hints.has(name))&&hints.size<=24
@@ -121,9 +133,12 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       place(get('neck_01'),new Vector3(...options.head_landmarks.neck));place(get('head'),new Vector3(...options.head_landmarks.head));place(get('head_leaf'),new Vector3(...options.head_landmarks.head_end))
       headFitted=true;headSource='manual'
     }else{
-      headFitted=fit_humanoid_head_surface(joint_fit_surface(asset.scene,null,Infinity),originalBones,null,(shoulder-bottom)/.79)
+      headFitted=fit_humanoid_head_surface(joint_fit_surface(asset.scene,fitFrame,Infinity),originalBones,fitFrame,(shoulder-bottom)/.79)
       if(headFitted)headSource='surface'
-      else headFitted=fit_humanoid_head(points,originalBones,null,(shoulder-bottom)/.79)
+      else {
+        if (toFitFrame) for (const point of points) point.applyMatrix4(toFitFrame)
+        headFitted=fit_humanoid_head(points,originalBones,fitFrame,(shoulder-bottom)/.79)
+      }
       if(!headFitted||options.review_head)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
     points.length=0
@@ -132,7 +147,9 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
       await report('Уточняю локти и колени…')
       // Use the template ratio only to constrain the search. Moving the elbow
       // onto the shoulder–wrist line destroys its fitted depth and bend plane.
-      refine_humanoid_joints(asset.scene, chains, null, world(get('pelvis')).x, {
+      const pelvis = world(get('pelvis'))
+      if (toFitFrame) pelvis.applyMatrix4(toFitFrame)
+      refine_humanoid_joints(asset.scene, chains, fitFrame, pelvis.x, {
         checkPairedKnees: true,
         search: chain => chain.kind === 'elbow'
           ? { max_fraction: .70, max_shift: .18, reference_fraction: elbowFractions.get(chain.joint) }

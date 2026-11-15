@@ -49,6 +49,28 @@ describe('complete humanoid binding',()=>{
   const result=await build_humanoid65(source,{template,head_landmarks:review!.points,direct_solver:true})
   expect(result.report.head_fit_source).toBe('manual');validate_humanoid65(await parse(result.bytes));expect(new Uint8Array(bytes)).toEqual(original)
  },30000)
+ it.each([Math.PI / 2, -Math.PI / 2, Math.PI / 5])('fits the source facing direction without moving the mesh (%s)', async yaw => {
+  const path = 'static/models/model-human.glb', bytes = file(path)
+  const source = build_rig_asset(await read_glb(path), inspect_glb(bytes), bytes, 'Rotated human')
+  source.scene.rotation.y = yaw
+  source.scene.updateMatrixWorld(true)
+  const originalMesh = [...source.nodes.values()].find(n => n.is_mesh)!.object
+  const transform = originalMesh.matrixWorld.clone()
+  const { bytes: rigBytes } = await build_humanoid65(source, {
+    template: file('static/rigs/rig-human.glb'), direct_solver: true
+  })
+  const rig = await parse(rigBytes)
+  const bone = (name: string) => [...rig.nodes.values()].find(n => n.is_joint && n.name === name)!.object.getWorldPosition(new Vector3())
+  const across = new Vector3(1, 0, 0).applyAxisAngle(new Vector3(0, 1, 0), yaw)
+  expect(bone('hand_l').sub(bone('hand_r')).normalize().dot(across)).toBeGreaterThan(.99)
+  for (const side of ['l', 'r']) {
+   expect(bone('upperarm_' + side).distanceTo(bone('lowerarm_' + side))).toBeGreaterThan(.18)
+   expect(bone('lowerarm_' + side).distanceTo(bone('hand_' + side))).toBeGreaterThan(.18)
+  }
+  const mesh = [...rig.nodes.values()].find(n => n.is_mesh)!.object
+  mesh.matrixWorld.elements.forEach((value, i) => expect(value).toBeCloseTo(transform.elements[i], 6))
+  validate_humanoid65(rig)
+ }, 30000)
  it('preserves reviewed elbow and knee placements when completing a body rig', async () => {
   const path = 'static/models/model-human.glb'
   const bytes = file(path), template = file('static/rigs/rig-human.glb')
