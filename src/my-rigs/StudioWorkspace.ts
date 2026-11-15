@@ -7,7 +7,7 @@ type MeshEditor = { element: HTMLElement, enter(): void, leave(force: boolean): 
 /** Full-screen stage with settings and head review in toolbar popovers. */
 export class StudioWorkspace {
   private active?: Panel
-  private reviewing_head = false
+  private review?: 'head' | 'body'
   private readonly panels = new Map<Panel, HTMLElement>()
   private readonly buttons = new Map<Panel, HTMLButtonElement>()
   private readonly toolbar = document.createElement('nav')
@@ -54,18 +54,18 @@ export class StudioWorkspace {
     if (key === 'motions' || key === 'library') this.show_tab(key === 'library')
     for (const [name, panel] of this.panels) panel.hidden = name !== key
     for (const [name, button] of this.buttons) { button.setAttribute('aria-expanded', String(name === key)); button.classList.toggle('active', name === key) }
-    if (key === 'native' && this.reviewing_head) {
-      this.panels.get(key)?.querySelector('.head-landmark-review')?.scrollIntoView({ block: 'nearest' })
+    if (key === 'native' && this.review) {
+      this.panels.get(key)?.querySelector(this.review === 'body' ? '.body-landmark-review' : '.head-landmark-review')?.scrollIntoView({ block: 'nearest' })
     }
     this.update_overlay()
   }
-  set_head_review(reviewing: boolean): void {
-    if (this.reviewing_head === reviewing) return
-    this.reviewing_head = reviewing
+  set_rig_review(review?: 'head' | 'body'): void {
+    if (this.review === review) return
+    this.review = review
     const button = this.buttons.get('native')!
-    button.textContent = reviewing ? 'Голова' : 'Риг'
-    button.classList.toggle('review-pending', reviewing)
-    if (reviewing) this.open('native')
+    button.textContent = review === 'body' ? 'Точки' : review === 'head' ? 'Голова' : 'Риг'
+    button.classList.toggle('review-pending', Boolean(review))
+    if (review) this.open('native')
   }
   set_edit_enabled(enabled: boolean): void { this.buttons.get('edit')!.disabled = !enabled }
   close(focus = true, force = false): void {

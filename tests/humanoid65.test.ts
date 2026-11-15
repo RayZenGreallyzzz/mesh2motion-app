@@ -8,6 +8,7 @@ import {build_rig_asset} from '../src/my-rigs/RigAsset.ts'
 import {inspect_glb} from '../src/my-rigs/GlbEnvelope.ts'
 import {build_humanoid65,humanoid_world_geometry} from '../src/my-rigs/Humanoid65Builder.ts'
 import {HumanoidHeadReviewRequired} from '../src/my-rigs/HumanoidHeadReview.ts'
+import {automatic_body_depth, HumanoidBodyReviewRequired, type BodyPoints} from '../src/my-rigs/HumanoidBodyLandmarks.ts'
 import {validate_humanoid65} from '../src/my-rigs/NativeRigValidation.ts'
 import {estimate_limb_joint,joint_fit_surface} from '../src/lib/processes/edit-skeleton/HumanoidJointFit.ts'
 const file=(path:string):ArrayBuffer=>{const b=readFileSync(path);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength) as ArrayBuffer}
@@ -48,6 +49,28 @@ describe('complete humanoid binding',()=>{
   expect(review).toBeInstanceOf(HumanoidHeadReviewRequired);expect(source.dirty).toBe(false);expect(new Uint8Array(bytes)).toEqual(original)
   const result=await build_humanoid65(source,{template,head_landmarks:review!.points,direct_solver:true})
   expect(result.report.head_fit_source).toBe('manual');validate_humanoid65(await parse(result.bytes));expect(new Uint8Array(bytes)).toEqual(original)
+ },30000)
+ it('collects eight touch guides before weights and fixes the selected pelvis and knee positions', async () => {
+  const path = 'static/models/model-human.glb', bytes = file(path)
+  const source = build_rig_asset(await read_glb(path), inspect_glb(bytes), bytes, 'Human')
+  const template = file('static/rigs/rig-human.glb'), progress: string[] = []
+  let review: HumanoidBodyReviewRequired | undefined
+  try { await build_humanoid65(source, {template, review_body:true, direct_solver:true, progress: t => progress.push(t)}) }
+  catch (error) { if (error instanceof HumanoidBodyReviewRequired) review = error; else throw error }
+  expect(review).toBeInstanceOf(HumanoidBodyReviewRequired)
+  expect(Object.keys(review!.points)).toHaveLength(8)
+  expect(progress.some(t => t.includes('расчёт весов'))).toBe(false)
+  for (const name of ['pelvis','calf_l','calf_r','lowerarm_l'] as const) {
+    const [x,y,z] = review!.points[name]
+    review!.points[name] = automatic_body_depth(review!,name,[x,y+.014,z])
+  }
+  const result = await build_humanoid65(source, {template, body_points:review!.points, direct_solver:true})
+  const rig = await parse(result.bytes)
+  validate_humanoid65(rig)
+  for (const name of ['pelvis','calf_l','calf_r','lowerarm_l','hand_r'] as const) {
+    const joint = [...rig.nodes.values()].find(node => node.is_joint && node.name === name)!
+    expect(joint.object.getWorldPosition(new Vector3()).distanceTo(new Vector3(...review!.points[name]))).toBeLessThan(1e-6)
+  }
  },30000)
  it.each([Math.PI / 2, -Math.PI / 2, Math.PI / 5])('fits the source facing direction without moving the mesh (%s)', async yaw => {
   const path = 'static/models/model-human.glb', bytes = file(path)

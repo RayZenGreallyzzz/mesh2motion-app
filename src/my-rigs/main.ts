@@ -51,7 +51,7 @@ function controls (): void {
   const own_busy = busy || pose_editing || mesh_editing
   humanoid_panel?.refresh(own_busy)
   const reviewing = humanoid_panel?.reviewing ?? false
-  workspace?.set_head_review(reviewing)
+  workspace?.set_rig_review(reviewing ? humanoid_panel?.body_reviewing ? 'body' : 'head' : undefined)
   const locked = own_busy || reviewing
   workspace?.set_edit_enabled(Boolean(asset?.vertex_count) && !busy && !pose_editing && !reviewing)
   button('initial-pose').disabled = locked || !asset?.skeleton_count

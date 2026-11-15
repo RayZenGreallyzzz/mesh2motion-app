@@ -4,6 +4,7 @@ import { build_humanoid65 } from './Humanoid65Builder.ts'
 import { HumanoidHeadReviewRequired, type HeadLandmarks, type HeadPoint } from './HumanoidHeadReview.ts'
 import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
 import { verify_original_for_fit } from './RigFitReference.ts'
+import { automatic_body_depth, body_keys, body_landmarks, HumanoidBodyReviewRequired, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
 
 export async function humanoid_template(): Promise<ArrayBuffer> {
   const response = await fetch(new URL('../rigs/rig-human.glb', location.href))
@@ -25,12 +26,23 @@ export class Humanoid65Panel {
   private external = false
   private abort?: AbortController
   private points?: HeadLandmarks
+  private body?: HumanoidBodyReviewRequired
+  private body_side = false
   private owner?: ArrayBuffer
   private pending?: RigAsset
   private front_seen = false
   private side_seen = false
   private readonly build = document.createElement('button')
   private readonly manual = document.createElement('button')
+  private readonly open_body = document.createElement('button')
+  private readonly body_review = document.createElement('section')
+  private readonly standard_controls = document.createElement('div')
+  private readonly body_active = document.createElement('select')
+  private readonly body_front = document.createElement('button')
+  private readonly body_profile = document.createElement('button')
+  private readonly body_confirm = document.createElement('button')
+  private readonly body_reset = document.createElement('button')
+  private readonly body_cancel = document.createElement('button')
   private readonly original = document.createElement('button')
   private readonly original_file = document.createElement('input')
   private original_for_fit?: { owner: ArrayBuffer, bytes: ArrayBuffer }
@@ -52,6 +64,9 @@ export class Humanoid65Panel {
     this.build.type = this.manual.type = this.cancel.type = this.original.type = 'button'
     this.build.className = 'primary'; this.build.textContent = 'Создать полный риг · 65 костей'; this.build.onclick = () => void this.run()
     this.manual.textContent = 'Уточнить голову вручную'; this.manual.onclick = () => void this.run(true)
+    this.open_body.type = 'button'
+    this.open_body.textContent = 'Расставить точки тела'
+    this.open_body.onclick = () => { void this.run(false, true) }
     this.original.textContent = 'Исходный GLB для подгонки'
     this.original.title = 'Для модели, подрезанной в прежней версии. Выберите её исходный GLB, затем создайте риг.'
     this.original_file.type = 'file'; this.original_file.hidden = true; this.original_file.accept = '*/*'
@@ -68,9 +83,38 @@ export class Humanoid65Panel {
     this.confirm.textContent = 'Продолжить с этой головой'; this.confirm.className = 'primary'; this.confirm.onclick = () => { if (!this.confirm.disabled) void this.run() }
     this.dismiss.textContent = 'Отменить уточнение головы'; this.dismiss.onclick = () => { this.clear_review(); this.options.viewer.fit(true); this.options.status('Уточнение отменено. Исходный персонаж сохранён.'); this.changed() }
     this.review.append(hint, views, details, checked, this.confirm, this.dismiss)
-    container.append(title, info, label, this.build, this.manual, this.original, this.original_file, this.cancel, this.review); this.refresh()
+    this.body_review.className = 'body-landmark-review'
+    this.body_review.setAttribute('aria-label', 'Ручные ориентиры тела')
+    const help = document.createElement('p'); help.className = 'hint'
+    help.textContent = 'Перетащите восемь кружков спереди. Глубина рассчитывается по модели. Сбоку её можно проверить. «Кисть» ставьте на запястье.'
+    const body_views = document.createElement('div'); body_views.className = 'native-rig-views'
+    this.body_front.textContent = 'Спереди'; this.body_profile.textContent = 'Сбоку'
+    this.body_front.onclick = () => this.body_view(false); this.body_profile.onclick = () => this.body_view(true)
+    body_views.append(this.body_front, this.body_profile)
+    const point_label = document.createElement('label')
+    point_label.textContent = 'Активная метка'
+    this.body_active.replaceChildren(...body_keys.map(name => new Option(body_landmarks[name][0], name)))
+    this.body_active.onchange = () => this.body_markers(this.busy || this.external)
+    point_label.append(this.body_active)
+    this.body_confirm.textContent = 'Рассчитать веса и создать риг'; this.body_confirm.className = 'primary'
+    this.body_confirm.onclick = () => { void this.run() }
+    this.body_reset.textContent = 'Сбросить точки'
+    this.body_reset.onclick = () => {
+      if (this.body) Object.assign(this.body.points, structuredClone(this.body.initial))
+      this.body_view(false)
+    }
+    this.body_cancel.textContent = 'Отменить расстановку'
+    this.body_cancel.onclick = () => {
+      this.clear_review(); this.options.viewer.fit(true)
+      this.options.status('Расстановка отменена. Открытый риг сохранён.'); this.changed()
+    }
+    this.body_review.append(help, body_views, point_label, this.body_confirm, this.body_reset, this.body_cancel)
+    this.standard_controls.className = 'body-landmark-review'
+    this.standard_controls.append(title, info, label, this.build, this.open_body, this.manual, this.original, this.original_file)
+    container.append(this.standard_controls, this.cancel, this.review, this.body_review); this.refresh()
   }
-  get reviewing(): boolean { return !!this.points }
+  get reviewing(): boolean { return !!this.points || !!this.body }
+  get body_reviewing(): boolean { return !!this.body }
   start(): Promise<void> { return this.run() }
   cancel_build(): void { this.abort?.abort() }
   refresh(external = this.external): void {
@@ -79,9 +123,15 @@ export class Humanoid65Panel {
     if (this.original_for_fit?.owner !== this.options.asset()?.source_bytes) this.original_for_fit = undefined
     const locked = this.busy || external
     this.build.disabled = this.manual.disabled = locked || !this.options.asset() || this.reviewing
-    this.original.disabled = this.build.disabled
+    this.original.disabled = this.open_body.disabled = this.build.disabled
     this.profile.disabled = locked || this.reviewing
-    this.cancel.hidden = !this.busy; this.review.hidden = !this.reviewing
+    this.cancel.hidden = !this.busy; this.review.hidden = !this.points
+    this.body_review.hidden = !this.body
+    this.standard_controls.hidden = !!this.body
+    for (const button of [this.body_front, this.body_profile, this.body_confirm, this.body_reset, this.body_cancel, this.body_active]) button.disabled = locked
+    this.body_front.setAttribute('aria-pressed', String(!this.body_side))
+    this.body_profile.setAttribute('aria-pressed', String(this.body_side))
+    if (this.body) this.body_markers(locked)
     this.front.disabled = this.side.disabled = this.dismiss.disabled = locked
     this.checked.disabled = locked || !this.front_seen || !this.side_seen
     this.confirm.disabled = locked || !this.checked.checked || !this.front_seen || !this.side_seen
@@ -102,6 +152,7 @@ export class Humanoid65Panel {
   }
   private changed(): void { this.refresh(); this.options.changed?.() }
   private clear_review(markers = true): void {
+    if (this.body) { this.body = undefined; this.options.viewer.set_body_landmarks() }
     this.points = undefined; this.owner = undefined; this.front_seen = this.side_seen = this.checked.checked = false
     if (this.pending) {
       const original = this.options.asset(); if (original) this.options.viewer.set_asset(original)
@@ -148,23 +199,46 @@ export class Humanoid65Panel {
     this.options.status('Проверьте три точки спереди и сбоку, затем продолжите расчёт. Вкладка «Голова» открывает проверку.')
     this.changed()
   }
-  private async calculate(asset: RigAsset, forceReview = false): Promise<boolean> {
+  private body_markers(locked: boolean): void {
+    const review = this.body
+    if (!review) return
+    this.options.viewer.set_body_landmarks({
+      points: review.points, active: this.body_active.value as BodyLandmark, editable: !locked && !this.body_side,
+      select: name => { this.body_active.value = name; this.body_markers(locked) },
+      move: (name, point) => { review.points[name] = automatic_body_depth(review, name, point) }
+    })
+  }
+  private body_view(side: boolean): void {
+    if (!this.body) return
+    this.body_side = side
+    this.options.viewer.native_view(side, this.body.yaw)
+    this.refresh()
+  }
+  private show_body(review: HumanoidBodyReviewRequired): void {
+    this.body = review; this.owner = this.options.asset()?.source_bytes
+    this.body_active.value = 'pelvis'
+    this.body_view(false)
+    this.options.status('Установите кружки на запястьях, локтях, коленях, тазе и подбородке.')
+    this.changed()
+  }
+  private async calculate(asset: RigAsset, forceReview = false, reviewBody = false): Promise<boolean> {
     try {
-      const result = await build_humanoid65(asset, { template: await humanoid_template(), original_for_fit: this.original_for_fit?.owner === asset.source_bytes ? this.original_for_fit.bytes : undefined, profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview })
+      const result = await build_humanoid65(asset, { template: await humanoid_template(), original_for_fit: this.original_for_fit?.owner === asset.source_bytes ? this.original_for_fit.bytes : undefined, profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview, body_points: this.body?.points, review_body: reviewBody })
       this.options.status('Открываю и проверяю готовый риг…')
       this.clear_review(); await this.options.show(result.bytes)
       const fallback = result.report.joints.filter(j => (j.evidence as { source?: string })?.source === 'fallback').map(j => j.name.startsWith('lowerarm') ? 'локти' : 'колени')
       this.options.status('Готов полный риг: 65 костей, включая пальцы. ' + (fallback.length ? 'Проверьте ' + [...new Set(fallback)].join(' и ') + ': поверхность не дала точного ориентира, использованы пропорции шаблона. ' : '') + 'Проверьте движения перед экспортом.')
       return true
     } catch (error) {
+      if (error instanceof HumanoidBodyReviewRequired) { this.show_body(error); return false }
       if (error instanceof HumanoidHeadReviewRequired) { this.show_review(error.points); return false }
       throw error
     }
   }
-  private async run(forceReview = false): Promise<void> {
+  private async run(forceReview = false, reviewBody = false): Promise<void> {
     const asset = this.pending ?? this.options.asset(); if (!asset || this.busy || this.external) return
     this.busy = true; this.abort = new AbortController(); this.options.viewer.stop(); this.changed()
-    try { await this.options.operation('Подготавливаю полный гуманоидный риг…', async () => { await this.calculate(asset, forceReview) }) }
+    try { await this.options.operation('Подготавливаю полный гуманоидный риг…', async () => { await this.calculate(asset, forceReview, reviewBody) }) }
     finally { this.busy = false; this.abort = undefined; this.changed() }
   }
   /** Owns the freshly produced BODY23 until full completion or manual cancel.

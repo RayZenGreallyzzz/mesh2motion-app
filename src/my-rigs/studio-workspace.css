@@ -8,6 +8,13 @@ body.room-workspace [hidden] { display: none !important; }
 .studio-toolbar button { min-height: 44px; padding: 8px 13px; background: transparent; border-color: transparent; font-size: 14px; }
 .studio-toolbar button.active { background: #365057; border-color: #7ab7aa; color: #f0fff7; }
 .studio-toolbar button.review-pending { border-color: #edbd75; color: #ffe0a9; }
+.body-landmarks { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.body-landmark-handle { position: absolute; width: 48px; height: 48px; min-height: 48px; padding: 0; display: grid; place-items: center; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid var(--landmark-color); background: #101925c9; color: var(--landmark-color); font-weight: 700; font-size: 13px; box-shadow: 0 0 0 1px #15202e, 0 3px 8px #0008; pointer-events: auto; touch-action: none; cursor: grab; }
+.body-landmark-handle[aria-pressed="true"] { z-index: 1; outline: 2px solid #fff; outline-offset: 2px; }
+.body-landmark-handle.readonly { cursor: default; }
+.body-landmark-review { display: grid; gap: 10px; }
+.body-landmark-review .hint { margin: 0; }
+.body-landmark-review select { width: 100%; }
 .workspace-layer { position: fixed; inset: 0; z-index: 35; pointer-events: none; }
 .workspace-dialog { position: absolute; top: 142px; right: 16px; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 246px); padding: 15px; overflow: auto; overscroll-behavior: contain; pointer-events: auto; border: 1px solid #677b83; border-radius: 18px; background: #15202cf2; backdrop-filter: blur(14px); box-shadow: 0 14px 44px #0005; }
 .workspace-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }

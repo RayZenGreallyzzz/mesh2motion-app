@@ -12,6 +12,7 @@ import { register_asset_renderer } from '../lib/AssetCodecs.ts'
 import { joint_roles } from './RigBoneMapping.ts'
 import { BoneSlot } from '../retarget/bone-automap/BoneTypes.ts'
 import { StudioRoom } from './StudioRoom.ts'
+import { BodyLandmarkOverlay, type BodyOverlayState } from './BodyLandmarkOverlay.ts'
 
 export class RigViewer {
   readonly scene = new Scene()
@@ -19,6 +20,7 @@ export class RigViewer {
   private readonly camera = new PerspectiveCamera(42, 1, 0.01, 10000)
   private readonly controls: OrbitControls
   private readonly grid = new GridHelper(10, 20, 0x596579, 0x303b4c)
+  private readonly body_landmarks: BodyLandmarkOverlay
   private mixer?: AnimationMixer
   private action?: AnimationAction
   private asset?: RigAsset
@@ -51,6 +53,7 @@ export class RigViewer {
     register_asset_renderer(this.renderer)
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     container.append(this.renderer.domElement)
+    this.body_landmarks = new BodyLandmarkOverlay(container, this.camera)
     this.renderer.domElement.setAttribute('aria-label', 'Предпросмотр персонажа; поворот одним пальцем, масштаб двумя')
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
@@ -163,10 +166,12 @@ export class RigViewer {
       if (this.action) this.on_time(this.action.time, this.action.getClip().duration)
       if (this.controls.enabled) this.controls.update()
       this.renderer.render(this.scene, this.camera)
+      this.body_landmarks.project()
     })
   }
 
   set_asset (asset: RigAsset): void {
+    this.body_landmarks.update()
     this.set_native_points({})
     this.set_native_bones([])
     this.stop(false)
@@ -338,10 +343,13 @@ export class RigViewer {
     }
   }
 
-  native_view(side: boolean): void {
+  set_body_landmarks(state?: BodyOverlayState): void { this.body_landmarks.update(state) }
+
+  native_view(side: boolean, yaw = 0): void {
     if (!this.asset) return
     const distance = this.camera.position.distanceTo(this.controls.target)
-    this.camera.position.copy(this.controls.target).add(side ? new Vector3(distance, 0, 0) : new Vector3(0, 0, distance))
+    const axis = (side ? new Vector3(distance, 0, 0) : new Vector3(0, 0, distance)).applyAxisAngle(new Vector3(0, 1, 0), yaw)
+    this.camera.position.copy(this.controls.target).add(axis)
     this.camera.lookAt(this.controls.target); this.controls.update()
   }
 
