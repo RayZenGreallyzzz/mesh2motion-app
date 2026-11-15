@@ -1,5 +1,6 @@
 import {Vector3, type SkinnedMesh} from 'three'
 import type { RigAsset } from './RigAsset.ts'
+import { CORE_RADIUS, CORE_TOP, head_core_arm_mask, humanoid_head_region } from '../lib/solvers/HumanoidHeadRegion.ts'
 
 /** Reject unusable native output before replacing the model currently on screen. */
 export function validate_native_skin(asset: RigAsset): void {
@@ -37,15 +38,18 @@ export function validate_humanoid65(asset:RigAsset):void {
     const mesh=object as SkinnedMesh;if(!mesh.isSkinnedMesh)return
     const bones=mesh.skeleton.bones,head=bones.find(b=>b.name==='head')!,neck=bones.find(b=>b.name==='neck_01')!,tip=bones.find(b=>b.name==='head_leaf')!
     if(!head||!neck||!tip)throw new Error('Неполная цепочка головы')
-    const base=head.getWorldPosition(new Vector3()),end=tip.getWorldPosition(new Vector3()),neckPoint=neck.getWorldPosition(new Vector3()),axis=end.clone().sub(base),length=axis.length(),neckLength=base.distanceTo(neckPoint)
-    if(length<1e-6||neckLength<1e-6)throw new Error('Суставы головы совпали')
-    axis.divideScalar(length);mesh.skeleton.update()
+    const region = humanoid_head_region(bones, neck, head, tip)
+    if (!region) throw new Error('Суставы головы совпали')
+    const { base, axis, length, coreStart } = region
+    mesh.skeleton.update()
     const positions=mesh.geometry.getAttribute('position'),indices=mesh.geometry.getAttribute('skinIndex'),weights=mesh.geometry.getAttribute('skinWeight'),p=new Vector3(),rest=new Vector3(),moved=new Vector3(),rel=new Vector3()
+    const segmentOffset = new Vector3(), segmentAxis = new Vector3()
     for(let i=0;i<positions.count;i++){
       p.fromBufferAttribute(positions,i);rest.copy(p).applyMatrix4(mesh.matrixWorld);mesh.applyBoneTransform(i,moved.copy(p)).applyMatrix4(mesh.matrixWorld)
       if(rest.distanceTo(moved)>Math.max(length*1e-5,1e-6))throw new Error('Новая привязка меняет исходную геометрию. Исходный персонаж сохранён.')
       rel.copy(rest).sub(base);const height=rel.dot(axis),radial=rel.addScaledVector(axis,-height).length()
-      if(height<Math.max(neckLength*.5,length*.2)||height>length*1.35||radial>length*.45)continue
+      if (height < coreStart || height > length * CORE_TOP || radial > length * CORE_RADIUS ||
+          head_core_arm_mask(region, rest, segmentOffset, segmentAxis) < 1 - 1e-6) continue
       let rigidHead=0,foreign=0
       for(let c=0;c<4;c++){const name=bones[indices.getComponent(i,c)].name,w=weights.getComponent(i,c);if(name==='head')rigidHead+=w;else if(/^(clavicle|upperarm|lowerarm|hand|spine)/.test(name))foreign+=w}
       if(foreign>.05||rigidHead<.9)throw new Error('Веса головы зависят от плеч или туловища. Такой риг не будет принят.')
