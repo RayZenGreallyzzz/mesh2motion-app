@@ -16,7 +16,7 @@ export class BodyLandmarkOverlay {
   private readonly buttons = new Map<BodyLandmark, HTMLButtonElement>()
   private readonly ray = new Raycaster()
   private state?: BodyOverlayState
-  private drag?: { name: BodyLandmark, id: number, plane: Plane, offset: Vector3 }
+  private drag?: { name: BodyLandmark, id: number, plane: Plane, offset: Vector3, x: number, y: number, moved: boolean }
 
   constructor (container: HTMLElement, private readonly camera: Camera) {
     this.layer.className = 'body-landmarks'
@@ -103,13 +103,15 @@ export class BodyLandmarkOverlay {
     const plane = new Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new Vector3()), point)
     const hit = this.hit(event, plane)
     if (!hit) return
-    this.drag = { name, id: event.pointerId, plane, offset: point.sub(hit) }
+    this.drag = { name, id: event.pointerId, plane, offset: point.sub(hit), x: event.clientX, y: event.clientY, moved: false }
     button.setPointerCapture(event.pointerId)
   }
 
   private move (event: PointerEvent): void {
     const drag = this.drag
     if (!drag || drag.id !== event.pointerId || !this.state?.editable) return
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 3) return
+    drag.moved = true
     const hit = this.hit(event, drag.plane)
     if (hit) this.state.move(drag.name, hit.add(drag.offset).toArray())
   }

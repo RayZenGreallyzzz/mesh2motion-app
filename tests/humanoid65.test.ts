@@ -8,7 +8,7 @@ import {build_rig_asset} from '../src/my-rigs/RigAsset.ts'
 import {inspect_glb} from '../src/my-rigs/GlbEnvelope.ts'
 import {build_humanoid65,humanoid_world_geometry} from '../src/my-rigs/Humanoid65Builder.ts'
 import {HumanoidHeadReviewRequired} from '../src/my-rigs/HumanoidHeadReview.ts'
-import {automatic_body_depth, HumanoidBodyReviewRequired, type BodyPoints} from '../src/my-rigs/HumanoidBodyLandmarks.ts'
+import {HumanoidBodyReviewRequired, move_body_point} from '../src/my-rigs/HumanoidBodyLandmarks.ts'
 import {validate_humanoid65} from '../src/my-rigs/NativeRigValidation.ts'
 import {estimate_limb_joint,joint_fit_surface} from '../src/lib/processes/edit-skeleton/HumanoidJointFit.ts'
 const file=(path:string):ArrayBuffer=>{const b=readFileSync(path);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength) as ArrayBuffer}
@@ -60,16 +60,28 @@ describe('complete humanoid binding',()=>{
   expect(review).toBeInstanceOf(HumanoidBodyReviewRequired)
   expect(Object.keys(review!.points)).toHaveLength(8)
   expect(progress.some(t => t.includes('расчёт весов'))).toBe(false)
-  for (const name of ['pelvis','calf_l','calf_r','lowerarm_l'] as const) {
+  const automatic = await build_humanoid65(source, {template, direct_solver:true})
+  const before = await parse(automatic.bytes)
+  const adjusted = ['pelvis','calf_l','calf_r','lowerarm_l'] as const
+  for (const name of adjusted) {
     const [x,y,z] = review!.points[name]
-    review!.points[name] = automatic_body_depth(review!,name,[x,y+.014,z])
+    move_body_point(review!,name,[x,y+.014,z],false)
   }
-  const result = await build_humanoid65(source, {template, body_points:review!.points, direct_solver:true})
+  const result = await build_humanoid65(source, {template, body_points:review!.corrections(), direct_solver:true})
   const rig = await parse(result.bytes)
   validate_humanoid65(rig)
-  for (const name of ['pelvis','calf_l','calf_r','lowerarm_l','hand_r'] as const) {
-    const joint = [...rig.nodes.values()].find(node => node.is_joint && node.name === name)!
-    expect(joint.object.getWorldPosition(new Vector3()).distanceTo(new Vector3(...review!.points[name]))).toBeLessThan(1e-6)
+  expect(result.report.head_fit_source).toBe(automatic.report.head_fit_source)
+  const joint = (target: typeof rig, name: string) => [...target.nodes.values()].find(n => n.is_joint && n.name === name)!
+  for (const name of adjusted) {
+    expect(joint(rig,name).object.getWorldPosition(new Vector3()).distanceTo(new Vector3(...review!.points[name]))).toBeLessThan(1e-6)
+  }
+  for (const node of before.nodes.values()) {
+    if (!node.is_joint || adjusted.some(name => name === node.name)) continue
+    const unchanged = joint(rig,node.name).object
+    expect(unchanged.getWorldPosition(new Vector3()).distanceTo(node.object.getWorldPosition(new Vector3()))).toBeLessThan(1e-6)
+    const afterRotation = unchanged.getWorldQuaternion(new Quaternion()).normalize()
+    const beforeRotation = node.object.getWorldQuaternion(new Quaternion()).normalize()
+    expect(Math.abs(afterRotation.dot(beforeRotation))).toBeCloseTo(1,8)
   }
  },30000)
  it.each([Math.PI / 2, -Math.PI / 2, Math.PI / 5])('fits the source facing direction without moving the mesh (%s)', async yaw => {

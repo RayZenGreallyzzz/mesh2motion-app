@@ -4,7 +4,7 @@ import { build_humanoid65 } from './Humanoid65Builder.ts'
 import { HumanoidHeadReviewRequired, type HeadLandmarks, type HeadPoint } from './HumanoidHeadReview.ts'
 import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
 import { verify_original_for_fit } from './RigFitReference.ts'
-import { body_keys, body_landmarks, HumanoidBodyReviewRequired, mirror_body_points, move_body_point, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
+import { body_keys, body_landmarks, HumanoidBodyReviewRequired, mirror_body_points, move_body_point, type BodyCorrections, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
 
 export async function humanoid_template(): Promise<ArrayBuffer> {
   const response = await fetch(new URL('../rigs/rig-human.glb', location.href))
@@ -27,6 +27,7 @@ export class Humanoid65Panel {
   private abort?: AbortController
   private points?: HeadLandmarks
   private body?: HumanoidBodyReviewRequired
+  private body_corrections?: BodyCorrections
   private body_side = false
   private owner?: ArrayBuffer
   private pending?: RigAsset
@@ -87,7 +88,7 @@ export class Humanoid65Panel {
     this.body_review.className = 'body-landmark-review'
     this.body_review.setAttribute('aria-label', 'Ручные ориентиры тела')
     const help = document.createElement('p'); help.className = 'hint'
-    help.textContent = 'Перетащите восемь кружков спереди. Глубина рассчитывается по модели. Сбоку её можно проверить. «Кисть» ставьте на запястье.'
+    help.textContent = 'Сдвиньте нужные точки спереди. Глубину можно проверить сбоку. Метка кисти ставится на запястье.'
     const body_views = document.createElement('div'); body_views.className = 'native-rig-views'
     this.body_front.textContent = 'Спереди'; this.body_profile.textContent = 'Сбоку'
     this.body_front.onclick = () => this.body_view(false); this.body_profile.onclick = () => this.body_view(true)
@@ -108,10 +109,7 @@ export class Humanoid65Panel {
     this.body_confirm.onclick = () => { void this.run() }
     this.body_reset.textContent = 'Сбросить точки'
     this.body_reset.onclick = () => {
-      if (this.body) {
-        Object.assign(this.body.points, structuredClone(this.body.initial))
-        if (this.body_mirror.checked) mirror_body_points(this.body)
-      }
+      this.body?.reset()
       this.body_view(false)
     }
     this.body_cancel.textContent = 'Отменить расстановку'
@@ -164,6 +162,7 @@ export class Humanoid65Panel {
   private changed(): void { this.refresh(); this.options.changed?.() }
   private clear_review(markers = true): void {
     if (this.body) { this.body = undefined; this.options.viewer.set_body_landmarks() }
+    this.body_corrections = undefined
     this.points = undefined; this.owner = undefined; this.front_seen = this.side_seen = this.checked.checked = false
     if (this.pending) {
       const original = this.options.asset(); if (original) this.options.viewer.set_asset(original)
@@ -227,15 +226,15 @@ export class Humanoid65Panel {
   }
   private show_body(review: HumanoidBodyReviewRequired): void {
     this.body = review; this.owner = this.options.asset()?.source_bytes
-    if (this.body_mirror.checked) mirror_body_points(review)
     this.body_active.value = 'pelvis'
     this.body_view(false)
     this.options.status('Установите кружки на запястьях, локтях, коленях, тазе и подбородке.')
     this.changed()
   }
   private async calculate(asset: RigAsset, forceReview = false, reviewBody = false): Promise<boolean> {
+    const corrections = this.body ? this.body.corrections() : this.body_corrections
     try {
-      const result = await build_humanoid65(asset, { template: await humanoid_template(), original_for_fit: this.original_for_fit?.owner === asset.source_bytes ? this.original_for_fit.bytes : undefined, profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview, body_points: this.body?.points, review_body: reviewBody })
+      const result = await build_humanoid65(asset, { template: await humanoid_template(), original_for_fit: this.original_for_fit?.owner === asset.source_bytes ? this.original_for_fit.bytes : undefined, profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview, body_points: corrections, review_body: reviewBody })
       this.options.status('Открываю и проверяю готовый риг…')
       this.clear_review(); await this.options.show(result.bytes)
       const fallback = result.report.joints.filter(j => (j.evidence as { source?: string })?.source === 'fallback').map(j => j.name.startsWith('lowerarm') ? 'локти' : 'колени')
@@ -243,7 +242,15 @@ export class Humanoid65Panel {
       return true
     } catch (error) {
       if (error instanceof HumanoidBodyReviewRequired) { this.show_body(error); return false }
-      if (error instanceof HumanoidHeadReviewRequired) { this.show_review(error.points); return false }
+      if (error instanceof HumanoidHeadReviewRequired) {
+        if (this.body) {
+          this.body_corrections = corrections
+          this.body = undefined
+          this.options.viewer.set_body_landmarks()
+        }
+        this.show_review(error.points)
+        return false
+      }
       throw error
     }
   }

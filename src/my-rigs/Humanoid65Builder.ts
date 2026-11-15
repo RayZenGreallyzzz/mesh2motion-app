@@ -13,10 +13,10 @@ import { load_fit_surface } from './RigFitReference.ts'
 import { suggest_mapping, transfer_clips_async } from './RigMotionTransfer.ts'
 import { write_humanoid65_glb } from './Humanoid65Writer.ts'
 import { HumanoidHeadReviewRequired, validate_head_landmarks, type HeadLandmarks } from './HumanoidHeadReview.ts'
-import { apply_body_points, HumanoidBodyReviewRequired, sample_body_depth, suggested_body_points, type BodyPoints } from './HumanoidBodyLandmarks.ts'
+import { apply_body_points, HumanoidBodyReviewRequired, sample_body_depth, suggested_body_points, type BodyCorrections, type BodyLandmark } from './HumanoidBodyLandmarks.ts'
 
 export interface HumanoidMesh { source: Mesh, source_node: number, primitive: number, world: Matrix4, indices: Uint16Array, weights: Float32Array }
-export interface Humanoid65Options { template: ArrayBuffer, original_for_fit?: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean, head_landmarks?: HeadLandmarks, review_head?: boolean, body_points?: BodyPoints, review_body?: boolean }
+export interface Humanoid65Options { template: ArrayBuffer, original_for_fit?: ArrayBuffer, profile?: 'human' | 'woman', signal?: AbortSignal, progress?(message: string): void, direct_solver?: boolean, head_landmarks?: HeadLandmarks, review_head?: boolean, body_points?: BodyCorrections, review_body?: boolean }
 export interface Humanoid65Result { bytes: ArrayBuffer, report: { bones: number, vertices: number, animations: number, body_landmarks_retained: boolean, head_fitted: boolean, head_fit_source: 'vertices' | 'surface' | 'manual', joints: Array<{name: string, evidence: unknown}>, finger_bones: number } }
 const check = (signal?: AbortSignal): void => { if (signal?.aborted) throw new Error('Расчёт отменён. Исходный персонаж сохранён.') }
 const world = (bone: Bone): Vector3 => bone.getWorldPosition(new Vector3())
@@ -163,7 +163,7 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
         if (toFitFrame) for (const point of points) point.applyMatrix4(toFitFrame)
         headFitted=fit_humanoid_head(points,originalBones,fitFrame,(shoulder-bottom)/.79)
       }
-      if((!headFitted||options.review_head) && !options.review_body && !options.body_points)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
+      if((!headFitted||options.review_head) && !options.review_body)throw new HumanoidHeadReviewRequired({neck:world(get('neck_01')).toArray(),head:world(get('head')).toArray(),head_end:world(get('head_leaf')).toArray()})
     }
     points.length=0
     const chains:LimbChain[]=(['l','r'] as const).flatMap(s=>[{start:get('upperarm_'+s),joint:get('lowerarm_'+s),end:get('hand_'+s),kind:'elbow' as const},{start:get('thigh_'+s),joint:get('calf_'+s),end:get('foot_'+s),kind:'knee' as const}])
@@ -183,9 +183,8 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     if (originalSurface) { dispose_rig_scene(originalSurface); originalSurface.clear(); originalSurface = undefined }
     if (bodyDepth) throw new HumanoidBodyReviewRequired(suggested_body_points(get, yaw, top - bottom), bodyDepth, yaw, top - bottom)
     if (options.body_points && bodyBounds) {
-      apply_body_points(get, place, options.body_points, suggested_body_points(get, yaw, top - bottom), bodyBounds, yaw)
-      headFitted = true; headSource = 'manual'
-      for (const chain of chains) chain.joint.userData.rigJointFit = { source: 'manual' }
+      apply_body_points(get, place, options.body_points, suggested_body_points(get, yaw, top - bottom), bodyBounds, yaw, !!options.head_landmarks)
+      if (options.body_points.chin) headSource = 'manual'
     }
     // The template has an extra non-deforming scene driver. Preserve its TRS
     // as a Group; the 65 anatomical joints (including finger tips) remain bones.
@@ -223,7 +222,12 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     asset.clips.forEach((clip,i)=>target.clips[i]?.tracks.push(...clip.tracks.filter(t=>t.name.endsWith('.morphTargetInfluences')).map(t=>t.clone())))
     await report('Сохраняю полный риг и проверяю структуру GLB…')
     const bytes=write_humanoid65_glb(asset,scene,bones,weightedMeshes,target.clips)
-    return{bytes,report:{bones:bones.length,vertices:vertexCount,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints:chains.map(c=>({name:c.joint.name,evidence:retainBody && !options.body_points ? {source:'retained'} : c.joint.userData.rigJointFit})),finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
+    const joints = chains.map(({ joint }) => ({
+      name: joint.name,
+      evidence: options.body_points?.[joint.name as BodyLandmark] ? { source: 'manual' }
+        : retainBody ? { source: 'retained' } : joint.userData.rigJointFit
+    }))
+    return{bytes,report:{bones:bones.length,vertices:vertexCount,animations:target.clips.length,body_landmarks_retained:retainBody,head_fitted:headFitted,head_fit_source:headSource,joints,finger_bones:bones.filter(b=>/^(thumb|index|middle|ring|pinky)_/.test(b.name)).length}}
   } finally {
     if (originalSurface) dispose_rig_scene(originalSurface)
     geometries.forEach(g=>g.dispose())

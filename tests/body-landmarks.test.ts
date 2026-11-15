@@ -45,7 +45,9 @@ it('moves a circular touch guide and uses the side view as a depth preview', () 
 
   points.calf_l = [.07,0,0]
   overlay.update({points,active:'pelvis',editable:true,move,select})
-  fire('pointerdown',217);fire('pointermove',227)
+  fire('pointerdown',217);fire('pointermove',218)
+  expect(move).toHaveBeenCalledTimes(1)
+  fire('pointermove',227)
   expect(move.mock.calls[1][0]).toBe('calf_l')
 
   for (const event of ['contextmenu','selectstart','dragstart']) {
@@ -87,6 +89,10 @@ it('sets and drags mirrored pairs about the offset, rotated body plane', () => {
   const review = new HumanoidBodyReviewRequired(initial,new Float32Array(),yaw,2)
   const coords = (name:'calf_l'|'calf_r') => new Vector3(...review.points[name]).applyAxisAngle(up,-yaw)
   mirror_body_points(review)
+  expect(review.points).toEqual(initial)
+  expect(review.corrections()).toBeUndefined()
+  move_body_point(review,'calf_l',world(.33,-.4,.1),false)
+  mirror_body_points(review)
   expect(coords('calf_l').x + coords('calf_r').x).toBeCloseTo(.4,8)
   expect(coords('calf_l').y).toBeCloseTo(coords('calf_r').y,8)
   expect(coords('calf_l').z).toBeCloseTo(coords('calf_r').z,8)
@@ -97,4 +103,16 @@ it('sets and drags mirrored pairs about the offset, rotated body plane', () => {
   const before = [...review.points.calf_r]
   move_body_point(review,'calf_l',world(.28,-.27,.1),false)
   expect(review.points.calf_r).toEqual(before)
+  expect(Object.keys(review.corrections()!).sort()).toEqual(['calf_l','calf_r'])
+  review.reset()
+  expect(review.points).toEqual(initial)
+  expect(review.corrections()).toBeUndefined()
+})
+
+it('keeps a small elbow correction near the fitted depth despite a strand behind the arm', () => {
+  const patch = Array.from({length:32}, (_,i) => new Vector3(.50 + i * .0002, .80, -.10))
+  const review = new HumanoidBodyReviewRequired(uniform(.50,.78,0), sample_body_depth(patch,0), 0, 2)
+  move_body_point(review,'lowerarm_l',[.50,.80,0],false)
+  expect(review.points.lowerarm_l[2]).toBeCloseTo(-.013, 5)
+  expect(review.points.lowerarm_r).toEqual(review.initial.lowerarm_r)
 })

@@ -36,6 +36,7 @@ it('uses the mirror checkbox for both sides and lets either side move independen
  const mirror = s.container.querySelector<HTMLInputElement>('section[aria-label="Ручные ориентиры тела"] input[type="checkbox"]')!
  expect(mirror.checked).toBe(true)
  const guide = () => s.viewer.set_body_landmarks.mock.calls.at(-1)![0]
+ expect(guide().points).toEqual(initial)
  guide().move('hand_l',[.65,1.2,0])
  expect(guide().points.hand_r[0]).toBeCloseTo(-.45,8)
  expect(guide().points.hand_r[1]).toBeCloseTo(1.2,8)
@@ -43,6 +44,30 @@ it('uses the mirror checkbox for both sides and lets either side move independen
  const right = [...guide().points.hand_r]
  guide().move('hand_l',[.63,1.18,0])
  expect(guide().points.hand_r).toEqual(right)
+ build.mockResolvedValueOnce({ bytes: new ArrayBuffer(64), report: { joints: [] } })
+ s.button('Рассчитать веса и создать риг').click()
+ await vi.waitFor(() => expect(s.show).toHaveBeenCalledOnce())
+ expect(Object.keys(build.mock.calls[1][1].body_points).sort()).toEqual(['hand_l','hand_r'])
+})
+
+it('keeps adjusted knees when the legacy head check needs three separate points', async () => {
+ const s = setup()
+ const initial: BodyPoints = { chin:[.1,1.6,0], pelvis:[.1,1,0], hand_l:[.75,1.3,.05], hand_r:[-.45,1.32,0],
+  lowerarm_l:[.52,1.35,0], lowerarm_r:[-.29,1.34,0], calf_l:[.24,.5,0], calf_r:[-.06,.44,0] }
+ build.mockRejectedValueOnce(new HumanoidBodyReviewRequired(initial,new Float32Array(),0,2))
+   .mockRejectedValueOnce(new HumanoidHeadReviewRequired(points))
+   .mockResolvedValueOnce({ bytes: new ArrayBuffer(64), report: { joints: [] } })
+ s.button('Расставить точки тела').click()
+ await vi.waitFor(() => expect(s.panel.body_reviewing).toBe(true))
+ s.viewer.set_body_landmarks.mock.calls.at(-1)![0].move('calf_l',[.24,.52,0])
+ s.button('Рассчитать веса и создать риг').click()
+ await vi.waitFor(() => expect(s.panel.body_reviewing).toBe(false))
+ s.button('Голова спереди').click(); s.button('Голова сбоку').click(); s.checked().click()
+ s.button('Продолжить с этой головой').click()
+ await vi.waitFor(() => expect(s.show).toHaveBeenCalledOnce())
+ expect(build.mock.calls[2][1].head_landmarks).toEqual(points)
+ expect(build.mock.calls[2][1].body_points).toEqual(build.mock.calls[1][1].body_points)
+ expect(Object.keys(build.mock.calls[2][1].body_points).sort()).toEqual(['calf_l','calf_r'])
 })
 
 describe('native BODY23 head review handoff', () => {

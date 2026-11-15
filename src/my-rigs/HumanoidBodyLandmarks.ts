@@ -1,5 +1,4 @@
 import { Vector3, type Bone, type Box3 } from 'three'
-import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
 import { validate_head_landmarks, type HeadPoint } from './HumanoidHeadReview.ts'
 
 export const body_landmarks = {
@@ -14,6 +13,7 @@ export const body_landmarks = {
 } as const
 export type BodyLandmark = keyof typeof body_landmarks
 export type BodyPoints = Record<BodyLandmark, HeadPoint>
+export type BodyCorrections = Partial<BodyPoints>
 export const body_keys = Object.keys(body_landmarks) as BodyLandmark[]
 const pairs = [['hand_l', 'hand_r'], ['lowerarm_l', 'lowerarm_r'], ['calf_l', 'calf_r']] as const
 const partner = new Map<BodyLandmark, BodyLandmark>(pairs.flatMap(([left, right]) => [[left, right], [right, left]]))
@@ -24,9 +24,20 @@ const coord = (bone: Bone): Vector3 => bone.getWorldPosition(new Vector3())
 
 export class HumanoidBodyReviewRequired extends Error {
   readonly points: BodyPoints
+  readonly edited = new Set<BodyLandmark>()
   constructor(readonly initial: BodyPoints, readonly surface: Float32Array, readonly yaw: number, readonly height: number) {
     super('Расставьте восемь точек тела.')
     this.points = structuredClone(initial)
+  }
+
+  reset (): void {
+    Object.assign(this.points, structuredClone(this.initial))
+    this.edited.clear()
+  }
+
+  corrections (): BodyCorrections | undefined {
+    if (!this.edited.size) return undefined
+    return Object.fromEntries([...this.edited].map(name => [name, [...this.points[name]]]))
   }
 }
 
@@ -45,8 +56,11 @@ export function sample_body_depth (points: Vector3[], yaw: number): Float32Array
 export function automatic_body_depth (review: HumanoidBodyReviewRequired, name: BodyLandmark, point: HeadPoint): HeadPoint {
   const p = new Vector3(...point).applyAxisAngle(vertical, -review.yaw)
   const seed = new Vector3(...review.initial[name]).applyAxisAngle(vertical, -review.yaw)
+  const arm = name.startsWith('hand_') || name.startsWith('lowerarm_')
   let radius = review.height * .018
-  const depth_window = review.height * (name === 'pelvis' ? .20 : .12)
+  let depth_window = review.height * .12
+  if (name === 'pelvis') depth_window = review.height * .20
+  if (arm) depth_window = review.height * .055
   const z: number[] = []
   for (let pass = 0; pass < 2 && z.length < 8; pass++, radius *= 1.65) {
     z.length = 0
@@ -61,7 +75,10 @@ export function automatic_body_depth (review: HumanoidBodyReviewRequired, name: 
     z.sort((a, b) => a - b)
     const quantile = (fraction: number) => z[Math.round((z.length - 1) * fraction)]
     const estimated = name === 'chin' ? quantile(.84) : (quantile(.12) + quantile(.88)) / 2
-    const limit = review.height * (name === 'pelvis' ? .10 : .08)
+    // Nearby hair or equipment can cross the projected arm; a small screen
+    // correction must not move the joint far from its fitted depth.
+    let limit = review.height * (name === 'pelvis' ? .10 : .08)
+    if (arm) limit = Math.min(review.height * .035, Math.hypot(p.x - seed.x, p.y - seed.y) * .65)
     p.z = Math.max(seed.z - limit, Math.min(seed.z + limit, estimated))
   }
   return p.applyAxisAngle(vertical, review.yaw).toArray()
@@ -77,11 +94,18 @@ function project_body_point (review: HumanoidBodyReviewRequired, point: HeadPoin
  * remains the mirror plane when the camera turns or the pelvis marker moves. */
 export function mirror_body_points (review: HumanoidBodyReviewRequired): void {
   for (const [left, right] of pairs) {
-    review.points[left] = new Vector3(...review.points[left])
-      .lerp(new Vector3(...project_body_point(review, review.points[right], 2)), .5).toArray()
+    if (!review.edited.has(left) && !review.edited.has(right)) continue
+    const fromRight = project_body_point(review, review.points[right], 2)
+    if (!review.edited.has(left)) review.points[left] = fromRight
+    else if (review.edited.has(right)) {
+      review.points[left] = new Vector3(...review.points[left]).lerp(new Vector3(...fromRight), .5).toArray()
+    }
     review.points[right] = project_body_point(review, review.points[left], 2)
+    review.edited.add(left); review.edited.add(right)
   }
-  for (const name of ['chin', 'pelvis'] as const) review.points[name] = project_body_point(review, review.points[name], 1)
+  for (const name of ['chin', 'pelvis'] as const) {
+    if (review.edited.has(name)) review.points[name] = project_body_point(review, review.points[name], 1)
+  }
 }
 
 export function move_body_point (review: HumanoidBodyReviewRequired, name: BodyLandmark, point: HeadPoint, mirror: boolean): void {
@@ -89,7 +113,11 @@ export function move_body_point (review: HumanoidBodyReviewRequired, name: BodyL
   const target = mirror && !other ? project_body_point(review, point, 1) : point
   const adjusted = automatic_body_depth(review, name, target)
   review.points[name] = adjusted
-  if (mirror && other) review.points[other] = project_body_point(review, adjusted, 2)
+  review.edited.add(name)
+  if (mirror && other) {
+    review.points[other] = project_body_point(review, adjusted, 2)
+    review.edited.add(other)
+  }
 }
 
 export function suggested_body_points (get: FindBone, yaw: number, height: number): BodyPoints {
@@ -101,52 +129,57 @@ export function suggested_body_points (get: FindBone, yaw: number, height: numbe
 }
 
 export function apply_body_points (
-  get: FindBone, place: PlaceBone, points: BodyPoints, suggested: BodyPoints, bounds: Box3, yaw: number
+  get: FindBone, place: PlaceBone, points: BodyCorrections, suggested: BodyPoints, bounds: Box3, yaw: number,
+  headReviewed: boolean
 ): void {
   const height = bounds.max.y - bounds.min.y
   const margin = bounds.clone().expandByScalar(height * .06)
   for (const name of body_keys) {
     const p = points[name]
-    if (!p || !p.every(Number.isFinite) || !margin.containsPoint(new Vector3(...p))) {
+    if (p && (!p.every(Number.isFinite) || !margin.containsPoint(new Vector3(...p)))) {
       throw new Error(body_landmarks[name][0] + ' находится за пределами модели.')
     }
   }
-  const at = (name: BodyLandmark) => new Vector3(...points[name])
+  const at = (name: BodyLandmark) => new Vector3(...(points[name] ?? suggested[name]))
   const lateral = new Vector3(1, 0, 0).applyAxisAngle(vertical, yaw)
-  for (const [left, right] of [['hand_l', 'hand_r'], ['lowerarm_l', 'lowerarm_r'], ['calf_l', 'calf_r']] as const) {
-    if (at(left).sub(at(right)).dot(lateral) <= height * .004) {
+  for (const [left, right] of pairs) {
+    if ((points[left] || points[right]) && at(left).sub(at(right)).dot(lateral) <= height * .004) {
       throw new Error('Проверьте левую и правую точки. ' + body_landmarks[left][0] + ' и ' + body_landmarks[right][0] + ' должны быть по своим сторонам.')
     }
   }
   for (const side of ['l','r'] as const) {
-    const knee = at(`calf_${side}`), elbow = at(`lowerarm_${side}`)
-    if (knee.y >= at('pelvis').y - height * .060 || knee.y <= coord(get('foot_' + side)).y + height * .050) {
-      throw new Error('Поставьте колено между тазом и лодыжкой.')
+    if (points[`calf_${side}`] || points.pelvis) {
+      const knee = at(`calf_${side}`)
+      if (knee.y >= at('pelvis').y - height * .060 || knee.y <= coord(get('foot_' + side)).y + height * .050) {
+        throw new Error('Поставьте колено между тазом и лодыжкой.')
+      }
     }
-    if (elbow.distanceTo(at(`hand_${side}`)) < height * .025 ||
-        elbow.distanceTo(coord(get('upperarm_' + side))) < height * .025) {
-      throw new Error('Разведите метки кисти и локтя.')
+    if (points[`lowerarm_${side}`] || points[`hand_${side}`]) {
+      const elbow = at(`lowerarm_${side}`)
+      if (elbow.distanceTo(at(`hand_${side}`)) < height * .025 ||
+          elbow.distanceTo(coord(get('upperarm_' + side))) < height * .025) {
+        throw new Error('Разведите метки кисти и локтя.')
+      }
     }
   }
 
-  const pelvis = get('pelvis'), spine = get('spine_01')
-  const offset = at('pelvis').sub(coord(pelvis)), chest = coord(spine)
-  const legs = (['l','r'] as const).map(side => {
-    const thigh = get('thigh_' + side), foot = get('foot_' + side)
-    return { thigh, foot, start: coord(thigh).add(offset), ankle: coord(foot), side }
-  })
-  place(pelvis, at('pelvis')); place(spine, chest)
-  for (const {thigh, foot, start, ankle, side} of legs) {
-    place(thigh, start); place(get('calf_' + side), at(`calf_${side}`)); place(foot, ankle)
-    const elbow = get('lowerarm_' + side), hand = get('hand_' + side)
-    const fingers = capture_hand_shape(hand, elbow)
-    place(elbow, at(`lowerarm_${side}`)); place(hand, at(`hand_${side}`))
-    place_hand_shape(hand, fingers, coord(hand).sub(coord(elbow)))
+  // The AutoRig already fitted shoulders, ankles and fingers. Compensate
+  // translations on children so a marker only changes its own pivot.
+  for (const name of body_keys) {
+    if (name === 'chin' || !points[name]) continue
+    const joint = get(name)
+    const children = (joint.children as Bone[]).filter(child => child.isBone)
+      .map(child => ({ child, position: coord(child) }))
+    place(joint, at(name))
+    for (const { child, position } of children) place(child, position)
   }
 
-  // The chin is an external marker; translate the fitted neck/skull anchors
-  // by its correction so the head pivot stays inside the skull.
+  if (!points.chin || headReviewed) return
+  // The chin is a surface marker, while both deforming pivots are internal.
+  // Preserve their fitted depth and move only by the in-plane correction.
   const adjustment = at('chin').sub(new Vector3(...suggested.chin))
+  const forward = new Vector3(0, 0, 1).applyAxisAngle(vertical, yaw)
+  adjustment.addScaledVector(forward, -adjustment.dot(forward))
   const head = {
     neck: coord(get('neck_01')).addScaledVector(adjustment, .42).toArray(),
     head: coord(get('head')).add(adjustment).toArray(),
