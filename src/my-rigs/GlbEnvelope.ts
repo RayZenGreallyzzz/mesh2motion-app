@@ -10,7 +10,7 @@ export interface GlbNode {
 }
 
 export interface GlbDocument {
-  asset: { version: string }
+  asset: { version: string, extras?: Record<string, unknown> }
   scene?: number
   scenes?: Array<{ nodes?: number[] }>
   nodes?: GlbNode[]

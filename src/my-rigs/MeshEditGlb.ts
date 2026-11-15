@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry } from 'three'
 import { inspect_glb, MAX_GLB_BYTES } from './GlbEnvelope.ts'
+import { original_meshes, record_original_meshes } from './RigFitReference.ts'
 
 export type MeshEdit = {
   id: string, original: BufferGeometry, geometry: BufferGeometry,
@@ -49,13 +50,16 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
     return doc.accessors.length - 1
   }
   const copies = new Map<number, number>()
+  const fit_meshes = original_meshes(doc)
   for (const {id, original: prior, geometry, seam_colors} of edits) {
     const address = /^n(\d+)(?:\/p(\d+))?$/.exec(id), node_index = Number(address?.[1])
     const node = doc.nodes[node_index], source = doc.meshes[node?.mesh]
     if (!source) throw new Error('Не найдена деталь GLB для сохранения.')
     if (!copies.has(node_index)) {
       const shared = doc.nodes.some((other: { mesh?: number }, i: number) => i !== node_index && other.mesh === node.mesh)
-      if (shared) { node.mesh = doc.meshes.length; doc.meshes.push(structuredClone(source)) }
+      const first_edit = !fit_meshes.has(node_index)
+      if (first_edit) fit_meshes.set(node_index, node.mesh)
+      if (first_edit || shared) { node.mesh = doc.meshes.length; doc.meshes.push(structuredClone(source)) }
       copies.set(node_index, node.mesh)
     }
     const primitives = doc.meshes[copies.get(node_index)!].primitives
@@ -119,6 +123,7 @@ export function write_mesh_edits (original: ArrayBuffer, edits: MeshEdit[]): Arr
       primitives.push(cap)
     }
   }
+  if (fit_meshes.size) record_original_meshes(doc, fit_meshes)
   doc.buffers[0].byteLength = length
   const json = new TextEncoder().encode(JSON.stringify(doc)), padding = (json.length + 3) & ~3
   const tail = new Uint8Array(original, bin + 8 + view.getUint32(bin, true))

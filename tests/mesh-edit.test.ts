@@ -3,6 +3,7 @@ import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Mesh, MeshStand
 import { describe, expect, it } from 'vitest'
 import { brush_selection, cut_selection, deform_selection, tint_selection } from '../src/my-rigs/MeshEditGeometry.ts'
 import { write_mesh_edits } from '../src/my-rigs/MeshEditGlb.ts'
+import { load_fit_surface, verify_original_for_fit } from '../src/my-rigs/RigFitReference.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 const geometry_of = (positions: number[], indices: number[]) =>
@@ -77,6 +78,13 @@ describe('model editing', () => {
     expect(meshes[0].geometry.attributes.position.getZ(0)).toBe(1)
     expect(meshes[1].geometry.attributes.position.getZ(0)).toBe(0)
     expect(Array.from(new Float32Array(glb,28+padded))).toEqual(pos)
+    verify_original_for_fit(result, glb)
+    const reference = await load_fit_surface(result)
+    expect(reference?.meshes).toHaveLength(2)
+    expect(reference?.meshes.map(mesh => mesh.geometry.attributes.position.getZ(0))).toEqual([0,0])
+    const wrong = glb.slice(0)
+    new Uint8Array(wrong)[28+padded] ^= 1
+    expect(() => verify_original_for_fit(result, wrong)).toThrow('отличается')
 
     edit.setIndex([0,1,2,0,2,1])
     edit.addGroup(0,3,0); edit.addGroup(3,3,1)
@@ -87,5 +95,6 @@ describe('model editing', () => {
     expect(body.material).not.toBe(cap.material)
     expect(cap.geometry.index?.count).toBe(3)
     expect((cap.material as MeshStandardMaterial).color.toArray()).toEqual([.4,.2,.1])
+    expect((await load_fit_surface(colored))?.meshes).toHaveLength(2)
   })
 })

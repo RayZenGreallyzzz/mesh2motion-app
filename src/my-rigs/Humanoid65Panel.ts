@@ -2,6 +2,8 @@ import { dispose_rig_scene, type RigAsset } from './RigAsset.ts'
 import type { RigViewer } from './RigViewer.ts'
 import { build_humanoid65 } from './Humanoid65Builder.ts'
 import { HumanoidHeadReviewRequired, type HeadLandmarks, type HeadPoint } from './HumanoidHeadReview.ts'
+import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
+import { verify_original_for_fit } from './RigFitReference.ts'
 
 export async function humanoid_template(): Promise<ArrayBuffer> {
   const response = await fetch(new URL('../rigs/rig-human.glb', location.href))
@@ -29,6 +31,9 @@ export class Humanoid65Panel {
   private side_seen = false
   private readonly build = document.createElement('button')
   private readonly manual = document.createElement('button')
+  private readonly original = document.createElement('button')
+  private readonly original_file = document.createElement('input')
+  private original_for_fit?: { owner: ArrayBuffer, bytes: ArrayBuffer }
   private readonly cancel = document.createElement('button')
   private readonly profile = document.createElement('select')
   private readonly review = document.createElement('section')
@@ -44,9 +49,14 @@ export class Humanoid65Panel {
     const title = document.createElement('h2'); title.textContent = 'Полный гуманоид · 65 костей'
     const info = document.createElement('p'); info.className = 'hint'; info.textContent = 'Тело, голова и все пальцы. Подгонка и новые веса для исходной T- или A-позы. Результат заменит открытый риг после успешной проверки.'
     const label = document.createElement('label'); label.textContent = 'Шаблон тела '; this.profile.setAttribute('aria-label', 'Шаблон полного гуманоидного рига'); this.profile.append(new Option('Человек / гуманоид', 'human'), new Option('Женский', 'woman')); label.append(this.profile)
-    this.build.type = this.manual.type = this.cancel.type = 'button'
+    this.build.type = this.manual.type = this.cancel.type = this.original.type = 'button'
     this.build.className = 'primary'; this.build.textContent = 'Создать полный риг · 65 костей'; this.build.onclick = () => void this.run()
     this.manual.textContent = 'Уточнить голову вручную'; this.manual.onclick = () => void this.run(true)
+    this.original.textContent = 'Исходный GLB для подгонки'
+    this.original.title = 'Для модели, подрезанной в прежней версии. Выберите её исходный GLB, затем создайте риг.'
+    this.original_file.type = 'file'; this.original_file.hidden = true; this.original_file.accept = '*/*'
+    this.original.onclick = () => this.original_file.click()
+    this.original_file.onchange = () => { void this.select_original() }
     this.cancel.textContent = 'Отменить создание рига'; this.cancel.onclick = () => this.cancel_build()
     this.review.className = 'head-landmark-review'; this.review.setAttribute('aria-label', 'Ориентиры головы')
     const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Оранжевая точка — шея, голубая — основание черепа под челюстью, сиреневая — макушка без рогов и украшений. Перетаскивайте точки на модели. Для глубины используйте вид сбоку.'
@@ -58,7 +68,7 @@ export class Humanoid65Panel {
     this.confirm.textContent = 'Продолжить с этой головой'; this.confirm.className = 'primary'; this.confirm.onclick = () => { if (!this.confirm.disabled) void this.run() }
     this.dismiss.textContent = 'Отменить уточнение головы'; this.dismiss.onclick = () => { this.clear_review(); this.options.viewer.fit(true); this.options.status('Уточнение отменено. Исходный персонаж сохранён.'); this.changed() }
     this.review.append(hint, views, details, checked, this.confirm, this.dismiss)
-    container.append(title, info, label, this.build, this.manual, this.cancel, this.review); this.refresh()
+    container.append(title, info, label, this.build, this.manual, this.original, this.original_file, this.cancel, this.review); this.refresh()
   }
   get reviewing(): boolean { return !!this.points }
   start(): Promise<void> { return this.run() }
@@ -66,14 +76,29 @@ export class Humanoid65Panel {
   refresh(external = this.external): void {
     this.external = external
     if (this.owner && this.owner !== this.options.asset()?.source_bytes) this.clear_review()
+    if (this.original_for_fit?.owner !== this.options.asset()?.source_bytes) this.original_for_fit = undefined
     const locked = this.busy || external
     this.build.disabled = this.manual.disabled = locked || !this.options.asset() || this.reviewing
+    this.original.disabled = this.build.disabled
     this.profile.disabled = locked || this.reviewing
     this.cancel.hidden = !this.busy; this.review.hidden = !this.reviewing
     this.front.disabled = this.side.disabled = this.dismiss.disabled = locked
     this.checked.disabled = locked || !this.front_seen || !this.side_seen
     this.confirm.disabled = locked || !this.checked.checked || !this.front_seen || !this.side_seen
     this.coordinates.querySelectorAll('input').forEach(input => { input.disabled = locked })
+  }
+  private async select_original (): Promise<void> {
+    const file = this.original_file.files?.[0], owner = this.options.asset()?.source_bytes
+    this.original_file.value = ''
+    if (!file || !owner) return
+    try {
+      if (file.size > MAX_GLB_BYTES) throw new Error('Исходный GLB больше 128 МБ.')
+      const bytes = await file.arrayBuffer()
+      if (this.options.asset()?.source_bytes !== owner) return
+      verify_original_for_fit(owner, bytes)
+      this.original_for_fit = { owner, bytes }
+      this.options.status('Исходный GLB выбран для подгонки. Создайте полный риг.')
+    } catch (error) { this.options.status((error as Error).message, true) }
   }
   private changed(): void { this.refresh(); this.options.changed?.() }
   private clear_review(markers = true): void {
@@ -125,7 +150,7 @@ export class Humanoid65Panel {
   }
   private async calculate(asset: RigAsset, forceReview = false): Promise<boolean> {
     try {
-      const result = await build_humanoid65(asset, { template: await humanoid_template(), profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview })
+      const result = await build_humanoid65(asset, { template: await humanoid_template(), original_for_fit: this.original_for_fit?.owner === asset.source_bytes ? this.original_for_fit.bytes : undefined, profile: this.profile.value as 'human' | 'woman', signal: this.abort!.signal, progress: text => this.options.status(text), head_landmarks: this.points, review_head: forceReview })
       this.options.status('Открываю и проверяю готовый риг…')
       this.clear_review(); await this.options.show(result.bytes)
       const fallback = result.report.joints.filter(j => (j.evidence as { source?: string })?.source === 'fallback').map(j => j.name.startsWith('lowerarm') ? 'локти' : 'колени')
