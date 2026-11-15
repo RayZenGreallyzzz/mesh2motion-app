@@ -94,7 +94,15 @@ function plan_transfer (source: RigAsset, target: RigAsset, mapping: RigMapping,
     used.add(id)
     if (node.is_joint !== other.is_joint || node.is_mesh !== other.is_mesh) throw new Error('Сопоставьте кость с костью: ' + node.name)
   }
-  const identical = source.nodes.size === target.nodes.size && [...source.nodes.values()].every(node => {
+  // A motion bank may omit mesh primitives. For exact transfer its animated
+  // hierarchy and the full set of joints must still match the active rig.
+  const source_nodes = [...source.nodes.values()]
+  const source_joints = source_nodes.filter(node => node.is_joint)
+  const comparison = source.motion_only ? new Set([...required, ...source_joints]) : source_nodes
+  const same_size = source.motion_only
+    ? source_joints.length === [...target.nodes.values()].filter(node => node.is_joint).length
+    : source.nodes.size === target.nodes.size
+  const identical = same_size && [...comparison].every(node => {
     const other = target.nodes.get(mapping[node.id])
     return other && (node.parent_id ? mapping[node.parent_id] : null) === other.parent_id && node.is_joint === other.is_joint && node.is_mesh === other.is_mesh && node.position.distanceTo(other.position) < EPS && node.scale.distanceTo(other.scale) < EPS && node.rotation.clone().normalize().angleTo(other.rotation.clone().normalize()) < EPS && node.world_scale.distanceTo(other.world_scale) < EPS && node.world_rotation.clone().normalize().angleTo(other.world_rotation.clone().normalize()) < EPS
   })

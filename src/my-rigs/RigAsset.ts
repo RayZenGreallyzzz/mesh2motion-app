@@ -25,6 +25,7 @@ export interface RigNode {
 
 export interface RigAsset {
   inferred_skeleton?: boolean
+  motion_only?: boolean
   pose_overrides?: Set<string>
   motion_info?: { format: 'bvh' | 'fbx', calibration_frame?: number, warnings: string[] }
   name: string

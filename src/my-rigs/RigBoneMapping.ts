@@ -53,6 +53,22 @@ export function joint_roles (asset: RigAsset): Map<string, JointRole> {
 export function suggest_mapping (source: RigAsset, target: RigAsset): RigMapping {
   const result: RigMapping = {}
   if (source.signature === target.signature) { for (const id of source.nodes.keys()) if (target.nodes.has(id)) result[id] = id; return result }
+  if (source.motion_only) {
+    const joints = [...source.nodes.values()].filter(node => node.is_joint)
+    const target_joints = [...target.nodes.values()].filter(node => node.is_joint)
+    if (joints.length && joints.length === target_joints.length) {
+      const hierarchy = new Set<RigNode>()
+      for (const joint of joints) {
+        for (let node: RigNode | undefined = joint; node && !hierarchy.has(node);
+          node = node.parent_id ? source.nodes.get(node.parent_id) : undefined) hierarchy.add(node)
+      }
+      if ([...hierarchy].every(node => {
+        const other = target.nodes.get(node.id)
+        return other?.name === node.name && other.parent_id === node.parent_id &&
+          other.is_joint === node.is_joint && other.is_mesh === node.is_mesh
+      })) return Object.fromEntries([...hierarchy].map(node => [node.id, node.id]))
+    }
+  }
   const source_roles = joint_roles(source), target_roles = joint_roles(target)
   // A semantic group can contain several branches (wing fingers, extra necks).
   // Preserve unambiguous names before using anatomical/proportional guesses.

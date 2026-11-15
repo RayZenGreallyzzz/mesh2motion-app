@@ -80,7 +80,7 @@ describe('Humanoid elbow and knee weights', () => {
   it.each(['arm', 'leg'] as const)('softens the outer %s near a joint in the full rig', role => {
     const { bones } = limb(role, 'l')
     const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([
-      .44, .995, 0, .44, 1.005, 0, .52, 1, 0
+      .44, .995, 0, .44, 1.005, 0, .55, 1, 0
     ], 3))
     const indices = [0, 2, 0, 0, 1, 2, 0, 0, 0, 1, 2, 0]
     const weights = [.9, .1, 0, 0, .9, .1, 0, 0, .1, .8, .1, 0]
@@ -97,6 +97,19 @@ describe('Humanoid elbow and knee weights', () => {
     expect(Math.abs(influence(0, 0) - influence(1, 0))).toBeLessThan(.65)
     for (const vertex of [0, 1, 2]) expect(influence(vertex, 2)).toBeCloseTo(.1, 8)
     expect(weights.slice(8)).toEqual(regular.slice(8))
+  })
+
+  it('softens the upper-arm edge while keeping the same radius for knees', () => {
+    const geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute([.51, .92, 0], 3))
+    for (const side of ['l', 'r']) {
+      const indices = [0, 1, 2, 0]
+      const initial = [.8, .1, .1, 0], arm = initial.slice(), leg = initial.slice()
+      new HumanoidJointWeightCorrector(geometry, limb('arm', side).bones).apply(indices.slice(), arm, true)
+      new HumanoidJointWeightCorrector(geometry, limb('leg', side).bones).apply(indices.slice(), leg, true)
+      expect(arm[0]).toBeLessThan(initial[0])
+      expect(arm[2]).toBeCloseTo(initial[2], 8)
+      expect(leg).toEqual(initial)
+    }
   })
 })
 

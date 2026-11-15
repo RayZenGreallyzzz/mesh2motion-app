@@ -129,11 +129,10 @@ export class HumanoidJointWeightCorrector {
         const childPoint = Utility.world_position_from_object(tip)
         const reference = Math.min(parentPoint.distanceTo(joint), joint.distanceTo(childPoint))
         if (reference <= 1e-5) continue
-        // The wider full-rig gradient reaches the outside of the arm and calf
-        // while keeping the split local to the same two bones.
+        const arm = parentRole === 'upperarm'
         result.push({ parentIndex, childIndex, joint, parentPoint, childPoint,
-          halfWidth: reference * (soften ? 0.22 : 0.18),
-          radius: reference * (soften ? 0.50 : 0.42) })
+          halfWidth: reference * (soften ? (arm ? 0.24 : 0.22) : 0.18),
+          radius: reference * (soften ? (arm ? 0.53 : 0.50) : 0.42) })
       }
     }
 

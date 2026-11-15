@@ -12,7 +12,7 @@ import { input_format } from './MotionArchive.ts'
 import { ExportCancelledError, ExportFileSaver } from '../lib/processes/export-to-file/ExportFileSaver.ts'
 import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
 import { dispose_rig_scene, type RigAsset } from './RigAsset.ts'
-import { export_rig_asset, load_rig_asset } from './RigAssetLoader.ts'
+import { export_rig_asset, load_builtin_motion_source, load_rig_asset } from './RigAssetLoader.ts'
 import { RigLibrary, type LibraryEntry } from './RigLibrary.ts'
 import { inspect_transfer, mapping_key, suggest_mapping, transfer_clips_async, type TransferOptions, type RigMapping } from './RigMotionTransfer.ts'
 import { RigViewer } from './RigViewer.ts'
@@ -407,15 +407,11 @@ viewer.on_time = (time, duration) => {
 }
 button('motions-tab').onclick = () => show_tab(false)
 button('library-tab').onclick = () => show_tab(true)
-mount_catalog(element('builtin-catalog'), (path, title) => void operation('Открываю встроенный набор…', async () => {
-  const response = await fetch(new URL('/' + path, location.href))
-  if (!response.ok) throw new Error('Набор недоступен')
-  show_asset(await load_rig_asset(await response.arrayBuffer(), title))
-}), (path, title) => {
-  if (!asset || busy) return
+mount_catalog(element('builtin-catalog'), (path, title) => {
+  if (!asset?.skeleton_count || busy) return
   void operation('Читаю движения встроенного набора…', async () => {
     const response = await fetch(new URL('/' + path, location.href)); if (!response.ok) throw new Error('Набор недоступен')
-    await open_motion_source(await load_rig_asset(await response.arrayBuffer(), title))
+    await open_motion_source(await load_builtin_motion_source(await response.arrayBuffer(), title))
   })
 }, () => Boolean(asset?.skeleton_count) && !busy)
 button('import-pack').onclick = () => element<HTMLInputElement>('pack-file').click()
@@ -430,11 +426,6 @@ element<HTMLInputElement>('pack-file').onchange = event => {
   })
 }
 if (new URLSearchParams(location.search).get('tab') === 'library') show_tab(true)
-if (new URLSearchParams(location.search).get('native') === '1') void operation('Открываю пример персонажа…', async () => {
-  const response = await fetch(new URL('../models/model-human.glb', location.href))
-  if (!response.ok) throw new Error('Пример модели недоступен. Откройте свой GLB.')
-  show_asset(await load_rig_asset(await response.arrayBuffer(), 'Пример человека'))
-})
 void render_library().catch(() => status('Хранилище устройства недоступно. Можно открыть GLB и экспортировать результат.', true))
 controls()
 
