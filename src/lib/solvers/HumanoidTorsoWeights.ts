@@ -2,6 +2,7 @@ import { Vector3, type Bone, type BufferGeometry } from 'three'
 import { parse_bone_name } from '../../retarget/bone-automap/BoneNameTokenizer.ts'
 import { resolve_slot } from '../../retarget/bone-automap/BoneSlotVocabulary.ts'
 import { BoneSide, BoneSlot } from '../../retarget/bone-automap/BoneTypes.ts'
+import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 
 const smooth = (a: number, b: number, value: number): number => {
   const t = Math.max(0, Math.min(1, (value-a)/(b-a)))
@@ -11,9 +12,11 @@ const smooth = (a: number, b: number, value: number): number => {
 /** Geodesic falloff can reach the waist from a descending arm. Remove that
  * distant influence only where the field already identifies a torso surface.
  * Keep a capsule around each arm, a soft armpit transition and the original
- * relative spine weights. Manual edits are applied later and remain authoritative.
+ * relative spine weights when those have meaningful support. Tiny spine seeds
+ * must not be amplified into a different dominant joint on adjacent vertices.
+ * Manual edits are applied later and remain authoritative.
  */
-export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[], indices: number[], weights: number[]): number {
+export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[], indices: number[], weights: number[], refineTorsoRegion = false): number {
   const roles = bones.map(b => { const name=parse_bone_name(b.name);return {slot:resolve_slot(name,name.side),side:name.side,leaf:name.is_leaf} })
   const find = (slot: BoneSlot, side?: BoneSide) => bones.find((b,i)=>!b.userData.rigNonDeforming&&!b.name.startsWith('rig_volume_')&&!roles[i].leaf&&roles[i].slot===slot&&(side===undefined||roles[i].side===side))
   const left=find(BoneSlot.UpperArm,BoneSide.Left),right=find(BoneSlot.UpperArm,BoneSide.Right),pelvis=find(BoneSlot.Pelvis)
@@ -24,7 +27,11 @@ export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[],
   side.normalize();const up=origin.clone().sub(hip);up.addScaledVector(side,-up.dot(side));const height=up.length();up.normalize()
   if(height<1e-6||halfWidth/height<.08||halfWidth/height>2)return 0
   const arm=new Set<number>(),core=new Set<number>(),capsules:Array<{a:Vector3,d:Vector3,lengthSq:number,radius:number}>=[]
+  const clavicles = new Set<number>()
+  if (refineTorsoRegion) roles.forEach((role, i) => { if (role.slot === BoneSlot.Clavicle && !role.leaf) clavicles.add(i) })
   roles.forEach((r,i)=>{if(r.slot===BoneSlot.Spine||r.slot===BoneSlot.Pelvis)core.add(i)})
+  const anchors=[...core].filter(i=>!roles[i].leaf&&!bones[i].userData.rigNonDeforming).map(i=>({id:i,height:bones[i].getWorldPosition(new Vector3()).sub(hip).dot(up)})).sort((a,b)=>a.height-b.height)
+  if(!anchors.length)return 0
   for(const upper of [left,right]){
     upper.traverse(b=>{const i=bones.indexOf(b as Bone);if(i>=0)arm.add(i)})
     for(const start of [upper,find(BoneSlot.LowerArm,roles[bones.indexOf(upper)].side)]){
@@ -38,8 +45,44 @@ export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[],
   if(capsules.length<4)return 0
   const p=new Vector3(),local=new Vector3(),pos=geometry.getAttribute('position');let changed=0
   for(let i=0;i<pos.count;i++){
-    const base=i*4;let armWeight=0,coreWeight=0
-    for(let k=0;k<4;k++){if(arm.has(indices[base+k]))armWeight+=weights[base+k];if(core.has(indices[base+k]))coreWeight+=weights[base+k]}
+    const base=i*4;let armWeight=0,coreWeight=0,clavicleWeight=0
+    for(let k=0;k<4;k++){if(arm.has(indices[base+k]))armWeight+=weights[base+k];if(core.has(indices[base+k]))coreWeight+=weights[base+k];if(clavicles.has(indices[base+k]))clavicleWeight+=weights[base+k]}
+    if (refineTorsoRegion && clavicleWeight + coreWeight > 1e-8) {
+      p.fromBufferAttribute(pos,i); local.copy(p).sub(origin)
+      const down = -local.dot(up), x = Math.abs(local.dot(side))
+      // Clavicles carry the shoulder cap. Their influence should fade before
+      // reaching the rib cage, including the back and sides of the torso.
+      let mask = smooth(height*.10,height*.32,down) *
+        (1-smooth(height*.85,height*1.02,down)) * (1-smooth(halfWidth*.85,halfWidth*1.25,x))
+      for (const c of capsules) {
+        const dx=p.x-c.a.x,dy=p.y-c.a.y,dz=p.z-c.a.z
+        const t=Math.max(0,Math.min(1,(dx*c.d.x+dy*c.d.y+dz*c.d.z)/(c.lengthSq||1)))
+        mask*=smooth(c.radius,c.radius*1.7,Math.hypot(dx-t*c.d.x,dy-t*c.d.y,dz-t*c.d.z))
+      }
+      if (mask > 1e-8) {
+        const y = height - down
+        const entries = new Map<number, number>()
+        for (let k=0;k<4;k++) {
+          const id = indices[base+k], weight = weights[base+k]
+          const retained = clavicles.has(id) || core.has(id) || arm.has(id) ? weight * (1-mask) : weight
+          entries.set(id, (entries.get(id) ?? 0) + retained)
+        }
+        const total = (clavicleWeight + coreWeight + armWeight) * mask
+        const upper = anchors.findIndex(anchor => anchor.height >= y)
+        if (upper <= 0) {
+          const anchor = upper === 0 ? anchors[0] : anchors.at(-1)!
+          entries.set(anchor.id, (entries.get(anchor.id) ?? 0) + total)
+        } else {
+          const a = anchors[upper-1], b = anchors[upper], mix = smooth(a.height, b.height, y)
+          entries.set(a.id, (entries.get(a.id) ?? 0) + total * (1-mix))
+          entries.set(b.id, (entries.get(b.id) ?? 0) + total * mix)
+        }
+        const sorted = continuous_skin_weights([...entries])
+        for (let k=0;k<4;k++) { indices[base+k]=sorted[k]?.[0]??0; weights[base+k]=sorted[k]?.[1]??0 }
+        changed++
+        continue
+      }
+    }
     if(armWeight<=1e-8||coreWeight<=1e-8)continue
     p.fromBufferAttribute(pos,i);local.copy(p).sub(origin);const down=-local.dot(up),x=Math.abs(local.dot(side))
     let amount=smooth(height*.10,height*.28,down)*(1-smooth(height*.90,height*1.04,down))*(1-smooth(halfWidth*1.3,halfWidth*1.7,x))
@@ -48,9 +91,23 @@ export function protect_humanoid_torso (geometry: BufferGeometry, bones: Bone[],
       amount*=smooth(c.radius,c.radius*1.7,Math.hypot(dx-t*c.d.x,dy-t*c.d.y,dz-t*c.d.z))
     }
     if(amount<=1e-8)continue
-    // Transfer to existing torso slots, so no new fourth-slot discontinuity is
-    // introduced and unrelated leg/head weights remain exactly unchanged.
     const removed=armWeight*amount
+    // Proportional transfer can turn a 0.1% accidental spine seed into 80%.
+    // Where that amplification dominates, use a continuous geometric spine
+    // field instead. Substantial original torso support is preserved.
+    const stable=(1-smooth(.15,.55,coreWeight))*smooth(.25,1,removed/coreWeight)
+    if(stable>1e-8){
+      const y=p.clone().sub(hip).dot(up),field=new Map<number,number>()
+      if(y<=anchors[0].height)field.set(anchors[0].id,1)
+      else if(y>=anchors.at(-1)!.height)field.set(anchors.at(-1)!.id,1)
+      else for(let j=1;j<anchors.length;j++)if(y<=anchors[j].height){const a=anchors[j-1],b=anchors[j],t=smooth(a.height,b.height,y);field.set(a.id,1-t);field.set(b.id,t);break}
+      const entries=new Map<number,number>(),coreTotal=coreWeight+removed
+      for(let k=0;k<4;k++){const id=indices[base+k],w=weights[base+k];entries.set(id,(entries.get(id)??0)+(arm.has(id)?w*(1-amount):core.has(id)?w*coreTotal/coreWeight*(1-stable):w))}
+      for(const [id,w] of field)entries.set(id,(entries.get(id)??0)+coreTotal*stable*w)
+      const sorted=continuous_skin_weights([...entries])
+      for(let k=0;k<4;k++){indices[base+k]=sorted[k]?.[0]??0;weights[base+k]=sorted[k]?.[1]??0}
+      changed++;continue
+    }
     for(let k=0;k<4;k++){const id=indices[base+k];if(arm.has(id))weights[base+k]*=1-amount;else if(core.has(id))weights[base+k]=Math.min(1,weights[base+k]+removed*weights[base+k]/coreWeight)}
     changed++
   }

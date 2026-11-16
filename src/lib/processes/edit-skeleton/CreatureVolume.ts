@@ -92,6 +92,14 @@ export class CreatureVolume {
       this.min.z + (yz % this.nz + .5) * this.step)
   }
 
+  clearance (point: Vector3): number {
+    const x = Math.floor((point.x - this.min.x) / this.step)
+    const y = Math.floor((point.y - this.min.y) / this.step)
+    const z = Math.floor((point.z - this.min.z) / this.step)
+    if (x < 0 || x >= this.nx || y < 0 || y >= this.ny || z < 0 || z >= this.nz) return 0
+    return this.radius[(y * this.nz + z) * this.nx + x] * this.step
+  }
+
   select (score: (p: Vector3, radius: number, i: number) => number): number {
     let best = -1, value = -Infinity
     for (const i of this.cells) {

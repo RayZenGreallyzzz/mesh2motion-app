@@ -5,6 +5,7 @@ import {
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GlbDocument } from './GlbEnvelope.ts'
 import { dedupe_identical_keys } from './RigTrackSanitizer.ts'
+import { infer_animation_skeleton } from './AnimationSkeleton.ts'
 
 export interface RigNode {
   id: string
@@ -23,6 +24,9 @@ export interface RigNode {
 }
 
 export interface RigAsset {
+  inferred_skeleton?: boolean
+  motion_only?: boolean
+  pose_overrides?: Set<string>
   motion_info?: { format: 'bvh' | 'fbx', calibration_frame?: number, warnings: string[] }
   name: string
   scene: Group
@@ -52,8 +56,12 @@ export function build_rig_asset (gltf: GLTF, document: GlbDocument, buffer: Arra
     }
   })
   for (const [object, id] of by_object) {
+    const sourceIndex = gltf.parser.associations.get(object)?.nodes
+    // Three sanitizes dots and other punctuation for PropertyBinding. Keep
+    // the authored name for rig matching so e.g. "upperarm.l" retains its side.
+    const name = sourceIndex === undefined ? undefined : document.nodes?.[sourceIndex]?.name
     nodes.set(id, {
-      id, name: object.name || ('Узел ' + id), object,
+      id, name: name || object.name || ('Узел ' + id), object,
       parent_id: object.parent ? by_object.get(object.parent) ?? null : null,
       position: object.position.clone(), rotation: object.quaternion.clone(), scale: object.scale.clone(),
       world_rotation: object.getWorldQuaternion(new Quaternion()),
@@ -86,6 +94,7 @@ export function build_rig_asset (gltf: GLTF, document: GlbDocument, buffer: Arra
     }
     return copy
   })
+  const inferred_skeleton = !document.skins?.length && infer_animation_skeleton(nodes, clips) > 0
   const skeletons = new Set<unknown>()
   let vertex_count = 0
   scene.traverse(object => {
@@ -97,7 +106,7 @@ export function build_rig_asset (gltf: GLTF, document: GlbDocument, buffer: Arra
     node.id, node.name, node.parent_id, node.position.toArray(), node.rotation.toArray(),
     node.scale.toArray(), node.is_joint, node.is_mesh
   ]))
-  return { name, scene, nodes, clips, signature, source_bytes: buffer, skeleton_count: skeletons.size, vertex_count, dirty: false }
+  return { name, scene, nodes, clips, signature, source_bytes: buffer, skeleton_count: skeletons.size, vertex_count, dirty: false, inferred_skeleton }
 }
 
 export function restore_rig_pose (asset: RigAsset): void {
@@ -136,3 +145,4 @@ export function dispose_rig_scene (scene: Object3D): void {
   })
   scene.removeFromParent()
 }
+

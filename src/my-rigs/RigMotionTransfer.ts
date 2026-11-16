@@ -94,7 +94,15 @@ function plan_transfer (source: RigAsset, target: RigAsset, mapping: RigMapping,
     used.add(id)
     if (node.is_joint !== other.is_joint || node.is_mesh !== other.is_mesh) throw new Error('Сопоставьте кость с костью: ' + node.name)
   }
-  const identical = source.nodes.size === target.nodes.size && [...source.nodes.values()].every(node => {
+  // A motion bank may omit mesh primitives. For exact transfer its animated
+  // hierarchy and the full set of joints must still match the active rig.
+  const source_nodes = [...source.nodes.values()]
+  const source_joints = source_nodes.filter(node => node.is_joint)
+  const comparison = source.motion_only ? new Set([...required, ...source_joints]) : source_nodes
+  const same_size = source.motion_only
+    ? source_joints.length === [...target.nodes.values()].filter(node => node.is_joint).length
+    : source.nodes.size === target.nodes.size
+  const identical = same_size && [...comparison].every(node => {
     const other = target.nodes.get(mapping[node.id])
     return other && (node.parent_id ? mapping[node.parent_id] : null) === other.parent_id && node.is_joint === other.is_joint && node.is_mesh === other.is_mesh && node.position.distanceTo(other.position) < EPS && node.scale.distanceTo(other.scale) < EPS && node.rotation.clone().normalize().angleTo(other.rotation.clone().normalize()) < EPS && node.world_scale.distanceTo(other.world_scale) < EPS && node.world_rotation.clone().normalize().angleTo(other.world_rotation.clone().normalize()) < EPS
   })
@@ -164,8 +172,11 @@ function plan_transfer (source: RigAsset, target: RigAsset, mapping: RigMapping,
   for (const pair of pairs) {
     const role = sr.get(pair.from.node.id)
     pair.translate = role?.slot === BoneSlot.Pelvis || role?.slot === 'root' || !pairs.some(p => is_ancestor(source, p.from.node.id, pair.from.node.id))
-    // Calibrate the anatomical direction, keeping all original local axes/bind data.
-    if (!options.deformation && options.match_pose !== false && role && !role.leaf && role.slot !== 'root' && role.slot !== BoneSlot.Pelvis && role.slot !== BoneSlot.Unknown) {
+    // A/T matching may align limbs. The torso and head take only the
+    // animated change from the donor, so a difference in bind posture does
+    // not bend the target spine when the clip has no torso motion.
+    const preservesPosture = role && (role.slot === BoneSlot.Spine || role.slot === BoneSlot.Neck || role.slot === BoneSlot.Head)
+    if (!options.deformation && options.match_pose !== false && role && !role.leaf && !preservesPosture && role.slot !== 'root' && role.slot !== BoneSlot.Pelvis && role.slot !== BoneSlot.Unknown) {
       const children = pairs.filter(p => p !== pair && is_ancestor(source, pair.from.node.id, p.from.node.id) && (is_ancestor(target, pair.to.node.id, p.to.node.id) || p.attachment?.parent === pair.to) && p.from.wp.distanceToSquared(pair.from.wp) > EPS && p.to.wp.distanceToSquared(pair.to.wp) > EPS)
       children.sort((a, b) => a.from.wp.distanceToSquared(pair.from.wp) - b.from.wp.distanceToSquared(pair.from.wp))
       const child = children[0]

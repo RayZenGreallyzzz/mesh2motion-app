@@ -10,7 +10,7 @@ export interface GlbNode {
 }
 
 export interface GlbDocument {
-  asset: { version: string }
+  asset: { version: string, extras?: Record<string, unknown> }
   scene?: number
   scenes?: Array<{ nodes?: number[] }>
   nodes?: GlbNode[]
@@ -95,19 +95,44 @@ export function inspect_glb (buffer: ArrayBuffer): GlbDocument {
       throw new Error('Некорректный список костей GLB')
     }
   }
-  let vertices = 0
-  for (const mesh of json.meshes ?? []) {
+  const mesh_vertices = (json.meshes ?? []).map(mesh => {
+    let count = 0
     for (const primitive of mesh.primitives) {
       if (Object.keys(primitive.attributes).some(name => /^(JOINTS|WEIGHTS)_[1-9]/.test(name))) {
         throw new Error('Больше четырёх влияний на вершину. Этот режим пока не преобразует такие веса, чтобы не испортить риг.')
       }
-      vertices += json.accessors?.[primitive.attributes.POSITION]?.count ?? 0
+      count += json.accessors?.[primitive.attributes.POSITION]?.count ?? 0
     }
-  }
-  if (vertices > 2_000_000) throw new Error('Больше 2 млн вершин. Уменьшите модель перед работой на Android.')
+    return count
+  })
   if ((json.animations?.length ?? 0) > 256) throw new Error('Импортируйте не больше 256 анимаций за один раз')
   if ((json.accessors ?? []).some(accessor => !Number.isInteger(accessor.count) || accessor.count < 0 || accessor.count > 12_000_000)) {
     throw new Error('Слишком большой или повреждённый массив данных GLB')
+  }
+  // Count meshes the loader can reach, including separate uses of the same
+  // mesh. The rig writer keeps unreferenced source definitions in the GLB.
+  const scene = json.scenes?.[json.scene ?? 0]
+  const pending = scene ? [...(scene.nodes ?? [])] : [...nodes.keys()]
+  for (const animation of json.animations ?? []) {
+    for (const { target } of animation.channels ?? []) {
+      if (target?.node !== undefined) pending.push(target.node)
+    }
+  }
+  const visited = new Set<number>()
+  let vertices = 0
+  while (pending.length) {
+    const index = pending.pop()!
+    if (visited.has(index)) continue
+    const node = nodes[index]
+    if (!node) throw new Error('Некорректная ссылка на узел GLB')
+    visited.add(index)
+    if (node.mesh !== undefined) {
+      const count = mesh_vertices[node.mesh]
+      if (count === undefined) throw new Error('Некорректная ссылка на сетку GLB')
+      vertices += count
+      if (vertices > 2_000_000) throw new Error('Больше 2 млн вершин в загружаемых сетках. Для Android откройте облегчённую копию.')
+    }
+    pending.push(...(node.children ?? []), ...(json.skins?.[node.skin ?? -1]?.joints ?? []))
   }
   return json
 }

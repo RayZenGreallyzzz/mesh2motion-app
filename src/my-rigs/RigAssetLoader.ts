@@ -1,5 +1,5 @@
 import { write_clips_glb } from './GlbClipWriter.ts'
-import { LoadingManager, Scene, type Mesh, type Object3D } from 'three'
+import { Group, LoadingManager, Scene, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
@@ -31,6 +31,24 @@ export async function load_rig_asset (bytes: ArrayBuffer, name: string): Promise
   } finally {
     draco.dispose()
   }
+}
+
+export async function load_builtin_motion_source (bytes: ArrayBuffer, name: string): Promise<RigAsset> {
+  const document = inspect_glb(bytes)
+  // Mesh tracks may need morph indices or primitive mappings. The donor scene
+  // stays outside the viewer even when those tracks require the full loader.
+  if (document.animations?.some(clip => clip.channels.some(({ target }) =>
+    target.path === 'weights' || (target.node !== undefined && document.nodes?.[target.node]?.mesh !== undefined)))) {
+    return load_rig_asset(bytes, name)
+  }
+  // Leave transformed mesh nodes as empty groups so the skeleton keeps its
+  // original hierarchy without decoding the donor's geometry or textures.
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+  loader.register(() => ({ name: 'StudioMotionSource', loadMesh: async () => new Group() }))
+  const gltf = await loader.parseAsync(bytes, '')
+  const source = build_rig_asset(gltf, document, new ArrayBuffer(0), name)
+  source.motion_only = true
+  return source
 }
 
 // Export a private hierarchy: an active animation must never become the bind pose.

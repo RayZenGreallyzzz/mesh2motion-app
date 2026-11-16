@@ -1,4 +1,5 @@
 import { Vector3, type Bone, type BufferGeometry } from 'three'
+import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 import { Utility } from '../Utilities.js'
 
 interface JointPair {
@@ -32,8 +33,8 @@ export class HumanoidJointWeightCorrector {
     this.bones = bones
   }
 
-  public apply (skinIndices: number[], skinWeights: number[]): void {
-    const pairs = this.build_joint_pairs()
+  public apply (skinIndices: number[], skinWeights: number[], soften = false): void {
+    const pairs = this.build_joint_pairs(soften)
     if (pairs.length === 0) return
 
     const positions = this.geometry.getAttribute('position')
@@ -50,7 +51,69 @@ export class HumanoidJointWeightCorrector {
     }
   }
 
-  private build_joint_pairs (): JointPair[] {
+  public blend_shoulders (indices: number[], weights: number[]): void {
+    const at = (name: string) => this.bones.find(bone => bone.name === name)
+    const chest = at('spine_03'), left = at('upperarm_l'), right = at('upperarm_r')
+    if (!chest || !left || !right) return
+    const span = Utility.world_position_from_object(left).distanceTo(Utility.world_position_from_object(right))
+    const positions = this.geometry.getAttribute('position')
+    if (!positions || span < 1e-6) return
+    const point = new Vector3(), local = new Vector3()
+    for (const side of ['l', 'r']) {
+      const upper = at('upperarm_' + side), lower = at('lowerarm_' + side), clavicle = at('clavicle_' + side)
+      if (!upper || !lower || !clavicle || upper.parent !== clavicle || lower.parent !== upper) continue
+      const joint = Utility.world_position_from_object(upper)
+      const axis = Utility.world_position_from_object(lower).sub(joint)
+      const length = axis.length()
+      if (length < span * .1) continue
+      axis.divideScalar(length)
+      const ids = [chest, clavicle, upper].map(bone => this.bones.indexOf(bone))
+      const radius = Math.min(span * .39, length * .65)
+      for (let vertex = 0; vertex < positions.count; vertex++) {
+        local.copy(point.fromBufferAttribute(positions, vertex)).sub(joint)
+        const along = local.dot(axis)
+        const radial = Math.sqrt(Math.max(0, local.lengthSq() - along * along))
+        const mask = (1 - this.smoothstep(radius * .83, radius * 1.55, radial)) *
+          this.smoothstep(-length * .65, -length * .30, along) *
+          (1 - this.smoothstep(length * .26, length * .68, along))
+        if (mask < 1e-6) continue
+        const base = vertex * 4
+        let owned = 0
+        for (let slot = 0; slot < 4; slot++) {
+          if (ids.includes(indices[base + slot])) owned += weights[base + slot]
+        }
+        // Keep the original ownership of the region and all nearby neck/head
+        // influences. Only replace the split between these three bones.
+        if (owned < 1e-6) continue
+        const arm = this.smoothstep(-length * .27, length * .38, along)
+        const collar = this.smoothstep(-length * .48, length * .06, along)
+        const portions = [(1-arm)*(1-collar), (1-arm)*collar, arm]
+        const protectedWeights: Array<[number, number]> = []
+        const mixed = ids.map((id, i): [number, number] => [id, owned * mask * portions[i]])
+        for (let slot = 0; slot < 4; slot++) {
+          const id = indices[base + slot]
+          const weight = weights[base + slot]
+          if (weight <= 0) continue
+          const localSlot = ids.indexOf(id)
+          if (localSlot >= 0) mixed[localSlot][1] += weight * (1-mask)
+          else protectedWeights.push([id, weight])
+        }
+        // The four-slot limit applies to the blend, including when it adds a
+        // third local bone. Never let that new entry displace the neck or head.
+        const available = 4 - protectedWeights.length
+        if (available < 2) continue
+        const localWeights = continuous_skin_weights(mixed, available)
+        const sorted = protectedWeights.concat(localWeights.map(([id, ratio]) => [id, owned * ratio]))
+          .sort((a, b) => b[1] - a[1])
+        for (let slot = 0; slot < 4; slot++) {
+          indices[base + slot] = sorted[slot]?.[0] ?? 0
+          weights[base + slot] = sorted[slot]?.[1] ?? 0
+        }
+      }
+    }
+  }
+
+  private build_joint_pairs (soften: boolean): JointPair[] {
     const result: JointPair[] = []
 
     for (const side of ['l', 'r'] as const) {
@@ -66,8 +129,10 @@ export class HumanoidJointWeightCorrector {
         const childPoint = Utility.world_position_from_object(tip)
         const reference = Math.min(parentPoint.distanceTo(joint), joint.distanceTo(childPoint))
         if (reference <= 1e-5) continue
+        const arm = parentRole === 'upperarm'
         result.push({ parentIndex, childIndex, joint, parentPoint, childPoint,
-          halfWidth: reference * 0.18, radius: reference * 0.42 })
+          halfWidth: reference * (soften ? (arm ? 0.24 : 0.22) : 0.18),
+          radius: reference * (soften ? (arm ? 0.53 : 0.50) : 0.42) })
       }
     }
 

@@ -1,22 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { AnimationMixer, Quaternion, Vector3, type Mesh, type SkinnedMesh } from 'three'
+import { AnimationMixer, Bone, Group, Quaternion, Vector3, type Mesh, type SkinnedMesh } from 'three'
 import { own_rig_fixture } from '../test/OwnRigFixture.ts'
 import { inspect_glb } from './GlbEnvelope.ts'
 import { load_rig_asset, export_rig_asset } from './RigAssetLoader.ts'
 import { restore_rig_pose, dispose_rig_scene, type RigAsset } from './RigAsset.ts'
 import { suggest_mapping, transfer_clips } from './RigMotionTransfer.ts'
+import { write_humanoid65_glb } from './Humanoid65Writer.ts'
 
-function document_glb (json: unknown): ArrayBuffer {
+function document_glb (json: unknown, binary_size = 0): ArrayBuffer {
   const text = new TextEncoder().encode(JSON.stringify(json))
   const size = Math.ceil(text.length / 4) * 4
-  const buffer = new ArrayBuffer(20 + size), view = new DataView(buffer)
+  const buffer = new ArrayBuffer(20 + size + (binary_size ? 8 + binary_size : 0)), view = new DataView(buffer)
   view.setUint32(0, 0x46546c67, true)
   view.setUint32(4, 2, true)
   view.setUint32(8, buffer.byteLength, true)
   view.setUint32(12, size, true)
   view.setUint32(16, 0x4e4f534a, true)
-  new Uint8Array(buffer, 20).fill(32)
+  new Uint8Array(buffer, 20, size).fill(32)
   new Uint8Array(buffer, 20, text.length).set(text)
+  if (binary_size) {
+    view.setUint32(20 + size, binary_size, true)
+    view.setUint32(24 + size, 0x004e4942, true)
+  }
   return buffer
 }
 
@@ -47,6 +52,61 @@ describe('Own rigs import and offline envelope', () => {
       images: [{ uri: 'data:image/ktx2;base64,q0tUWCAyMLs=' }] }))).not.toThrow()
     expect(() => inspect_glb(document_glb({ ...base, extensionsRequired: ['KHR_texture_basisu'],
       images: [{ uri: 'https://example.org/albedo.ktx2' }] }))).toThrow(/внешний/)
+  })
+
+  it('counts only loaded mesh instances when checking the Android vertex limit', () => {
+    const mesh = { primitives: [{ attributes: { POSITION: 0 } }] }
+    const document = {
+      asset: { version: '2.0' }, scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ children: [1] }, { mesh: 1 }],
+      meshes: [mesh, mesh],
+      accessors: [{ count: 1_050_000 }]
+    }
+    // The 65-bone writer keeps the previous mesh definition alongside the new
+    // one, while the scene references just the new mesh.
+    expect(() => inspect_glb(document_glb(document))).not.toThrow()
+    const instanced = {
+      ...document, nodes: [{ children: [1, 2] }, { mesh: 1 }, { mesh: 1 }], meshes: [mesh, mesh]
+    }
+    expect(() => inspect_glb(document_glb(instanced))).toThrow(/2 млн вершин/)
+    const animated = {
+      ...document,
+      nodes: [...document.nodes, { mesh: 0 }],
+      animations: [{ channels: [{ target: { node: 2, path: 'translation' } }] }]
+    }
+    expect(() => inspect_glb(document_glb(animated))).toThrow(/2 млн вершин/)
+  })
+
+  it('writes and reopens a 65-bone GLB above one million vertices with the original geometry', async () => {
+    const count = 1_050_000, byteLength = count * 12
+    const original = document_glb({
+      asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }], buffers: [{ byteLength }],
+      bufferViews: [{ buffer: 0, byteLength }],
+      accessors: [{ bufferView: 0, count, componentType: 5126, type: 'VEC3', min: [0, 0, 0], max: [1, 0, 0] }]
+    }, byteLength)
+    new DataView(original).setFloat32(original.byteLength - 12, 1, true)
+    const asset = await load_rig_asset(original, 'Dense GLB')
+    const mesh = asset.nodes.get('n0')!.object as Mesh
+    const rig = new Group(), bones = Array.from({ length: 65 }, (_, i) => {
+      const bone = new Bone()
+      bone.name = i === 0 ? 'pelvis' : 'test_joint_' + i
+      return bone
+    })
+    rig.add(bones[0]); bones[0].add(...bones.slice(1)); rig.updateMatrixWorld(true)
+    const indices = new Uint16Array(count * 4), weights = new Float32Array(count * 4)
+    for (let i = 0; i < count; i++) weights[i * 4] = 1
+    const out = write_humanoid65_glb(asset, rig, bones, [{
+      source: mesh, source_node: 0, primitive: 0, world: mesh.matrixWorld, indices, weights
+    }], [])
+    const reopened = await load_rig_asset(out, 'Reopened')
+    expect(reopened.vertex_count).toBe(count)
+    expect(inspect_glb(out).skins?.[0].joints.length).toBe(65)
+    const positions = (reopened.nodes.get('n0')!.object as Mesh).geometry.getAttribute('position')
+    expect(positions.getX(count - 1)).toBe(1)
+    dispose_rig_scene(asset.scene)
+    dispose_rig_scene(reopened.scene)
   })
 
   it('preserves both skins, partial clips, position, scale and morph channels', async () => {

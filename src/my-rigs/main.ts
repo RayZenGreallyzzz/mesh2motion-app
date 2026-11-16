@@ -1,4 +1,6 @@
-import type { AnimationClip } from 'three'
+import { type AnimationClip, type SkinnedMesh } from 'three'
+import { PoseEditorPanel } from '../lib/pose/PoseEditorPanel.ts'
+import { create_asset_pose_calibration, commit_asset_pose } from './RigPoseCalibration.ts'
 import { ordered_nodes, is_volume_node, mapping_family_key } from './RigBoneMapping.ts'
 import '../library/pack-style.css';
 import { mount_catalog } from '../library/Catalog.ts'
@@ -10,11 +12,18 @@ import { input_format } from './MotionArchive.ts'
 import { ExportCancelledError, ExportFileSaver } from '../lib/processes/export-to-file/ExportFileSaver.ts'
 import { MAX_GLB_BYTES } from './GlbEnvelope.ts'
 import { dispose_rig_scene, type RigAsset } from './RigAsset.ts'
-import { export_rig_asset, load_rig_asset } from './RigAssetLoader.ts'
+import { export_rig_asset, load_builtin_motion_source, load_rig_asset } from './RigAssetLoader.ts'
 import { RigLibrary, type LibraryEntry } from './RigLibrary.ts'
 import { inspect_transfer, mapping_key, suggest_mapping, transfer_clips_async, type TransferOptions, type RigMapping } from './RigMotionTransfer.ts'
 import { RigViewer } from './RigViewer.ts'
 import { inspect_skin_weights } from './RigSkinDiagnostics.ts'
+import { NativeRigPanel } from './NativeRigPanel.ts'
+import { Humanoid65Panel } from './Humanoid65Panel.ts'
+import { validate_humanoid65, validate_native_skin } from './NativeRigValidation.ts'
+import { StudioWorkspace } from './StudioWorkspace.ts'
+import { MeshEditPanel } from './MeshEditPanel.ts'
+import { write_mesh_edits } from './MeshEditGlb.ts'
+import { write_clips_glb } from './GlbClipWriter.ts'
 
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
 const button = (id: string): HTMLButtonElement => element<HTMLButtonElement>(id)
@@ -28,27 +37,41 @@ let incoming: RigAsset | undefined
 let mapping: RigMapping = {}
 let selected_clip = -1
 let busy = false
+let pose_editing = false
+let mesh_editing = false
+let native_panel: NativeRigPanel | undefined
+let workspace: StudioWorkspace | undefined
+let humanoid_panel: Humanoid65Panel | undefined
 const status = (message: string, error = false): void => {
   element('status').textContent = message
   element('status').classList.toggle('error', error)
 }
 
 function controls (): void {
+  const own_busy = busy || pose_editing || mesh_editing
+  humanoid_panel?.refresh(own_busy)
+  const reviewing = humanoid_panel?.reviewing ?? false
+  workspace?.set_rig_review(reviewing ? humanoid_panel?.body_reviewing ? 'body' : 'head' : undefined)
+  const locked = own_busy || reviewing
+  workspace?.set_edit_enabled(Boolean(asset?.vertex_count) && !busy && !pose_editing && !reviewing)
+  button('initial-pose').disabled = locked || !asset?.skeleton_count
   for (const id of ['open-model', 'import-pack', 'add-motion', 'motion-library', 'save-library', 'export', 'rest', 'fit', 'pause']) {
-    button(id).disabled = busy || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
+    button(id).disabled = locked || (!['open-model', 'import-pack'].includes(id) && !asset) || (id === 'pause' && selected_clip === -1)
   }
-  element<HTMLInputElement>('skeleton').disabled = !asset || busy
-  element<HTMLInputElement>('follow').disabled = !asset || busy
-  element<HTMLInputElement>('timeline').disabled = selected_clip === -1 || busy
-  element('library-panel').querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(item => { item.disabled = busy || item.dataset.unavailable === 'true' })
-  element('library-panel').querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach(item => { item.disabled = busy || !asset?.skeleton_count })
-  dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input,button,select').forEach(item => { item.disabled = busy })
-  element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = busy })
+  element<HTMLInputElement>('skeleton').disabled = !asset || locked
+  element<HTMLInputElement>('follow').disabled = !asset || locked
+  element<HTMLInputElement>('timeline').disabled = selected_clip === -1 || locked
+  element('library-panel').querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(item => { item.disabled = locked || item.dataset.unavailable === 'true' })
+  element('library-panel').querySelectorAll<HTMLButtonElement>('button[data-motion]').forEach(item => { item.disabled = locked || !asset?.skeleton_count })
+  dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input,button,select').forEach(item => { item.disabled = locked })
+  element('motion-preview').querySelectorAll<HTMLButtonElement>('button').forEach(item => { item.disabled = locked })
+  element('clips').querySelectorAll<HTMLButtonElement | HTMLInputElement>('button,input').forEach(item => { item.disabled = locked })
   document.body.classList.toggle('busy', busy)
+  native_panel?.refreshControls(locked)
 }
 
 async function operation (message: string, task: () => Promise<void>): Promise<void> {
-  if (busy) return
+  if (busy || pose_editing) return
   busy = true
   controls()
   status(message)
@@ -63,6 +86,7 @@ function show_asset (next: RigAsset): void {
   const previous = asset
   viewer.set_asset(next)
   asset = next
+  native_panel?.setAsset(next)
   if (previous) dispose_rig_scene(previous.scene)
   selected_clip = -1
   element('empty').hidden = true
@@ -79,7 +103,94 @@ function show_asset (next: RigAsset): void {
   render_clips()
   show_tab(false)
   status(asset.skeleton_count ? 'Риг открыт. Родные веса и движения сохранены.' :
-    'GLB открыт. В файле нет привязки кожи к скелету. Для создания рига вернитесь на главный экран.')
+    'GLB открыт. Для человека доступен тест нативного авторига ниже; другие шаблоны — на главном экране.')
+}
+
+native_panel = new NativeRigPanel(element('native-rig-panel'), {
+  viewer,
+  asset: () => asset,
+  operation,
+  status,
+  headReviewActive: () => !!humanoid_panel?.reviewing,
+  cancelCompletion: () => humanoid_panel?.cancel_build(),
+  startFullRig: async () => {
+    workspace?.open('native')
+    element('humanoid65-panel').scrollIntoView({ block: 'start' })
+    await humanoid_panel?.start()
+  },
+  show: async bytes => {
+    const body = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
+    try { validate_native_skin(body) } catch (error) { dispose_rig_scene(body.scene); throw error }
+    if ([...body.nodes.values()].filter(n => n.is_joint).length !== 65) {
+      if (!humanoid_panel) { dispose_rig_scene(body.scene); throw new Error('Панель полного рига недоступна') }
+      const opened = await humanoid_panel.complete_native(body)
+      workspace?.open(opened ? 'motions' : 'native'); return opened
+    }
+    try { validate_humanoid65(body) } catch (error) { dispose_rig_scene(body.scene); throw error }
+    show_asset(body); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true); workspace?.open('motions'); return true
+  }
+})
+humanoid_panel = new Humanoid65Panel(element('humanoid65-panel'), {
+  viewer, asset: () => asset, operation: (message,task) => {selected_clip=-1;button('pause').textContent='▶';return operation(message,task)}, status, changed: controls,
+  show: async bytes => {
+    const next = await load_rig_asset(bytes, (asset?.name ?? 'Персонаж') + ' · полный риг 65')
+    try { validate_humanoid65(next) } catch (error) { dispose_rig_scene(next.scene); throw error }
+    show_asset(next); element<HTMLInputElement>('skeleton').checked = true; viewer.show_skeleton(true)
+  }
+})
+const mesh_editor = new MeshEditPanel(viewer, {
+  status,
+  apply: async edits => {
+    await operation('Сохраняю правку модели…', async () => {
+      const current = asset!
+      const source = current.dirty ? write_clips_glb(current, current.clips.map((_, i) => i)) : current.source_bytes
+      if (!source) throw new Error('Сначала сохраните текущий риг с движениями и откройте GLB заново.')
+      const next = await load_rig_asset(write_mesh_edits(source, edits), current.name.replace(/ · правка$/, '') + ' · правка')
+      if (next.skeleton_count !== current.skeleton_count || next.clips.length !== current.clips.length) {
+        dispose_rig_scene(next.scene)
+        throw new Error('Не удалось сохранить все движения или скелеты. Правка ещё открыта.')
+      }
+      workspace?.close(false, true)
+      show_asset(next)
+      workspace?.open('motions')
+      status('Правка применена. Сохраните отдельный GLB через «Экспорт GLB».')
+    })
+  }
+})
+workspace = new StudioWorkspace(viewer, show_tab, {
+  element: mesh_editor.element,
+  enter: () => {
+    if (incoming) cancel_transfer()
+    mesh_editing = true; selected_clip = -1; button('pause').textContent = '▶'
+    mesh_editor.start(asset!); viewer.show_skeleton(false); controls()
+  },
+  leave: force => {
+    if (!force && (mesh_editor.is_pending || (mesh_editor.has_edits && !confirm('Закрыть правку без применения изменений?')))) return false
+    mesh_editor.end(); mesh_editing = false
+    viewer.show_skeleton(element<HTMLInputElement>('skeleton').checked); controls()
+    return true
+  }
+})
+let pose_calibration: ReturnType<typeof create_asset_pose_calibration> | undefined
+const pose_panel = new PoseEditorPanel(document.body, {
+  applied: () => {
+    if (!asset || !pose_calibration) return
+    commit_asset_pose(asset, pose_calibration)
+    render_clips(); viewer.stop(); status('Исходная поза сохранена во всех движениях. Экспортируйте GLB или сохраните копию.')
+  },
+  closed: () => {
+    pose_editing = false; viewer.stop(); viewer.show_skeleton(element<HTMLInputElement>('skeleton').checked); controls()
+  },
+  layout: (width, height) => viewer.set_settings_overlay(width ? width + 32 : 0, height ? height + 104 : 0, window.innerWidth <= 620)
+}, true)
+button('initial-pose').onclick = () => {
+  if (busy || pose_editing || !asset?.skeleton_count) return
+  if (incoming) cancel_transfer()
+  workspace?.close(false); viewer.stop(); selected_clip = -1; button('pause').textContent = '▶'
+  pose_calibration = create_asset_pose_calibration(asset)
+  const meshes: SkinnedMesh[] = []; asset.scene.traverse(o => { if ((o as SkinnedMesh).isSkinnedMesh) meshes.push(o as SkinnedMesh) })
+  pose_editing = true; controls(); viewer.show_skeleton(true); pose_panel.show(pose_calibration, meshes)
+  status('Настройте позу, затем сохраните её. Воспроизведение остановлено.')
 }
 
 function render_clips (): void {
@@ -107,7 +218,7 @@ function render_clips (): void {
     duration.textContent = clip.duration.toFixed(2) + ' с · ' + clip.tracks.length + ' дорожек'
     play.append(duration)
     play.onclick = () => {
-      if (busy) return
+      if (busy || pose_editing || humanoid_panel?.reviewing) return
       viewer.play(index)
       selected_clip = index
       list.querySelectorAll('.clip').forEach(item => item.classList.toggle('selected', item === row))
@@ -126,6 +237,7 @@ function show_tab (is_library: boolean): void {
     button(id).classList.toggle('active', active)
     button(id).setAttribute('aria-pressed', String(active))
   }
+  workspace?.sync_tab(is_library)
 }
 
 async function render_library (): Promise<void> {
@@ -225,7 +337,7 @@ async function open_motion_source (next: RigAsset): Promise<void> {
   element('mapping-source').textContent = incoming.name + ' → ' + asset.name
   element('calibration-option').hidden = incoming.motion_info?.format !== 'bvh'
   element<HTMLInputElement>('skip-first-frame').checked = Boolean(incoming.motion_info?.calibration_frame)
-  element('source-warning').textContent = [...(incoming.motion_info?.warnings ?? []), ...(incoming.motion_info?.calibration_frame ? ['Первый кадр похож на калибровочную позу. Он будет пропущен только при переносе; можно отключить ниже.'] : [])].join(' ')
+  element('source-warning').textContent = [...(incoming.inferred_skeleton ? ['Анимационный GLB без привязки кожи: распознан человеческий скелет по именам и цепочкам. Проверьте движение в предпросмотре.'] : []), ...(incoming.motion_info?.warnings ?? []), ...(incoming.motion_info?.calibration_frame ? ['Первый кадр похож на калибровочную позу. Он будет пропущен только при переносе; можно отключить ниже.'] : [])].join(' ')
   const list = element('source-clips'); list.replaceChildren()
   incoming.clips.forEach((clip, index) => {
     const label = document.createElement('label'), checkbox = document.createElement('input')
@@ -332,15 +444,11 @@ viewer.on_time = (time, duration) => {
 }
 button('motions-tab').onclick = () => show_tab(false)
 button('library-tab').onclick = () => show_tab(true)
-mount_catalog(element('builtin-catalog'), (path, title) => void operation('Открываю встроенный набор…', async () => {
-  const response = await fetch(new URL('/' + path, location.href))
-  if (!response.ok) throw new Error('Набор недоступен')
-  show_asset(await load_rig_asset(await response.arrayBuffer(), title))
-}), (path, title) => {
-  if (!asset || busy) return
+mount_catalog(element('builtin-catalog'), (path, title) => {
+  if (!asset?.skeleton_count || busy) return
   void operation('Читаю движения встроенного набора…', async () => {
     const response = await fetch(new URL('/' + path, location.href)); if (!response.ok) throw new Error('Набор недоступен')
-    await open_motion_source(await load_rig_asset(await response.arrayBuffer(), title))
+    await open_motion_source(await load_builtin_motion_source(await response.arrayBuffer(), title))
   })
 }, () => Boolean(asset?.skeleton_count) && !busy)
 button('import-pack').onclick = () => element<HTMLInputElement>('pack-file').click()
@@ -357,3 +465,5 @@ element<HTMLInputElement>('pack-file').onchange = event => {
 if (new URLSearchParams(location.search).get('tab') === 'library') show_tab(true)
 void render_library().catch(() => status('Хранилище устройства недоступно. Можно открыть GLB и экспортировать результат.', true))
 controls()
+
+

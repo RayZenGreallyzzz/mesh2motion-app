@@ -10,7 +10,35 @@ import { refine_humanoid_joints, visit_fit_geometry, type LimbChain } from './Hu
 // Refits must use template proportions, not feed the prior fitted offsets back.
 const fit_templates = new WeakMap<Skeleton, { bones: Bone[], offsets: THREE.Vector3[] }>()
 
-export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human'): 'T-pose' | 'A-pose' | null {
+function pelvis_height_from_surface(points: readonly THREE.Vector3[], centerX: number, centerZ: number, floor: number, height: number): number | undefined {
+  const step = height * .008, start = floor + height * .34
+  const sections = Array.from({ length: 30 }, () => ({ left: 0, right: 0, center: 0, back: Infinity, front: -Infinity }))
+  for (const p of points) {
+    if (Math.abs(p.z - centerZ) > height * .16 || Math.abs(p.x - centerX) > height * .18) continue
+    const row = sections[Math.round((p.y - start) / step)]
+    if (!row) continue
+    if (p.x < centerX - height * .014) row.left++
+    else if (p.x > centerX + height * .014) row.right++
+    else {
+      row.center++
+      row.back = Math.min(row.back, p.z)
+      row.front = Math.max(row.front, p.z)
+    }
+  }
+  const evidence = sections.map(row => {
+    if (Math.min(row.left, row.right) < 6) return 'unknown'
+    if (row.center <= 1) return 'split'
+    if (row.center >= 4 && row.front - row.back > height * .035) return 'joined'
+    return 'unknown'
+  })
+  for (let i = 5; i + 4 < evidence.length; i++) {
+    if (evidence[i] !== 'joined' || evidence.slice(i, i + 5).filter(row => row === 'joined').length < 3) continue
+    if (evidence.slice(Math.max(0, i - 10), i).filter(row => row === 'split').length < 3) continue
+    return start + i * step + height * .035
+  }
+}
+
+export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Object3D | null, before_apply: () => void, profile: 'human' | 'woman' = 'human', refineLimbs = true): 'T-pose' | 'A-pose' | null {
     const bones = skeleton.bones
     if (bones.length === 0) return null
 
@@ -84,6 +112,8 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
         if (Math.abs(p.x - centerX) < volume.step * 1.5 && Math.abs(p.z - torsoZ) < bodyHeight * .15 && p.y > minY + bodyHeight * .12 && p.y < armEstimate.shoulderY) crotch = Math.min(crotch, p.y)
       }
       if (Number.isFinite(crotch)) pelvisY = crotch + (armEstimate.shoulderY - crotch) * .20
+    } else {
+      pelvisY = pelvis_height_from_surface(points, centerX, centerZ, minY, bodyHeight) ?? pelvisY
     }
 
     const normalize = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -336,11 +366,26 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
 
     // Legs.
     const legYAt = (ratio: number) => armEstimate?.shortBody ? minY + (pelvisY - minY) * ratio / .52 : yAt(ratio)
-    const legCenterAt = (sign: number, ratio: number, fallback: number): number => {
+    const legCenterAt = (sign: number, ratio: number, fallback: number, hand?: THREE.Vector3): number => {
       const xs = points.filter(p => Math.abs(p.y - legYAt(ratio)) < bodyHeight * 0.025 &&
         (p.x - centerX) * sign > height * 0.01)
         .map(p => p.x).sort((a, b) => a - b)
       if (xs.length < 8) return fallback
+      // In an A-pose the hip slice can include a second, disconnected band
+      // of hand and forearm samples. Dense fingers can outnumber the leg.
+      if (hand && Math.abs(hand.y - legYAt(ratio)) < bodyHeight * .12) {
+        let split = 0
+        let gap = bodyHeight * 0.055
+        for (let i = 8; i <= xs.length - 8; i++) {
+          const distance = xs[i] - xs[i - 1]
+          const beyondGap = sign > 0 ? hand.x >= xs[i] : hand.x <= xs[i - 1]
+          if (distance > gap && beyondGap) { gap = distance; split = i }
+        }
+        if (split) {
+          if (sign > 0) xs.length = split
+          else xs.splice(0, split)
+        }
+      }
       return (xs[Math.floor((xs.length - 1) * 0.15)] + xs[Math.floor((xs.length - 1) * 0.85)]) * 0.5
     }
     for (const side of ['l', 'r'] as const) {
@@ -349,16 +394,19 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
       const shin = sideBone('shin', side)
       const foot = sideBone('foot', side)
       const toe = sideBone('toe', side)
+      const hand = sideBone('hand', side)
       // Each height has its own leg cross-section. In a wide stance the old
       // ankle-centred knee search clipped away the inner knee, or found too few
       // samples and used the ankle itself. Inferring the hip from that knee
       // then moved the thigh outside the pelvis. Sample each level separately.
       const xFoot = legCenterAt(sign, 0.07, centerX + sign * hipHalf)
-      const xHip = legCenterAt(sign, 0.50, centerX + sign * hipHalf)
-      const xKnee = legCenterAt(sign, 0.285, (xHip + xFoot) * 0.5)
+      const hipRatio = armEstimate?.shortBody ? .50 : (pelvisY - minY) / bodyHeight - .02
+      const kneeRatio = (hipRatio + .055) * .5
+      const xHip = legCenterAt(sign, hipRatio, centerX + sign * hipHalf, hand && position(hand))
+      const xKnee = legCenterAt(sign, kneeRatio, (xHip + xFoot) * 0.5)
 
-      const hipY = legYAt(0.50)
-      const kneeY = legYAt(0.285)
+      const hipY = legYAt(hipRatio)
+      const kneeY = legYAt(kneeRatio)
       const footY = legYAt(0.055)
       const toeY = legYAt(0.025)
       setWorld(thigh, xHip, hipY,
@@ -371,9 +419,20 @@ export function fit_humanoid_rig (model: Object3D, skeleton: Skeleton, frame: Ob
         depthCenterAt(xFoot, toeY, preservedZ(toe), width * 0.04, height * 0.02))
     }
 
+    const leftHip = sideBone('thigh', 'l'), rightHip = sideBone('thigh', 'r')
+    if (pelvis && leftHip && rightHip) {
+      const p = position(pelvis)
+      const hipDepth = (position(leftHip).z + position(rightHip).z) * .5
+      const descendants = pelvis.children.filter((child): child is Bone => (child as Bone).isBone)
+        .map(bone => ({ bone, point: position(bone) }))
+      setWorld(pelvis, p.x, p.y, hipDepth)
+      for (const { bone, point } of descendants) setWorld(bone, point.x, point.y, point.z)
+    }
+
     bones[0]?.updateWorldMatrix(true, true)
     if (profile === 'woman') refine_woman_rig(points, bones, frame)
     fit_humanoid_head(points, bones, frame, armEstimate?.shortBody ? bodyHeight : undefined)
+    if (!refineLimbs) return tPose ? 'T-pose' : 'A-pose'
     const chains: LimbChain[] = []
     for (const side of ['l', 'r'] as const) {
       for (const [startRole, jointRole, endRole, kind] of [

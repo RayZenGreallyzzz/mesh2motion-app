@@ -4,7 +4,7 @@ import { resolve_slot } from '../../retarget/bone-automap/BoneSlotVocabulary.ts'
 import { BoneSide, BoneSlot } from '../../retarget/bone-automap/BoneTypes.ts'
 import { continuous_skin_weights } from './ContinuousSkinWeights.ts'
 
-export interface ChestGuardOptions { enabled: boolean, strength: number, width: number, height: number, offset: number, anchor_to_chest?: boolean }
+export interface ChestGuardOptions { enabled: boolean, strength: number, width: number, height: number, offset: number, anchor_to_chest?: boolean, full_anterior?: boolean }
 export interface ChestGuardStats { available: boolean, reason: string, region: number, changed: number, removed: number, target: string }
 export const default_chest_guard = (): ChestGuardOptions => ({ enabled: false, strength: 1, width: 1, height: 1, offset: 0 })
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
@@ -34,7 +34,7 @@ export class ChestWeightGuard {
   private readonly local = new Vector3()
 
   constructor (bones: Bone[], geometries: BufferGeometry[], options: ChestGuardOptions) {
-    this.options = { enabled: options.enabled, strength: clamp(options.strength,0,1), width: clamp(options.width,.6,1.6), height: clamp(options.height,.6,1.6), offset: clamp(options.offset,-.3,.3), anchor_to_chest: options.anchor_to_chest === true }
+    this.options = { enabled: options.enabled, strength: clamp(options.strength,0,1), width: clamp(options.width,.6,1.6), height: clamp(options.height,.6,1.6), offset: clamp(options.offset,-.3,.3), anchor_to_chest: options.anchor_to_chest === true, full_anterior: options.full_anterior === true }
     const fail = (reason: string) => { this.stats.reason = reason }
     const roles = bones.map(bone => { const name = parse_bone_name(bone.name); return { slot: resolve_slot(name, name.side), side: name.side, leaf: name.is_leaf } })
     const find = (slot: BoneSlot, side?: BoneSide) => bones.find((bone, i) => !bone.userData.rigNonDeforming && !bone.name.startsWith('rig_volume_') && !roles[i].leaf && roles[i].slot === slot && (side === undefined || roles[i].side === side))
@@ -99,7 +99,7 @@ export class ChestWeightGuard {
       // surface and produced spikes when the arms rose. Woman keeps the whole
       // anterior volume rigid, then blends at its attachment to the torso.
       // Keep the original mask for other profiles; capsules still exclude arms.
-      if (this.options.anchor_to_chest) {
+      if (this.options.anchor_to_chest || this.options.full_anterior) {
         const anterior = smooth(this.halfWidth*.12,this.halfWidth*.50,p.z)
         region = Math.max(region,(1-smooth(1.05,1.38,r))*anterior)
       }
@@ -136,4 +136,15 @@ export class ChestWeightGuard {
     }
     return mask
   }
+}
+
+/** Automatic humanoid cleanup: keep the anterior chest on the torso when arms
+ * move. Includes clavicles, which the waist-only guard deliberately excludes.
+ * Only arm-branch weights are redirected; existing spine weights, geometry,
+ * bind data and the arm capsules remain untouched. Manual painting runs later.
+ */
+export function protect_humanoid_chest (geometry: BufferGeometry, bones: Bone[], indices: number[], weights: number[]): number {
+  const guard = new ChestWeightGuard(bones, [geometry], { ...default_chest_guard(), enabled: true, full_anterior: true })
+  guard.apply(geometry, indices, weights, false)
+  return guard.stats.changed
 }

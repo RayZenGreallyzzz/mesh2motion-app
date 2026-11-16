@@ -15,6 +15,8 @@ import { FbxTextureCompatibilityService } from './FbxTextureCompatibilityService
 import { PropsExportFilter } from '../animations-listing/props/PropsExportFilter.ts'
 import { JointVolumeSupport } from '../../solvers/JointVolumeSupport.ts'
 
+import { clip_pose_calibration } from '../../pose/PoseCalibration.ts'
+
 // Note: EventTarget is a built-in interface and do not need to import it
 export class StepExportToFile extends EventTarget {
   private readonly file_saver = new ExportFileSaver()
@@ -30,7 +32,7 @@ export class StepExportToFile extends EventTarget {
       }
 
       if (selection.mirror_export_mode === 'none') {
-        this.animation_clips_to_export.push(source_clip.clone())
+        this.animation_clips_to_export.push(AnimationUtility.deep_clone_animation_clip(source_clip))
         return
       }
 
@@ -40,7 +42,7 @@ export class StepExportToFile extends EventTarget {
       }
 
       // Export both normal and mirrored variants.
-      this.animation_clips_to_export.push(source_clip.clone())
+      this.animation_clips_to_export.push(AnimationUtility.deep_clone_animation_clip(source_clip))
       this.animation_clips_to_export.push(AnimationUtility.create_mirrored_clip(source_clip))
     })
   }
@@ -59,10 +61,10 @@ export class StepExportToFile extends EventTarget {
     const export_scene = new Scene()
 
     const export_clips = this.animation_clips_to_export.map((clip) => {
-      const cloned_clip = clip.clone()
+      const cloned_clip = AnimationUtility.deep_clone_animation_clip(clip)
       // Recreate supports from the final (possibly mirrored) limb tracks using
       // this rig's actual bind axes before export renames any bones.
-      if (skinned_meshes[0] !== undefined) JointVolumeSupport.updateClip(cloned_clip, skinned_meshes[0].skeleton)
+      if (!clip_pose_calibration(cloned_clip) && skinned_meshes[0] !== undefined) JointVolumeSupport.updateClip(cloned_clip, skinned_meshes[0].skeleton)
       // Make action names consistent by replacing any whitespace with underscores
       cloned_clip.name = cloned_clip.name.replace(/\s+/g, '_')
       return cloned_clip
@@ -197,3 +199,4 @@ export class StepExportToFile extends EventTarget {
     return this.save_file(new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' }), filename)
   }
 }
+
