@@ -55,6 +55,28 @@ it('cuts a 1 mm slot through both sides of the bridge without removing nearby or
     expect(weights.getX(i)+weights.getY(i)+weights.getZ(i)+weights.getW(i)).toBeCloseTo(1,6)
     expect([12,15]).toContain(bones.getX(i))
     expect(geometry.attributes.uv.getX(i)).toBeCloseTo(attr.getX(i),6)
+    if (Math.abs(Math.abs(attr.getX(i)) - .0005) < .00001) {
+      const expected = attr.getX(i) < 0 ? 12 : 15
+      expect(bones.getX(i)).toBe(expected)
+      expect(weights.getX(i)).toBeCloseTo(1,6)
+    }
+  }
+})
+
+it('closes both rims in a scaled mesh with split UV-edge vertices', () => {
+  const indexed = joined(), source = indexed.toNonIndexed()
+  const matrix = new Matrix4().compose(new Vector3(.5,-.7,.4),new Quaternion(),new Vector3(.0001,.0001,.0001))
+  source.applyMatrix4(matrix.clone().invert())
+  const to_blade = plate(new Vector3(.000137,0,.02), new Vector3(.001,.02,.4)).multiply(matrix)
+  const { geometry, open, seam } = knife_cut(source,to_blade,true)
+  expect(open).toBe(false)
+  expect(seam).toBe(1)
+  const positions = geometry.attributes.position, weights = geometry.attributes.skinWeight, ids = geometry.attributes.skinIndex
+  for (let i = 0; i < weights.count; i++) {
+    const position = new Vector3().fromBufferAttribute(positions,i).applyMatrix4(matrix)
+    if (Math.abs(Math.abs(position.x - .000137) - .0005) > .00001) continue
+    expect(ids.getX(i)).toBe(position.x < .000137 ? 12 : 15)
+    expect(weights.getX(i)).toBeCloseTo(1,6)
   }
 })
 

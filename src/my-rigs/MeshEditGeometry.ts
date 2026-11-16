@@ -1,7 +1,19 @@
-import { BufferAttribute, BufferGeometry, Color, Matrix4, ShapeUtils, Vector2, Vector3 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, Matrix4, ShapeUtils, Vector2, Vector3, type Mesh } from 'three'
 
 export type MeshSelection = Map<number, number>
 export type Face = { a: number, b: number, c: number }
+
+export function is_bind_face (mesh: Mesh, face: Face, world_tolerance: number): boolean {
+  const posed = new Vector3(), original = new Vector3()
+  return [face.a, face.b, face.c].every(index => {
+    mesh.getVertexPosition(index, posed).sub(original.fromBufferAttribute(mesh.geometry.attributes.position, index))
+    // A quantized GLB can store thousands of local units per metre.
+    // Transform the displacement as a vector to compare it in scene units.
+    const m = mesh.matrixWorld.elements, { x, y, z } = posed
+    posed.set(m[0] * x + m[4] * y + m[8] * z, m[1] * x + m[5] * y + m[9] * z, m[2] * x + m[6] * y + m[10] * z)
+    return posed.lengthSq() <= world_tolerance ** 2
+  })
+}
 
 const xyz_key = (p: { getX(i: number): number, getY(i: number): number, getZ(i: number): number }, i: number): string =>
   p.getX(i) + ',' + p.getY(i) + ',' + p.getZ(i)
@@ -98,10 +110,13 @@ export function tint_selection (source: BufferGeometry, selection: MeshSelection
 export type DirectedEdge = { from: number, to: number }
 type BoundaryEdge = DirectedEdge & { kept: number, removed: number }
 
-export function cap_boundary (position: BufferGeometry['attributes'][string], edges: DirectedEdge[], triangles: number[]): number {
+export function cap_boundary (
+  position: BufferGeometry['attributes'][string], edges: DirectedEdge[], triangles: number[],
+  vertex_key = (id: number) => xyz_key(position, id)
+): number {
   const directed = new Map<string, DirectedEdge[]>()
   for (const e of edges) {
-    const key = xyz_key(position, e.from)
+    const key = vertex_key(e.from)
     const group = directed.get(key) ?? []
     group.push(e); directed.set(key, group)
   }
@@ -113,7 +128,7 @@ export function cap_boundary (position: BufferGeometry['attributes'][string], ed
     let next: DirectedEdge | undefined = start
     while (next && !seen.has(next)) {
       seen.add(next); ring.push(next.from)
-      const choices: DirectedEdge[] | undefined = directed.get(xyz_key(position, next.to))
+      const choices: DirectedEdge[] | undefined = directed.get(vertex_key(next.to))
       next = choices?.length === 1 ? choices[0] : undefined
     }
     if (next !== start || ring.length < 3 || ring.length > 2048) continue

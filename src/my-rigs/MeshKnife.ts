@@ -127,7 +127,7 @@ export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boo
         const known = edges.get(hash)
         if (known !== undefined) return known
         const n = attr.count + add.length
-        add.push({ vertices: [vertices[first], vertices[second], vertices[second]], bary: [1 - t * eps, t * eps, 0] })
+        add.push({ vertices: [vertices[first], vertices[second], vertices[second]], bary: [1 - bary[second], bary[second], 0] })
         edges.set(hash, n)
         return n
       }
@@ -174,13 +174,26 @@ export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boo
   }
   for (const [name, input] of Object.entries(source.attributes)) result.setAttribute(name, transfer(input, name === 'normal'))
   const source_ids = source.attributes.skinIndex, source_weights = source.attributes.skinWeight
+  const blade_component = (id: number, axis: number): number => {
+    const novel = add[id - attr.count]
+    if (!novel) return local[id * 3 + axis]
+    return novel.bary.reduce((sum, weight, i) => sum + weight * local[novel.vertices[i] * 3 + axis], 0)
+  }
   if (source_ids && source_weights) {
     const slots = result.attributes.skinIndex, weights = result.attributes.skinWeight
     for (let i = 0; i < active.length; i++) {
       const novel = add[active[i] - attr.count]
       if (!novel) continue
       const influence = new Map<number, number>()
+      const x = blade_component(active[i], 0)
+      const side = Math.sign(x)
+      const across_slot = Math.abs(Math.abs(x) - .5) < 1e-6 &&
+        novel.vertices.some(vertex => side * local[vertex * 3] < -.5) &&
+        novel.vertices.some((vertex, k) => side * local[vertex * 3] >= .5 - 1e-6 && novel.bary[k] > eps)
       novel.vertices.forEach((vertex, k) => {
+        // When a face spans the slot, a new rim must follow the surviving
+        // surface on its side of the plate.
+        if (across_slot && side * local[vertex * 3] < .5 - 1e-6) return
         for (let slot = 0; slot < 4; slot++) {
           const bone = source_ids.getComponent(vertex, slot)
           influence.set(bone, (influence.get(bone) ?? 0) + novel.bary[k] * source_weights.getComponent(vertex, slot))
@@ -205,9 +218,13 @@ export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boo
     result.addGroup(compact_faces.length, faces.length, material)
     for (const id of faces) compact_faces.push(lookup[id])
   }
-  for (const side of cap_edges) {
+  for (const [plane, side] of cap_edges.entries()) {
     const mapped = side.map(e => ({from: lookup[e.from], to: lookup[e.to]}))
-    uncapped += mapped.length - cap_boundary(result.attributes.position, mapped, caps)
+    const axis = Math.floor(plane / 2)
+    const vertex_key = (vertex: number): string =>
+      Math.round(blade_component(active[vertex], (axis + 1) % 3) * 1e6) + ',' +
+      Math.round(blade_component(active[vertex], (axis + 2) % 3) * 1e6)
+    uncapped += mapped.length - cap_boundary(result.attributes.position, mapped, caps, vertex_key)
   }
   const seam = caps.length ? Math.max(0, ...material_faces.keys()) + 1 : undefined
   if (seam !== undefined) {

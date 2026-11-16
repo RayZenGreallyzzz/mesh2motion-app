@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Mesh, MeshStandardMaterial, Vector3 } from 'three'
+import { Bone, BufferGeometry, Color, Float32BufferAttribute, Group, Matrix4, Mesh, MeshStandardMaterial, Skeleton, SkinnedMesh, Uint16BufferAttribute, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { brush_selection, cut_selection, deform_selection, tint_selection } from '../src/my-rigs/MeshEditGeometry.ts'
+import { brush_selection, cut_selection, deform_selection, is_bind_face, tint_selection } from '../src/my-rigs/MeshEditGeometry.ts'
 import { write_mesh_edits } from '../src/my-rigs/MeshEditGlb.ts'
 import { load_fit_surface, verify_original_for_fit } from '../src/my-rigs/RigFitReference.ts'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -10,6 +10,27 @@ const geometry_of = (positions: number[], indices: number[]) =>
   new BufferGeometry().setAttribute('position', new Float32BufferAttribute(positions, 3)).setIndex(indices)
 
 describe('model editing', () => {
+  it('allows a bound quantized model with submillimetre rounding and still detects a real pose change', () => {
+    const geometry = new BufferGeometry().setAttribute('position', new Uint16BufferAttribute([
+      10000,10000,0, 20000,10000,0, 10000,20000,0
+    ], 3))
+    geometry.setAttribute('skinIndex', new Uint16BufferAttribute(Array(12).fill(0),4))
+    geometry.setAttribute('skinWeight', new Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0],4))
+    const scene = new Group(), bone = new Bone(), mesh = new SkinnedMesh(geometry)
+    mesh.scale.setScalar(.0001)
+    scene.add(mesh,bone)
+    scene.updateMatrixWorld(true)
+    mesh.bind(new Skeleton([bone]))
+    const face = {a:0,b:1,c:2}
+    bone.position.z = .000025
+    scene.updateMatrixWorld(true)
+    expect(mesh.getVertexPosition(0,new Vector3()).distanceTo(new Vector3(10000,10000,0))).toBeGreaterThan(.2)
+    expect(is_bind_face(mesh,face,.0002)).toBe(true)
+    bone.position.z = .01
+    scene.updateMatrixWorld(true)
+    expect(is_bind_face(mesh,face,.0002)).toBe(false)
+  })
+
   it('connects UV seams while leaving another nearby surface outside the brush', () => {
     const geometry = geometry_of([
       0,0,0, 1,0,0, 0,1,0, 1,0,0, 1,1,0, 0,1,0,

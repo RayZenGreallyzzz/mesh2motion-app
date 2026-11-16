@@ -5,7 +5,7 @@ import {
 } from 'three'
 import type { RigViewer } from './RigViewer.ts'
 import type { RigAsset } from './RigAsset.ts'
-import { brush_selection, cut_selection, deform_selection, tint_selection, type MeshSelection } from './MeshEditGeometry.ts'
+import { brush_selection, cut_selection, deform_selection, is_bind_face, tint_selection, type MeshSelection } from './MeshEditGeometry.ts'
 import type { MeshEdit } from './MeshEditGlb.ts'
 import { knife_cut } from './MeshKnife.ts'
 import { sample_surface_color } from './MeshEditColor.ts'
@@ -138,6 +138,7 @@ export class MeshEditPanel {
   start (asset: RigAsset): void {
     this.asset = asset
     this.viewer.stop(false)
+    asset.scene.updateMatrixWorld(true)
     const span = this.viewer.model_size()
     this.span = Math.max(span, .00001)
     this.viewer.scene.add(this.overlay, this.axis_marks, this.plate)
@@ -201,6 +202,7 @@ export class MeshEditPanel {
         this.plate.position.copy(hit.point)
         this.plate.quaternion.copy(this.viewer.camera_rotation())
         this.plate_sizes.forEach((input, i) => this.plate.scale.setComponent(i, this.span * Number(input.value) / 100))
+        this.plate.position.add(new Vector3(0, 0, -this.plate.scale.z * .45).applyQuaternion(this.plate.quaternion))
         this.plate_mode = 'translate'; this.plate.visible = true
         this.show_gizmo(); this.refresh()
       } catch (error) { this.options.status((error as Error).message, true) }
@@ -224,12 +226,7 @@ export class MeshEditPanel {
 
   private check_bind ({object, face}: Pick<Intersection<Mesh>, 'object' | 'face'>): void {
     if (!face) throw new Error('Коснитесь поверхности модели.')
-    const probe = new Vector3(), raw = new Vector3()
-    for (const id of [face.a, face.b, face.c]) {
-      object.getVertexPosition(id, probe)
-      raw.fromBufferAttribute(object.geometry.attributes.position, id)
-      if (probe.distanceTo(raw) > this.span * .0001) throw new Error('Для этой правки откройте модель в позе привязки.')
-    }
+    if (!is_bind_face(object, face, this.span * .0001)) throw new Error('Для этой правки откройте модель в позе привязки.')
   }
 
   private pick ({object, face, point}: Intersection<Mesh>): void {
