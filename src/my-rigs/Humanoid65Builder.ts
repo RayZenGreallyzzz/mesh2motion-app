@@ -4,6 +4,7 @@ import { fit_humanoid_rig } from '../lib/processes/edit-skeleton/HumanoidAutoFit
 import { humanoid_fit_yaw } from '../lib/processes/edit-skeleton/HumanoidFitFrame.ts'
 import { fit_humanoid_head, fit_humanoid_head_surface, fit_humanoid_head_volume } from '../lib/processes/edit-skeleton/HumanoidHeadFit.ts'
 import { fit_humanoid_body_volume } from '../lib/processes/edit-skeleton/HumanoidBodyVolumeFit.ts'
+import { fit_digits_to_hand } from '../lib/processes/edit-skeleton/HumanoidHandFit.ts'
 import { joint_fit_surface, refine_humanoid_joints, type LimbChain } from '../lib/processes/edit-skeleton/HumanoidJointFit.ts'
 import { capture_hand_shape, place_hand_shape } from '../lib/processes/edit-skeleton/HandPose.ts'
 import SkinningAlgorithm from '../lib/solvers/SkinningAlgorithm.ts'
@@ -195,6 +196,12 @@ export async function build_humanoid65(asset: RigAsset, options: Humanoid65Optio
     if (options.body_points && bodyBounds) {
       apply_body_points(get, place, options.body_points, suggested_body_points(get, yaw, top - bottom), bodyBounds, yaw, !!options.head_landmarks)
       if (options.body_points.chin) headSource = 'manual'
+      const corrected = (['l','r'] as const).filter(side => options.body_points?.[`hand_${side}`])
+      if (corrected.length) {
+        await report('Подгоняю пальцы по сетке кистей…')
+        for (const side of corrected) fit_digits_to_hand(asset.scene,
+          get('hand_' + side), get('lowerarm_' + side), side, top - bottom)
+      }
     }
     // The template has an extra non-deforming scene driver. Preserve its TRS
     // as a Group; the 65 anatomical joints (including finger tips) remain bones.
