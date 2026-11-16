@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Matrix4, Quaternion, ShapeUtils, Vector2, Vector3 } from 'three'
 import { expect, it } from 'vitest'
-import { knife_cut } from '../src/my-rigs/MeshKnife.ts'
+import { foot_knife_depth, knife_cut } from '../src/my-rigs/MeshKnife.ts'
+import { repair_knife_leg_weights } from '../src/my-rigs/MeshKnifeSkin.ts'
 
 // Two long bodies joined by a 1 mm high solid bridge. Its back is offset in
 // depth so a front-surface brush cannot remove the complete connection.
@@ -78,6 +79,33 @@ it('closes both rims in a scaled mesh with split UV-edge vertices', () => {
     expect(ids.getX(i)).toBe(position.x < .000137 ? 12 : 15)
     expect(weights.getX(i)).toBeCloseTo(1,6)
   }
+})
+
+it('extends a shallow plate through the actual bridge depth with the same thickness and height', () => {
+  const source = joined(), center = new Vector3(0,0,.1), dimensions = new Vector3(.001,.02,.24)
+  const update = foot_knife_depth(source,plate(center,dimensions))!
+  expect(update).toBeDefined()
+  center.z += dimensions.z * update.offset
+  dimensions.z *= update.scale
+  const { open, seam } = knife_cut(source,plate(center,dimensions),true)
+  expect(open).toBe(false)
+  expect(seam).toBe(1)
+})
+
+it('clears cross-leg weights from surviving rim vertices only when both banks have distinct leg support', () => {
+  const points = [[-.5,0,0],[.5,0,0],[-2,0,0],[2,0,0],[-8,0,0],[-8,0,.04],[-8,0,-.04],
+    [8,0,0],[8,0,.04],[8,0,-.04],[2,1,0]]
+  const geometry = new BufferGeometry()
+  const sides = points.map(point => point[0] > 0 ? 1 : 0)
+  geometry.setAttribute('skinIndex',new Float32BufferAttribute(sides.flatMap(side=>[side,1-side,0,0]),4))
+  geometry.setAttribute('skinWeight',new Float32BufferAttribute(points.flatMap((_,id)=>id<4 || id===10 ? [.48,.52,0,0] : [1,0,0,0]),4))
+  const sample = (id:number, axis:number) => points[id][axis]
+  const skin = {sides:[-1,1],feet:[new Vector3(-1,0,0),new Vector3(1,0,0)] as const}
+  repair_knife_leg_weights(geometry,[[0],[1]],sample,new Vector3(.01,.2,.2),{...skin,sides:[1,1]})
+  expect(geometry.attributes.skinWeight.getY(0)).toBeCloseTo(.52,6)
+  repair_knife_leg_weights(geometry,[[0],[1]],sample,new Vector3(.01,.2,.2),skin)
+  for (let i=0;i<4;i++) expect(geometry.attributes.skinWeight.getX(i)).toBe(1)
+  expect(geometry.attributes.skinWeight.getY(10)).toBeCloseTo(.52,6)
 })
 
 it('keeps the cut inside the finite height and thickness of the glass', () => {

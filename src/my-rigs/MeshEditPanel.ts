@@ -7,7 +7,8 @@ import type { RigViewer } from './RigViewer.ts'
 import type { RigAsset } from './RigAsset.ts'
 import { brush_selection, cut_selection, deform_selection, is_bind_face, tint_selection, type MeshSelection } from './MeshEditGeometry.ts'
 import type { MeshEdit } from './MeshEditGlb.ts'
-import { knife_cut } from './MeshKnife.ts'
+import { foot_knife_depth, knife_cut } from './MeshKnife.ts'
+import { at_foot_bridge, knife_leg_skin, type KnifeLegSkin } from './MeshKnifeSkin.ts'
 import { sample_surface_color } from './MeshEditColor.ts'
 import type { TransformControlsMode } from 'three/examples/jsm/controls/TransformControls.js'
 
@@ -41,6 +42,7 @@ export class MeshEditPanel {
   private readonly recolor: HTMLButtonElement
   private readonly dropper: HTMLButtonElement
   private plate_target?: Mesh
+  private leg_cut?: KnifeLegSkin
   private plate_mode: TransformControlsMode = 'translate'
   private last_seam?: { mesh: Mesh, material: number }
   private sampled?: Color
@@ -192,7 +194,7 @@ export class MeshEditPanel {
   }
 
   private place_again (): void {
-    this.plate_target = undefined; this.plate.visible = false
+    this.plate_target = undefined; this.leg_cut = undefined; this.plate.visible = false
     this.viewer.edit_gizmo()
     this.viewer.set_mesh_picker(hit => {
       if (this.pending) return
@@ -203,6 +205,20 @@ export class MeshEditPanel {
         this.plate.quaternion.copy(this.viewer.camera_rotation())
         this.plate_sizes.forEach((input, i) => this.plate.scale.setComponent(i, this.span * Number(input.value) / 100))
         this.plate.position.add(new Vector3(0, 0, -this.plate.scale.z * .45).applyQuaternion(this.plate.quaternion))
+        const skin = this.asset && knife_leg_skin(this.asset, hit.object)
+        if (skin && at_foot_bridge(skin, hit.point, this.span)) {
+          this.leg_cut = skin
+          this.plate.updateMatrixWorld(true)
+          const depth = foot_knife_depth(hit.object.geometry, this.plate.matrixWorld.clone().invert().multiply(hit.object.matrixWorld))
+          if (depth) {
+            this.plate.position.add(new Vector3(0, 0, this.plate.scale.z * depth.offset).applyQuaternion(this.plate.quaternion))
+            this.plate.scale.z *= depth.scale
+            const input = this.plate_sizes[2]
+            input.value = String(this.plate.scale.z / this.span * 100)
+            const amount = input.parentElement?.querySelector('output')
+            if (amount) amount.textContent = Math.round(Number(input.value) * 100) / 100 + '%'
+          }
+        }
         this.plate_mode = 'translate'; this.plate.visible = true
         this.show_gizmo(); this.refresh()
       } catch (error) { this.options.status((error as Error).message, true) }
@@ -283,7 +299,9 @@ export class MeshEditPanel {
     this.options.status('Выполняю разрез…')
     try {
       await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
-      const result = knife_cut(mesh.geometry, to_blade, this.close_cut.checked)
+      const leg = this.leg_cut && at_foot_bridge(this.leg_cut, this.plate.position, this.span)
+        ? {skin: this.leg_cut, dimensions: this.plate.scale} : undefined
+      const result = knife_cut(mesh.geometry, to_blade, this.close_cut.checked, leg)
       let materials = mesh.material
       if (result.seam !== undefined) {
         const items = Array.isArray(materials) ? materials.slice() : [materials]
@@ -293,7 +311,7 @@ export class MeshEditPanel {
       this.replace(mesh, result.geometry, materials)
       this.last_seam = result.seam === undefined ? undefined : { mesh, material: result.seam }
       this.sampled = undefined; this.swatch.style.backgroundColor = ''
-      this.plate_target = undefined; this.plate.visible = false
+      this.plate_target = undefined; this.leg_cut = undefined; this.plate.visible = false
       this.clear(); this.set_tool('camera')
       const note = this.last_seam ? ' Для цвета используйте «Пипетку».' : ''
       this.options.status(result.open ? 'Разрез готов. Часть кромки осталась открытой.' + note : 'Разрез готов, кромки закрыты.' + note)
@@ -396,7 +414,7 @@ export class MeshEditPanel {
     for (const previous of this.originals.values()) this.restore(previous)
     this.originals.clear(); this.undo_stack.length = 0
     this.last_seam = undefined; this.sampled = undefined; this.swatch.style.backgroundColor = ''
-    this.plate_target = undefined; this.plate.visible = false
+    this.plate_target = undefined; this.leg_cut = undefined; this.plate.visible = false
     if (this.asset) this.set_tool('camera')
     this.collect(); this.clear()
   }

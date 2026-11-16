@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, Matrix4, ShapeUtils, Vector2, Vector3 } from 'three'
 import { cap_boundary, type DirectedEdge } from './MeshEditGeometry.ts'
+import { repair_knife_leg_weights, type KnifeLegSkin } from './MeshKnifeSkin.ts'
 
 type Point = [number, number]
 type Triangle = [number, number, number]
@@ -29,6 +30,38 @@ function intersection (planes: Triangle[]): Point[] {
     polygon = next
   }
   return polygon.filter((p, i) => key(p) !== key(polygon[(i + 1) % polygon.length]))
+}
+
+function vertices_in_blade (source: BufferGeometry, to_blade: Matrix4): Float64Array {
+  const attr = source.attributes.position, point = new Vector3()
+  const local = new Float64Array(attr.count * 3)
+  for (let i = 0; i < attr.count; i++) point.fromBufferAttribute(attr, i).applyMatrix4(to_blade).toArray(local, i * 3)
+  return local
+}
+
+/** Measure the full depth of surfaces inside the existing thin footprint.
+ * The footprint and thickness are preserved. Ignore far-off geometry. */
+export function foot_knife_depth (source: BufferGeometry, to_blade: Matrix4): { offset: number, scale: number } | undefined {
+  const local = vertices_in_blade(source, to_blade), index = source.index
+  const count = index?.count ?? source.attributes.position.count
+  let min = -.5, max = .5
+  for (let i = 0; i + 2 < count; i += 3) {
+    const a = (index?.getX(i) ?? i) * 3, b = (index?.getX(i + 1) ?? i + 1) * 3, c = (index?.getX(i + 2) ?? i + 2) * 3
+    const ax = local[a], bx = local[b], cx = local[c], ay = local[a+1], by = local[b+1], cy = local[c+1]
+    if (Math.min(ax,bx,cx) > .5 || Math.max(ax,bx,cx) < -.5 ||
+      Math.min(ay,by,cy) > .5 || Math.max(ay,by,cy) < -.5) continue
+    const az = local[a+2], bz = local[b+2], cz = local[c+2]
+    if (Math.min(az,bz,cz) >= -.5 && Math.max(az,bz,cz) <= .5) continue
+    const polygon = intersection([[.5+ax,.5+bx,.5+cx],[.5-ax,.5-bx,.5-cx],[.5+ay,.5+by,.5+cy],[.5-ay,.5-by,.5-cy]])
+    for (const point of polygon) {
+      const z = value_at([az,bz,cz],point)
+      if (z < -1.3 || z > .8) return
+      min = Math.min(min,z); max = Math.max(max,z)
+    }
+  }
+  if (max - min <= 1 + eps) return
+  min -= .02; max += .02
+  return { offset: (min + max) * .5, scale: max - min }
 }
 
 /** Reconstruct the kept polygon(s) from the remaining triangle edges and
@@ -69,13 +102,11 @@ function subtract (hole: Point[], planes: Triangle[]): Point[][] {
 
 /** Subtract the finite glass plate. The matrix maps mesh vertices into
  * the plate's unit box. Its three extents and orientation come from the gizmo. */
-export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boolean):
+export function knife_cut (
+  source: BufferGeometry, to_blade: Matrix4, close: boolean, leg?: { skin: KnifeLegSkin, dimensions: Vector3 }
+):
   { geometry: BufferGeometry, cut: number, open: boolean, seam?: number } {
-  const attr = source.attributes.position, point = new Vector3()
-  const local = new Float64Array(attr.count * 3)
-  for (let i = 0; i < attr.count; i++) {
-    point.fromBufferAttribute(attr, i).applyMatrix4(to_blade).toArray(local, i * 3)
-  }
+  const attr = source.attributes.position, local = vertices_in_blade(source, to_blade)
   const values = (id: number): number[] => {
     const x = local[id * 3], y = local[id * 3 + 1], z = local[id * 3 + 2]
     return [.5 + x, .5 - x, .5 + y, .5 - y, .5 + z, .5 - z]
@@ -231,6 +262,11 @@ export function knife_cut (source: BufferGeometry, to_blade: Matrix4, close: boo
     result.addGroup(compact_faces.length, caps.length, seam)
     for (const id of caps) compact_faces.push(id)
   } else if (!groups.length) result.clearGroups()
+  if (leg && seam !== undefined && !uncapped) {
+    const rim = (plane: number) => cap_edges[plane].flatMap(edge => [lookup[edge.from],lookup[edge.to]])
+    repair_knife_leg_weights(result, [rim(0),rim(1)],
+      (id, axis) => blade_component(active[id], axis), leg.dimensions, leg.skin)
+  }
   result.setIndex(new BufferAttribute(Uint32Array.from(compact_faces), 1))
   return { geometry: result, cut, open: !close || uncapped > 0, seam }
 }
