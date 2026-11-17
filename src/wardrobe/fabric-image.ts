@@ -3,7 +3,7 @@ import {
   type BufferGeometry
 } from 'three'
 
-export type LoadedImage = { image: HTMLImageElement, width: number, height: number }
+export type LoadedImage = { image: CanvasImageSource, width: number, height: number }
 
 export async function openImage(file:File):Promise<LoadedImage> {
   if(file.size>16*1024*1024)throw new Error('Изображение больше 16 МБ.')

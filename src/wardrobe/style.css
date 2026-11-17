@@ -16,6 +16,12 @@ button.accent{color:#122923;background:#9fead0;border-color:#a4efd6;font-weight:
 input[type=range]{accent-color:#9bdcc7;min-height:22px}input[type=color]{min-width:48px;min-height:42px;background:#26334a;border:1px solid var(--edge);border-radius:6px}
 .slider{display:grid;grid-template-columns:1fr auto;align-items:center;font-size:.82rem;gap:2px 10px;color:#d3dfef}.slider input{grid-column:1/-1;width:100%;margin:0}.slider output{color:#a6decf}.brush{display:grid;gap:7px;border-top:1px solid var(--edge);padding-top:10px}.rig-option{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;font-size:.84rem}
 .tool-hint{color:var(--muted);font-size:.79rem;line-height:1.35}
+#catalogue{width:min(94vw,690px);max-width:none}
+.catalogue-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.catalogue-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:8px 0 16px}
+.catalogue-grid button{display:grid;grid-template-rows:auto minmax(2em,auto);justify-items:center;align-items:center;gap:2px;background:#18263b;padding:5px 6px 8px;line-height:1.2}
+.catalogue-grid canvas{width:100%;height:auto;max-width:190px;touch-action:inherit}
+@media(max-width:450px){.catalogue-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #fit-tools{display:grid;gap:10px}#outfits{display:grid;gap:6px}.outfit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.outfit button:first-child{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.outfit small{color:var(--muted);font-size:.75rem}
 #message{position:absolute;z-index:3;left:50%;bottom:70px;transform:translateX(-50%);max-width:calc(100% - 20px);width:max-content;padding:9px 13px;background:#1b283c;border:1px solid var(--edge);border-radius:10px;font-size:.84rem;pointer-events:none}#message.error{border-color:#d99091;color:#ffd2d3}
 #playback{position:absolute;bottom:10px;left:10px;right:10px;display:grid;grid-template-columns:auto minmax(90px,1fr) minmax(80px,1fr) auto;gap:8px;align-items:center;background:#162236eb;padding:7px;border:1px solid var(--edge);border-radius:10px}#playback output{font-size:.73rem;white-space:nowrap}#playback select{min-width:0}

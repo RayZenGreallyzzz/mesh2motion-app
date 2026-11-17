@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 OLD = 'com.rayzen.riganimationstudio.humanoid65test'
 APP = 'com.rayzen.riganimationstudio.wardrobestudio'
 OLD_VERSION = '8.2.10-rig-motion-test'
-VERSION = '0.2.0-wardrobe-preview'
+VERSION = '0.3.0-wardrobe-preview'
 LABEL = 'Wardrobe Studio 01'
 PUBLIC = 'assets/public/'
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,7 +38,7 @@ def versioned_manifest(data):
                 name = struct.unpack_from('<I', out, at + 4)[0]
                 if name < len(attributes) and attributes[name] == 0x0101021b:
                     assert out[at + 15] == 0x10 and struct.unpack_from('<I', out, at + 16)[0] == 830
-                    struct.pack_into('<I', out, at + 16, 2)
+                    struct.pack_into('<I', out, at + 16, 3)
                     changed += 1
         offset += size
     assert changed == 1

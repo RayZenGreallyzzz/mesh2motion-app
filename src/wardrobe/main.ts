@@ -12,7 +12,8 @@ import { FittingView } from './viewer.ts'
 import { combineGlb, encodeGarments } from './glb.ts'
 import { fitPatch } from './brush.ts'
 import { anchorPrint, projectPrint, type PrintAnchor } from './image-placement.ts'
-import { drawImage, ensureFabricUv, openImage } from './fabric-image.ts'
+import { drawImage, ensureFabricUv, openImage, type LoadedImage } from './fabric-image.ts'
+import { shirtCard, shirtPrintPlacement, shirtStyles, sportCard, styleMaterials, stylePrint, type ShirtStyle } from './shirt-styles.ts'
 import { editSvgPattern } from './pattern.ts'
 import './style.css'
 
@@ -29,7 +30,7 @@ type Print={name:string,material:MeshStandardMaterial,aspect:number,padding:[num
   piece:number,anchor?:PrintAnchor,preview?:Mesh,frame?:number}
 type Garment={ name:string, group:Group, mesh:Mesh[], pieces:Piece[], worn:boolean, marks:boolean, dirty:boolean, source?:RigAsset,
   bound?:Piece[], display?:Group, type?:GarmentType, pattern:boolean, ease:number,width:number,length:number, color:string, undo:Snapshot[][],
-  mode:'soft'|'rigid', rigid:Map<number,number>, joint?:number, prints:Print[], printPreview:Group, selectedPrint?:Print }
+  mode:'soft'|'rigid', rigid:Map<number,number>, joint?:number, prints:Print[], printPreview:Group, selectedPrint?:Print, surface?:string }
 let body:FittingBody|undefined
 const items:Garment[]=[]
 let current:Garment|undefined
@@ -101,6 +102,16 @@ function disposePrint(print:Print){
   print.material.dispose()
 }
 
+function addPrint(item:Garment, name:string, source:LoadedImage){
+  const {texture,aspect,padding}=drawImage(source,true)
+  const material=new MeshStandardMaterial({map:texture,roughness:.86,metalness:0,transparent:true,
+    depthWrite:false,alphaTest:.02,polygonOffset:true,polygonOffsetFactor:-1})
+  const print:Print={name,material,aspect,padding,size:14,angle:0,piece:-1}
+  item.prints.push(print);item.selectedPrint=print
+  mark(item)
+  return print
+}
+
 function printGeometry(item:Garment,print:Print,skin?:BufferGeometry){
   const mesh=item.mesh[print.piece]
   if(!body||!mesh||!print.anchor)return
@@ -141,9 +152,10 @@ function putMeshes(item:Garment,pieces:Piece[]){
   item.group.add(...item.mesh);mark(item)
   item.prints.forEach(print=>refreshPrint(item,print))
 }
+function defaultEase(kind?:GarmentType){return kind==='hoodie'?2.4:kind==='joggers'?1.8:1.3}
 function addItem(name:string,pieces:Piece[],kind?:GarmentType,source?:RigAsset,pattern=false){
   const group=new Group()
-  const item:Garment={name,group,mesh:[],pieces:[],worn:false,marks:false,dirty:true,type:kind,source,pattern,ease:1.3,width:100,length:100,color:'#3d9281',undo:[],
+  const item:Garment={name,group,mesh:[],pieces:[],worn:false,marks:false,dirty:true,type:kind,source,pattern,ease:defaultEase(kind),width:100,length:100,color:'#3d9281',undo:[],
     mode:kind==='armor'?'rigid':'soft',rigid:new Map(),prints:[],printPreview:new Group()}
   if(kind){
     const center=pieceBounds(pieces).getCenter(new Vector3())
@@ -160,7 +172,18 @@ function choose(item:Garment|undefined) {
 function setUiValue(id:string,value:number){input(id).value=String(value);$<HTMLOutputElement>(id+'-value').value=value+'%'}
 
 function imageControls(item:Garment){
-  const fabric=[...chosenMaterials(item)].filter(hasColor).find(material=>material.map)
+  const regions=materialRegions(item)
+  const hasRegions=item.pieces.some(piece=>piece.regions?.length)
+  const pickerRegions=select('fabric-region')
+  $('fabric-region-row').hidden=!hasRegions||regions.length<2
+  if(!item.surface||!regions.some(region=>region.id===item.surface))item.surface=undefined
+  pickerRegions.replaceChildren(new Option(index>=0?'Вся деталь':'Вся вещь',''),
+    ...regions.map(region=>new Option(region.name,region.id)))
+  pickerRegions.value=item.surface??''
+  pickerRegions.disabled=busy
+  const colored=[...chosenMaterials(item)].filter(hasColor)
+  input('color').value=colored[0]?'#'+colored[0].color.getHexString():item.color
+  const fabric=colored.find(material=>material.map)
   $('fabric-settings').hidden=!fabric
   if(fabric?.map){
     input('fabric-repeat').value=String(fabric.map.repeat.x)
@@ -179,12 +202,12 @@ function imageControls(item:Garment){
     input(id).value=String(value);input(id).disabled=busy
     $<HTMLOutputElement>(id+'-value').value=value+unit
   }
-  for(const id of ['prints','print-place','print-delete'])$<HTMLButtonElement|HTMLSelectElement>(id).disabled=busy
+  for(const id of ['prints','print-place','print-delete','print-replace'])$<HTMLButtonElement|HTMLSelectElement>(id).disabled=busy
 }
 
 function renderControls(){
   for(const id of ['load-model','demo'])button(id).disabled=busy
-  for(const id of ['add-glb','add-pattern','add-template'])button(id).disabled=busy||!body||moving
+  for(const id of ['add-glb','add-pattern','add-template','catalogue-open'])button(id).disabled=busy||!body||moving
   select('template').disabled=busy||!body||moving
   button('motion').disabled=busy||!body?.asset.clips.length||!items.some(item=>item.worn)
   button('motion').setAttribute('aria-pressed',String(moving))
@@ -226,7 +249,6 @@ function renderControls(){
     setUiValue(id,v)
     input(id).closest('label')!.hidden=!item.type
   }
-  input('color').value=item.color
   imageControls(item)
   select('binding').value=item.mode
   const piece=index>=0?item.pieces[index]:undefined
@@ -400,6 +422,7 @@ requestFile('add-glb','garment-file')
 requestFile('add-pattern','pattern-file')
 requestFile('texture','texture-file')
 requestFile('print-add','print-file')
+requestFile('print-replace','print-replacement-file')
 fileInput('body-file',([file])=>task('Открываю персонажа…',async()=>openCharacter(await bytes(file),file.name)))
 fileInput('garment-file',files=>task('Открываю GLB одежды…',()=>importGarments(files)))
 fileInput('pattern-file',async([file])=>{
@@ -434,16 +457,41 @@ fileInput('print-file',async([file])=>{
   if(!current||busy)return
   const item=current
   await task('Открываю рисунок…',async()=>{
-    const {texture,aspect,padding}=drawImage(await openImage(file),true)
-    const material=new MeshStandardMaterial({map:texture,roughness:.86,metalness:0,transparent:true,
-      depthWrite:false,alphaTest:.02,polygonOffset:true,polygonOffsetFactor:-1})
-    const print:Print={name:file.name.replace(/\.[^.]+$/,''),material,aspect,padding,size:14,angle:0,piece:-1}
-    item.prints.push(print);item.selectedPrint=print;tool='print';activateTool()
+    addPrint(item,file.name.replace(/\.[^.]+$/,''),await openImage(file))
+    tool='print';activateTool()
     status('Коснитесь одежды, чтобы разместить рисунок.')
   })
 })
+fileInput('print-replacement-file',async([file])=>{
+  const item=current,print=item?.selectedPrint
+  if(!item||!print||busy)return
+  await task('Заменяю рисунок…',async()=>{
+    const {texture,aspect,padding}=drawImage(await openImage(file),true)
+    detachBound(item)
+    print.material.map?.dispose()
+    print.material.map=texture;print.material.needsUpdate=true
+    print.name=file.name.replace(/\.[^.]+$/,'')
+    print.aspect=aspect;print.padding=padding
+    mark(item);refreshPrint(item,print)
+    status('Рисунок заменён.')
+  })
+})
+function materialRegions(item:Garment){
+  return item.pieces.flatMap((piece,i)=>{
+    if(index>=0&&index!==i)return []
+    const materials=Array.isArray(piece.material)?piece.material:[piece.material]
+    return materials.map((material,j)=>({id:i+':'+j,name:piece.regions?.[j]??piece.name,material}))
+  })
+}
 function chosenMaterials(item:Garment):Set<Material>{
-  return new Set((index>=0?[item.mesh[index]]:item.mesh).flatMap(mesh=>Array.isArray(mesh.material)?mesh.material:[mesh.material]))
+  const targets=materialRegions(item)
+  const region=targets.find(target=>target.id===item.surface)
+  return new Set(region?[region.material]:targets.map(target=>target.material))
+}
+select('fabric-region').onchange=()=>{
+  if(!current)return
+  current.surface=select('fabric-region').value||undefined
+  imageControls(current)
 }
 input('fabric-repeat').oninput=()=>{
   if(!current)return
@@ -499,9 +547,48 @@ button('demo').onclick=()=>void task('Открываю учебного перс
 })
 button('add-template').onclick=()=>void task('Строю сетку одежды…',async()=>{
   const type=select('template').value as GarmentType
-  addItem(templateName(type),template(body!,type,.013,1,1,'#3d9281'),type)
+  addItem(templateName(type),template(body!,type,defaultEase(type)/100,1,1,'#3d9281'),type)
   status('Вещь создана. Настройте посадку или выделите участок кистью.')
 })
+function addCatalogueItem(type:'shirt'|'hoodie'|'joggers', name:string,color:string,style?:ShirtStyle){
+  if(!body||busy||moving)return
+  $<HTMLDialogElement>('catalogue').close()
+  void task('Подгоняю шаблон…',async()=>{
+    const pieces=template(body!,type,defaultEase(type)/100,1,1,color)
+    if(style)styleMaterials(pieces,style)
+    const item=addItem(name,pieces,type)
+    let placed=true
+    const image=style&&stylePrint(style)
+    if(image){
+      const print=addPrint(item,style.motif==='bear'?'Мишка':style.name,image)
+      const placement=shirtPrintPlacement(body!,item.mesh[0],style.large)
+      placed=!!placement
+      if(placement){
+        print.piece=0;print.anchor=placement.anchor;print.size=placement.size
+        refreshPrint(item,print)
+      }
+    }
+    tool=placed?'orbit':'print'
+    activateTool()
+    status(placed?'Шаблон создан. Можно менять цвет участков и примерять.':'Шаблон создан. Коснитесь футболки, чтобы поставить рисунок.')
+  })
+}
+button('catalogue-open').onclick=()=>{
+  const dialog=$<HTMLDialogElement>('catalogue'), shirts=$('catalogue-shirts'), sport=$('catalogue-sport')
+  const card=(image:HTMLCanvasElement,label:string,apply:()=>void)=>{
+    const tile=make('',apply), caption=document.createElement('span')
+    caption.textContent=label;tile.append(image,caption);return tile
+  }
+  if(!shirts.children.length){
+    shirts.append(...shirtStyles.map(style=>card(shirtCard(style),style.name,()=>addCatalogueItem('shirt',style.name,style.panel,style))))
+    for(const [type,color] of [['hoodie','#557ba1'],['joggers','#59674b']] as const){
+      const name=templateName(type)
+      sport.append(card(sportCard(type,color),name,()=>addCatalogueItem(type,name,color)))
+    }
+  }
+  dialog.showModal()
+}
+button('catalogue-close').onclick=()=>$<HTMLDialogElement>('catalogue').close()
 button('center').onclick=()=>{if(current)alignItem(current,select('anchor').value)}
 button('delete').onclick=()=>{
   if(!current||busy)return
@@ -544,7 +631,7 @@ button('reshape').onclick=()=>{
     const old=item.pieces.map(piece=>piece.material)
     next.forEach((piece,i)=>{
       if(!old[i])return
-      if(!Array.isArray(piece.material))piece.material.dispose()
+      for(const material of Array.isArray(piece.material)?piece.material:[piece.material])material.dispose()
       piece.material=old[i]
     })
     putMeshes(item,next);item.undo=[];item.marks=false;index=-1;activateTool()

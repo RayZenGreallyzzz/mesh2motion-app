@@ -47,6 +47,7 @@
       <div class="row">
         <select id="template" aria-label="Шаблон одежды" disabled></select><button id="add-template" disabled>Создать</button>
       </div>
+      <button id="catalogue-open" disabled>Каталог одежды</button>
       <div id="outfits" aria-label="Вещи"></div>
     </section>
     <section id="details" class="panel" hidden>
@@ -67,6 +68,7 @@
         <button id="reshape" hidden>Применить форму шаблона</button>
         <section class="brush" aria-label="Ткань и рисунки">
           <h3>Ткань и рисунки</h3>
+          <label class="rig-option" id="fabric-region-row" hidden>Участок<select id="fabric-region" aria-label="Участок одежды"></select></label>
           <div class="row">
             <label for="color">Цвет</label><input id="color" type="color" aria-label="Цвет одежды" value="#3d9281">
             <button id="texture">Текстура ткани</button>
@@ -77,6 +79,7 @@
             <div class="row">
               <select id="prints" aria-label="Рисунок"></select>
               <button id="print-place" aria-pressed="false">Расположить</button>
+              <button id="print-replace">Заменить рисунок</button>
               <button id="print-delete">Убрать</button>
             </div>
             <p id="print-instruction" class="tool-hint" hidden>Перетащите рисунок по одежде. Два пальца приближают. Для поворота выберите «Камера».</p>
@@ -103,6 +106,17 @@
 <input id="pattern-file" type="file" accept=".svg,image/svg+xml" hidden>
 <input id="texture-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
 <input id="print-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+<input id="print-replacement-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+<dialog id="catalogue">
+  <div class="catalogue-heading">
+    <h2>Каталог одежды</h2>
+    <button id="catalogue-close" aria-label="Закрыть каталог">×</button>
+  </div>
+  <h3>Футболки</h3>
+  <div id="catalogue-shirts" class="catalogue-grid"></div>
+  <h3>Спортивная одежда</h3>
+  <div id="catalogue-sport" class="catalogue-grid"></div>
+</dialog>
 <dialog id="save-dialog">
   <form method="dialog">
     <h2>Сохранить GLB</h2>
