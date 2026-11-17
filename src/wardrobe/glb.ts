@@ -1,8 +1,9 @@
-import { Bone, Matrix4, Scene, SkinnedMesh } from 'three'
+import { AnimationClip, Bone, Matrix4, NumberKeyframeTrack, Scene, SkinnedMesh } from 'three'
 import { inspect_glb, MAX_GLB_BYTES } from '../my-rigs/GlbEnvelope.ts'
 import { export_plain_glb } from '../lib/processes/export-to-file/PlainGlbExporter.ts'
 import { type FittingBody } from './body.ts'
 import type { Piece } from './garments.ts'
+import type { BakedCloth } from './cloth-bake.ts'
 
 type Json = Record<string, any>
 const BIN=0x004e4942, JSON_CHUNK=0x4e4f534a
@@ -26,12 +27,12 @@ function read (data: ArrayBuffer): {doc:Json,bin:Uint8Array,other:Uint8Array[]} 
 
 /** Attach a newly written garment to the original body joints and leave the
  * original vertex and animation BIN ranges exactly as they were. */
-export function combineGlb (body: ArrayBuffer, clothes: ArrayBuffer): ArrayBuffer {
+export function combineGlb (body: ArrayBuffer, clothes: ArrayBuffer, clothClipIndex?:number): ArrayBuffer {
   const base=read(body), part=read(clothes), doc=base.doc, incoming=part.doc
   const keys=['accessors','bufferViews','images','samplers','textures','materials','meshes','skins','nodes'] as const
   const offsets=Object.fromEntries(keys.map(k=>[k,doc[k]?.length??0])) as Record<typeof keys[number],number>
   const offset=align(base.bin.length), binBytes=align(offset+part.bin.length)
-  if(incoming.buffers?.length!==1||(incoming.animations??[]).length)throw new Error('Не удалось подготовить сетку одежды к объединению.')
+  if(incoming.buffers?.length!==1||((incoming.animations??[]).length&&clothClipIndex===undefined))throw new Error('Не удалось подготовить сетку одежды к объединению.')
   const shift=(entry:Json|undefined,key:string,by:number)=>{if(entry&&typeof entry[key]==='number')entry[key]+=by}
   const attrs=(entries:Json|undefined)=>{ for(const k of Object.keys(entries??{}))shift(entries,k,offsets.accessors) }
   const textures=(item:Json)=>{for(const [key,value] of Object.entries(item)){
@@ -67,16 +68,33 @@ export function combineGlb (body: ArrayBuffer, clothes: ArrayBuffer): ArrayBuffe
     delete skin.skeleton
     shift(skin,'inverseBindMatrices',offsets.accessors)
   }
-  const additions:Json[]=[]
+  const additions:Json[]=[], mapped=new Map<number,number>()
   for(const id of incoming.scenes?.[incoming.scene??0]?.nodes??[]){
     const node=incoming.nodes[id]
     if(node.mesh===undefined)continue
     if(node.children?.length)throw new Error('У одежды осталась несохранённая иерархия.')
     shift(node,'mesh',offsets.meshes);shift(node,'skin',offsets.skins)
     node.extras={...node.extras,wardrobeClothing:true}
+    mapped.set(id,offsets.nodes+additions.length)
     additions.push(node)
   }
   if(!additions.length)throw new Error('Нет мешей одежды для экспорта.')
+  if(clothClipIndex!==undefined){
+    const target=doc.animations?.[clothClipIndex], baked=incoming.animations?.[0]
+    if(!target||!baked||incoming.animations.length!==1||!baked.channels.length)
+      throw new Error('Не удалось добавить движение ткани в выбранный клип.')
+    const start=target.samplers.length
+    for(const sampler of baked.samplers){
+      shift(sampler,'input',offsets.accessors)
+      shift(sampler,'output',offsets.accessors)
+      target.samplers.push(sampler)
+    }
+    for(const channel of baked.channels){
+      const node=mapped.get(channel.target.node)
+      if(node===undefined||channel.target.path!=='weights')throw new Error('В клипе ткани повреждена привязка к детали.')
+      target.channels.push({...channel,sampler:channel.sampler+start,target:{...channel.target,node}})
+    }
+  }
   incoming.nodes=additions
   const scene=doc.scenes[doc.scene??0]
   scene.nodes=[...(scene.nodes??[]),...additions.map((_,i)=>offsets.nodes+i)]
@@ -102,7 +120,7 @@ export function combineGlb (body: ArrayBuffer, clothes: ArrayBuffer): ArrayBuffe
   return output
 }
 
-export async function encodeGarments (body:FittingBody, pieces:Piece[]):Promise<ArrayBuffer> {
+export async function encodeGarments (body:FittingBody, pieces:Piece[],baked?:BakedCloth):Promise<ArrayBuffer> {
   const scene=new Scene()
   const bones=body.bones.map((source,i)=>{
     const b=new Bone();b.name=source.name;b.userData[jointKey]=body.nodes[i];return b
@@ -116,12 +134,27 @@ export async function encodeGarments (body:FittingBody, pieces:Piece[]):Promise<
     else bones[parent].add(bone)
   }
   const skeleton=body.canonicalSkin(bones)
-  for(const piece of pieces){
-    const mesh=new SkinnedMesh(piece.geometry,piece.material)
-    mesh.name=piece.name;mesh.bind(skeleton,new Matrix4());scene.add(mesh)
-  }
-  scene.updateMatrixWorld(true)
-  const result=await export_plain_glb(scene,{binary:true,onlyVisible:true,maxTextureSize:2048})
-  inspect_glb(result)
-  return result
+  const created:SkinnedMesh[]=[]
+  const tracks:NumberKeyframeTrack[]=[]
+  try{
+    for(const [i,piece] of pieces.entries()){
+      const frames=baked?.positions.get(i), geometry=frames?piece.geometry.clone():piece.geometry
+      if(frames){
+        geometry.morphAttributes.position=frames;geometry.morphTargetsRelative=true
+      }
+      const mesh=new SkinnedMesh(geometry,piece.material)
+      if(frames&&baked){
+        created.push(mesh)
+        const values=new Float32Array(frames.length*baked.times.length)
+        for(let frame=0;frame<frames.length;frame++)values[frame*frames.length+frame]=1
+        tracks.push(new NumberKeyframeTrack(mesh.uuid+'.morphTargetInfluences',baked.times,values))
+      }
+      mesh.name=piece.name;mesh.bind(skeleton,new Matrix4());scene.add(mesh)
+    }
+    scene.updateMatrixWorld(true)
+    const animations=tracks.length?[new AnimationClip('Движение ткани',-1,tracks)]:[]
+    const result=await export_plain_glb(scene,{binary:true,onlyVisible:true,maxTextureSize:2048,animations})
+    inspect_glb(result)
+    return result
+  }finally{created.forEach(mesh=>mesh.geometry.dispose())}
 }

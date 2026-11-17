@@ -27,7 +27,7 @@ export function parsePattern(svg:string):Panel[]{
     panels.push({edges,center:new Vector2((left+right)/2,(top+bottom)/2),width:right-left,height:bottom-top,
       angle:panels.length===0?0:panels.length===1?180:panels.length%2===0?90:270,horizontal:0,vertical:0})
   }
-  if(panels.length<2)throw new Error('В SVG должны быть хотя бы два отдельных замкнутых контура. Номера и открытые линии не нужны.')
+  if(!panels.length)throw new Error('В SVG нужен хотя бы один замкнутый контур.')
   if(panels.length>16||panels.some(panel=>panel.edges.length>128))throw new Error('Откройте до 16 полотен с простыми контурами.')
   return panels
 }
@@ -161,8 +161,7 @@ export function editSvgPattern(data:string,body:FittingBody,dialog:HTMLDialogEle
   return new Promise(resolve=>{
     let output:Piece[]|undefined
     dialog.addEventListener('close',()=>resolve(output),{once:true})
-    const accept=btn('Сшить в 3D',()=>{
-      if(!seams.length){issue.textContent='Сначала выберите пару краёв.';return}
+    const accept=btn(panels.length===1?'Вырезать полотно':'Собрать полотна',()=>{
       const value=Number(scale.value)
       if(!(value>=5&&value<=150)){issue.textContent='Укажите ширину от 5 до 150% роста.';return}
       try{output=sewPanels(body,panels,seams,value);dialog.close()}catch(error){issue.textContent=(error as Error).message}

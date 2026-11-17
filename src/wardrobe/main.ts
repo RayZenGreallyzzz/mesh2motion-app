@@ -15,6 +15,12 @@ import { anchorPrint, projectPrint, type PrintAnchor } from './image-placement.t
 import { drawImage, ensureFabricUv, openImage, type LoadedImage } from './fabric-image.ts'
 import { shirtCard, shirtPrintPlacement, shirtStyles, sportCard, styleMaterials, stylePrint, type ShirtStyle } from './shirt-styles.ts'
 import { editSvgPattern } from './pattern.ts'
+import { connectResources, storeResource } from './resources.ts'
+import { bakeCloth, type ClothTarget } from './cloth-bake.ts'
+import { clothColliders, ClothPreview } from './cloth-motion.ts'
+import { cutPanel, drawCut } from './cut-panel.ts'
+import { fashionCatalogue, fashionTemplate, type FashionId } from './fashion.ts'
+import { getAlpha, offsetPiece, setAlpha, type AlphaMode } from './surface-layers.ts'
 import './style.css'
 
 const $=<E extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as E
@@ -29,8 +35,8 @@ type Snapshot={mesh:Mesh,positions:Float32Array}
 type Print={name:string,material:MeshStandardMaterial,aspect:number,padding:[number,number],size:number,angle:number,
   piece:number,anchor?:PrintAnchor,preview?:Mesh,frame?:number}
 type Garment={ name:string, group:Group, mesh:Mesh[], pieces:Piece[], worn:boolean, marks:boolean, dirty:boolean, source?:RigAsset,
-  bound?:Piece[], display?:Group, type?:GarmentType, pattern:boolean, ease:number,width:number,length:number, color:string, undo:Snapshot[][],
-  mode:'soft'|'rigid', rigid:Map<number,number>, joint?:number, prints:Print[], printPreview:Group, selectedPrint?:Print, surface?:string }
+  bound?:Piece[], display?:Group, type?:GarmentType, pattern:boolean, fashion?:FashionId, ease:number,width:number,length:number, color:string, undo:Snapshot[][],
+  mode:'soft'|'rigid'|'template', printSources?:number[], rigid:Map<number,number>, joint?:number, prints:Print[], printPreview:Group, selectedPrint?:Print, surface?:string, cloth:Set<number>, effects:ClothPreview[] }
 let body:FittingBody|undefined
 const items:Garment[]=[]
 let current:Garment|undefined
@@ -68,7 +74,11 @@ function fileInput(id:string,handle:(list:File[])=>Promise<unknown>){
 }
 function requestFile(buttonId:string,inputId:string){button(buttonId).onclick=()=>input(inputId).click()}
 
+function stopCloth(item:Garment){
+  item.effects.splice(0).forEach(effect=>effect.dispose())
+}
 function detachBound(item:Garment) {
+  stopCloth(item)
   item.display?.removeFromParent();item.display=undefined
   item.bound?.forEach(piece=>piece.geometry.dispose());item.bound=undefined
 }
@@ -148,16 +158,24 @@ function placePrint(item:Garment, hit:Intersection<Mesh>){
 
 function putMeshes(item:Garment,pieces:Piece[]){
   item.mesh.forEach(mesh=>{mesh.removeFromParent();mesh.geometry.dispose()})
-  item.pieces=pieces;item.mesh=pieces.map(accessoryMesh)
+  item.pieces=pieces;item.mesh=pieces.map(piece=>{
+    const mesh=accessoryMesh(piece)
+    if(item.fashion||item.pattern){
+      piece.geometry.computeBoundingBox()
+      mesh.position.copy(piece.geometry.boundingBox!.getCenter(new Vector3()))
+      piece.geometry.translate(-mesh.position.x,-mesh.position.y,-mesh.position.z)
+    }
+    return mesh
+  })
   item.group.add(...item.mesh);mark(item)
   item.prints.forEach(print=>refreshPrint(item,print))
 }
 function defaultEase(kind?:GarmentType){return kind==='hoodie'?2.4:kind==='joggers'?1.8:1.3}
-function addItem(name:string,pieces:Piece[],kind?:GarmentType,source?:RigAsset,pattern=false){
+function addItem(name:string,pieces:Piece[],kind?:GarmentType,source?:RigAsset,pattern=false,fashion?:FashionId){
   const group=new Group()
-  const item:Garment={name,group,mesh:[],pieces:[],worn:false,marks:false,dirty:true,type:kind,source,pattern,ease:defaultEase(kind),width:100,length:100,color:'#3d9281',undo:[],
-    mode:kind==='armor'?'rigid':'soft',rigid:new Map(),prints:[],printPreview:new Group()}
-  if(kind){
+  const item:Garment={name,group,mesh:[],pieces:[],worn:false,marks:false,dirty:true,type:kind,source,pattern,fashion,ease:fashion?1.1:defaultEase(kind),width:100,length:100,color:'#3d9281',undo:[],
+    mode:fashion?'template':kind==='armor'?'rigid':'soft',rigid:new Map(),prints:[],printPreview:new Group(),cloth:new Set(),effects:[]}
+  if(kind||pattern||fashion){
     const center=pieceBounds(pieces).getCenter(new Vector3())
     pieces.forEach(piece=>piece.geometry.translate(-center.x,-center.y,-center.z));group.position.copy(center)
   }
@@ -173,9 +191,8 @@ function setUiValue(id:string,value:number){input(id).value=String(value);$<HTML
 
 function imageControls(item:Garment){
   const regions=materialRegions(item)
-  const hasRegions=item.pieces.some(piece=>piece.regions?.length)
   const pickerRegions=select('fabric-region')
-  $('fabric-region-row').hidden=!hasRegions||regions.length<2
+  $('fabric-region-row').hidden=regions.length<2
   if(!item.surface||!regions.some(region=>region.id===item.surface))item.surface=undefined
   pickerRegions.replaceChildren(new Option(index>=0?'Вся деталь':'Вся вещь',''),
     ...regions.map(region=>new Option(region.name,region.id)))
@@ -183,6 +200,17 @@ function imageControls(item:Garment){
   pickerRegions.disabled=busy
   const colored=[...chosenMaterials(item)].filter(hasColor)
   input('color').value=colored[0]?'#'+colored[0].color.getHexString():item.color
+  const alpha=getAlpha(colored[0])
+  select('alpha-mode').value=alpha
+  select('alpha-mode').disabled=busy||!colored.length
+  $('alpha-row').hidden=alpha==='opaque'
+  $('alpha-label').textContent=alpha==='cutout'?'Порог выреза':'Непрозрачность'
+  setUiValue('alpha',Math.round(100*(alpha==='cutout'?colored[0].alphaTest:colored[0]?.opacity??1)))
+  input('alpha').disabled=busy
+  const standard=colored.find(material=>material instanceof MeshStandardMaterial)
+  $('roughness-row').hidden=!standard
+  if(standard)setUiValue('roughness',Math.round(standard.roughness*100))
+  input('roughness').disabled=busy
   const fabric=colored.find(material=>material.map)
   $('fabric-settings').hidden=!fabric
   if(fabric?.map){
@@ -206,8 +234,8 @@ function imageControls(item:Garment){
 }
 
 function renderControls(){
-  for(const id of ['load-model','demo'])button(id).disabled=busy
-  for(const id of ['add-glb','add-pattern','add-template','catalogue-open'])button(id).disabled=busy||!body||moving
+  for(const id of ['load-model','demo','resources-open'])button(id).disabled=busy
+  for(const id of ['add-glb','add-pattern','add-template','catalogue-open','cut-open'])button(id).disabled=busy||!body||moving
   select('template').disabled=busy||!body||moving
   button('motion').disabled=busy||!body?.asset.clips.length||!items.some(item=>item.worn)
   button('motion').setAttribute('aria-pressed',String(moving))
@@ -241,22 +269,31 @@ function renderControls(){
   button('bind').disabled=busy
   button('bind').textContent=item.dirty?'Рассчитать веса и примерить':'Одежда привязана · надеть'
   button('undo').disabled=busy||!item.undo.length
-  $('alignment').hidden=!!item.type||item.pattern
-  $('reshape').hidden=!item.type
+  const simulation=clothParts(item)
+  const enabled=simulation.length>0&&simulation.every(i=>item.cloth.has(i))
+  const clothButton=button('cloth-toggle')
+  clothButton.disabled=busy||!simulation.length
+  clothButton.setAttribute('aria-pressed',String(enabled))
+  clothButton.textContent=enabled?'Ткань в движении ✓':'Ткань в движении'
+  const resizable=!!(item.type||item.fashion)
+  $('alignment').hidden=resizable||item.pattern
+  $('reshape').hidden=!resizable
   for(const id of ['ease','width','length']){
     const v=id==='ease'?item.ease:id==='width'?item.width:item.length
-    input(id).disabled=busy||!item.type
+    input(id).disabled=busy||!resizable
     setUiValue(id,v)
-    input(id).closest('label')!.hidden=!item.type
+    input(id).closest('label')!.hidden=!resizable
   }
   imageControls(item)
+  select('binding').options[0].hidden=!item.fashion&&item.mode!=='template'
+  select('binding').options[0].disabled=!item.fashion&&item.mode!=='template'
   select('binding').value=item.mode
   const piece=index>=0?item.pieces[index]:undefined
   const rigid=index>=0?item.rigid.get(index)??piece?.joint:item.joint
   select('bone').value=rigid===undefined?'auto':String(rigid)
-  $('bone-row').hidden=item.mode!=='rigid'
-  for(const id of ['move','rotate','scale','orbit','tighten','loosen'])button(id).setAttribute('aria-pressed',String(tool===id))
-  for(const id of ['color','texture','print-add','binding','bone','center','reshape','tighten','loosen','move','rotate','scale','orbit','radius','strength'])
+  $('bone-row').hidden=item.mode==='soft'||(item.mode==='template'&&index<0)
+  for(const id of ['move','rotate','scale','orbit','tighten','loosen','raise','recess'])button(id).setAttribute('aria-pressed',String(tool===id))
+  for(const id of ['color','texture','print-add','binding','bone','center','reshape','tighten','loosen','raise','recess','layer-open','texture-saved','decal-saved','move','rotate','scale','orbit','radius','strength'])
     $<HTMLInputElement|HTMLButtonElement|HTMLSelectElement>(id).disabled=busy
   refreshVisibility()
 }
@@ -322,7 +359,8 @@ function strokeAt(hit:Intersection<Mesh>){
   const mesh=hit.object,p=mesh.geometry.attributes.position
   const radius=body.height*number('radius')/100, strength=number('strength')/100
   const before=stroke.some(item=>item.mesh===mesh)?undefined:Float32Array.from({length:p.count*3},(_,i)=>p.getComponent(Math.floor(i/3),i%3))
-  if(!fitPatch(body,mesh,hit.point,hit.face.normal,radius,strength,tool==='loosen'?'loosen':'tighten',current.mode==='soft'))return
+  const mode=tool==='raise'||tool==='recess'||tool==='loosen'?tool:'tighten'
+  if(!fitPatch(body,mesh,hit.point,hit.face.normal,radius,strength,mode,current.mode==='soft'))return
   if(before)stroke.push({mesh,positions:before})
   mark(current);current.marks=true
 }
@@ -337,7 +375,7 @@ function activateTool(){
   viewer.move();viewer.paint()
   if(!current||moving)return
   const item=current
-  if(tool==='tighten'||tool==='loosen')viewer.paint({
+  if(tool==='tighten'||tool==='loosen'||tool==='raise'||tool==='recess')viewer.paint({
     meshes:()=>index>=0?[item.mesh[index]]:item.mesh,
     begin:()=>{stroke=[]},stroke:strokeAt,end:endStroke
   })
@@ -369,13 +407,14 @@ async function bind(item:Garment){
   if(!body || (!item.dirty && item.bound))return
   item.group.updateWorldMatrix(true,true)
   const result:Piece[]=[]
+  const printSources:number[]=[]
   try {
     for(const [i,mesh] of item.mesh.entries()){
       const geometry=bakedGeometry(mesh,new Matrix4())
       if(!geometry.attributes.normal)geometry.computeVertexNormals()
       const piece=item.pieces[i]
       const fallback=()=>body!.nearestJoint(new Box3().setFromObject(mesh).getCenter(new Vector3()))
-      const joint=item.mode==='rigid'?item.rigid.get(i)??item.joint??piece.joint??fallback():undefined
+      const joint=item.mode==='rigid'?item.rigid.get(i)??item.joint??piece.joint??fallback():item.mode==='template'?item.rigid.get(i)??piece.joint:undefined
       result.push({name:item.name+' · '+piece.name,geometry,material:mesh.material,joint})
       body.weights(geometry,joint)
       await new Promise<void>(resolve=>setTimeout(resolve,0))
@@ -384,18 +423,26 @@ async function bind(item:Garment){
       const skin=result[print.piece]?.geometry
       if(!skin)continue
       const geometry=printGeometry(item,print,skin)
-      if(geometry)result.push({name:item.name+' · рисунок · '+print.name,geometry,material:print.material})
+      if(geometry){
+        result.push({name:item.name+' · рисунок · '+print.name,geometry,material:print.material})
+        printSources.push(print.piece)
+      }
     }
   }catch(error){result.forEach(piece=>piece.geometry.dispose());throw error}
   detachBound(item);item.bound=result;item.dirty=false
   const group=new Group(), skin=body.canonicalSkin()
-  for(const piece of result){
+  for(const [i,piece] of result.entries()){
     const mesh=new SkinnedMesh(piece.geometry,piece.material)
     mesh.frustumCulled=false;mesh.bind(skin,new Matrix4());group.add(mesh)
+    if(i>=item.mesh.length){
+      mesh.renderOrder=10+i-item.mesh.length
+      mesh.userData.wardrobePrintPiece=printSources[i-item.mesh.length]
+    }
   }
-  item.display=group;viewer.dressed.add(group)
+  item.display=group;item.printSources=printSources;viewer.dressed.add(group)
 }
 function fitMode(){
+  for(const item of items)stopCloth(item)
   if(moving){previousFrame=viewer.current();viewer.rest()}
   moving=false;$('playback').hidden=true
   if(current)tool='move'
@@ -411,12 +458,74 @@ async function motionMode(){
     viewer.play(previousFrame.index,previousFrame.time,previousFrame.paused)
     button('toggle-play').textContent=previousFrame.paused?'▶':'Ⅱ'
     refreshVisibility()
-    status('Остановите анимацию на нужном кадре, чтобы проверить сгибы.')
+    const problems=items.filter(item=>item.worn).flatMap(startCloth)
+    if(problems.length)status(problems[0],true)
+    else status('Остановите анимацию на нужном кадре, чтобы проверить сгибы.')
   })
 }
 
+function clothParts(item:Garment):number[]{
+  if(item.mode==='rigid')return []
+  const flexible=(i:number)=>item.mode==='soft'||(item.rigid.get(i)??item.pieces[i].joint)===undefined
+  if(index>=0)return flexible(index)?[index]:[]
+  return item.pieces.flatMap((part,i)=>flexible(i)&&(item.pattern||/юбк|подол|полы плаща|полотно/i.test(part.name)||item.pieces.length===1)?[i]:[])
+}
+function clothBone(body:FittingBody,name:string,geometry:BufferGeometry){
+  const slot=/подол|юбк/i.test(name)?BoneSlot.Pelvis:BoneSlot.Spine
+  geometry.computeBoundingBox()
+  const top=geometry.boundingBox!.getCenter(new Vector3())
+  top.y=geometry.boundingBox!.max.y
+  const pivot=/плащ/i.test(name)?body.nearestJoint(top):body.slots.findIndex(role=>role?.slot===slot)
+  return pivot<0?body.nearestJoint(top):pivot
+}
+function startCloth(item:Garment):string[]{
+  if(!body||!item.display||!item.bound||item.mode==='rigid')return []
+  const problems:string[]=[]
+  const nodes=[...item.display.children] as SkinnedMesh[]
+  for(const i of item.cloth){
+    const source=nodes[i]
+    if(!source||item.bound[i].joint!==undefined)continue
+    const j=clothBone(body,item.pieces[i].name,source.geometry)
+    const decals=nodes.filter(node=>node.userData.wardrobePrintPiece===i&&node.geometry.userData.wardrobePrintVertices)
+    try{item.effects.push(new ClothPreview(source,decals,body.bones[j],body.rest[j],body.height))}
+    catch(error){problems.push((error as Error).message)}
+  }
+  return problems
+}
+button('cloth-toggle').onclick=()=>{
+  if(!current)return
+  const candidates=clothParts(current)
+  const enabled=candidates.every(i=>current!.cloth.has(i))
+  for(const i of candidates){
+    if(enabled)current.cloth.delete(i)
+    else current.cloth.add(i)
+  }
+  if(!enabled)status('Примерьте вещь и откройте «В движении». Верх полотна закреплён, низ свободен.')
+  renderControls()
+}
+viewer.onPoseReset=()=>items.forEach(item=>item.effects.forEach(effect=>effect.reset()))
+viewer.onMotionFrame=(delta,time,paused)=>{
+  if(!body||!moving)return
+  const active=items.filter(item=>item.worn&&item.effects.length)
+  if(!active.length)return
+  body.asset.scene.updateMatrixWorld(true)
+  const colliders=clothColliders(body)
+  for(const item of active)for(const effect of item.effects)effect.step(paused?0:delta,time,colliders)
+}
+
 for(const [key,name] of Object.entries(T))select('template').add(new Option(name,key))
-$('export').onclick=()=>$<HTMLDialogElement>('save-dialog').showModal()
+$('export').onclick=()=>{
+  const clips=select('bake-clip'), canBake=!!body?.asset.clips.length&&items.some(item=>item.worn&&item.cloth.size&&item.mode!=='rigid')
+  $('bake-options').hidden=!canBake
+  input('bake-cloth').checked=false;input('bake-cloth').disabled=!canBake
+  clips.replaceChildren(...(body?.asset.clips??[]).map((clip,i)=>new Option(clip.name||'Движение '+(i+1),String(i))))
+  clips.value=String(moving?viewer.current().index:previousFrame.index)
+  if(clips.selectedIndex<0&&canBake)clips.selectedIndex=0
+  clips.disabled=true
+  const dialog=$<HTMLDialogElement>('save-dialog')
+  dialog.returnValue='';dialog.showModal()
+}
+input('bake-cloth').onchange=()=>{select('bake-clip').disabled=!input('bake-cloth').checked}
 requestFile('load-model','body-file')
 requestFile('add-glb','garment-file')
 requestFile('add-pattern','pattern-file')
@@ -425,16 +534,16 @@ requestFile('print-add','print-file')
 requestFile('print-replace','print-replacement-file')
 fileInput('body-file',([file])=>task('Открываю персонажа…',async()=>openCharacter(await bytes(file),file.name)))
 fileInput('garment-file',files=>task('Открываю GLB одежды…',()=>importGarments(files)))
-fileInput('pattern-file',async([file])=>{
-  if(!body || busy)return
+async function usePattern(file:File){
+  if(!body||busy||moving)return
   try {
     if(file.size>1024*1024)throw new Error('Файл выкройки SVG больше 1 МБ.')
     const pieces=await editSvgPattern(await file.text(),body,$<HTMLDialogElement>('pattern-dialog'))
     if(pieces)addItem(file.name.replace(/\.svg$/i,''),pieces,undefined,undefined,true)
   }catch(error){status((error as Error).message,true)}
-})
-fileInput('texture-file',async([file])=>{
-  if(!current||busy)return
+}
+async function useFabric(file:File){
+  if(!current||busy||moving)return
   const item=current
   await task('Открываю текстуру…',async()=>{
     const materials=[...chosenMaterials(item)].filter(hasColor)
@@ -452,16 +561,19 @@ fileInput('texture-file',async([file])=>{
     item.color='#ffffff'
     mark(item);status('Текстура нанесена. Настройте частоту повторения ткани.')
   })
-})
-fileInput('print-file',async([file])=>{
-  if(!current||busy)return
+}
+async function useDecal(file:File){
+  if(!current||busy||moving)return
   const item=current
   await task('Открываю рисунок…',async()=>{
     addPrint(item,file.name.replace(/\.[^.]+$/,''),await openImage(file))
     tool='print';activateTool()
     status('Коснитесь одежды, чтобы разместить рисунок.')
   })
-})
+}
+fileInput('pattern-file',([file])=>usePattern(file))
+fileInput('texture-file',([file])=>useFabric(file))
+fileInput('print-file',([file])=>useDecal(file))
 fileInput('print-replacement-file',async([file])=>{
   const item=current,print=item?.selectedPrint
   if(!item||!print||busy)return
@@ -508,6 +620,86 @@ input('fabric-repeat').oninput=()=>{
   }
   mark(current)
 }
+const showResources=connectResources($<HTMLDialogElement>('resource-dialog'),()=>{
+  if(busy||moving||!body)return {}
+  return {pattern:file=>void usePattern(file),decor:file=>void task('Открываю 3D-декор…',()=>importGarments([file])),
+    ...(current?{fabric:(file:File)=>void useFabric(file),decal:(file:File)=>void useDecal(file)}:{})}
+},file=>void startCut(file))
+button('resources-open').onclick=()=>showResources()
+button('texture-saved').onclick=()=>showResources('fabric')
+button('decal-saved').onclick=()=>showResources('decal')
+button('cut-open').onclick=()=>void startCut()
+async function startCut(file?:File){
+  if(!body||busy||moving)return
+  const target=body
+  try{
+    const image=file?await openImage(file):undefined
+    if(body!==target||busy||moving)return
+    const shape=await drawCut($<HTMLDialogElement>('cut-dialog'),file&&image?{file,image}:undefined,accept=>showResources('pattern',accept))
+    if(!shape||body!==target||moving)return
+    await task('Собираю выкроенное полотно…',async()=>{
+      const piece=cutPanel(target,shape,image)
+      addItem(shape.name,[piece],undefined,undefined,true)
+      if(shape.save){
+        const width=1000*shape.aspect
+        const points=shape.points.map(p=>(p.x*width).toFixed(4)+','+(p.y*1000).toFixed(4)).join(' ')
+        const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+width+' 1000"><polygon points="'+points+'"/></svg>'
+        const filename=shape.name.replace(/[\/?\\:<>*|]/g,'_')+'.svg'
+        try{await storeResource(new File([svg],filename,{type:'image/svg+xml'}),'pattern')}
+        catch{status('Полотно создано. Копию контура сохранить не удалось.',true);return}
+      }
+      status('Полотно готово. Подгоните его и примерьте в движении.')
+    })
+  }catch(error){status((error as Error).message,true)}
+}
+
+function changeAlpha(mode:AlphaMode,amount:number){
+  if(!current)return
+  for(const material of chosenMaterials(current))if(hasColor(material))setAlpha(material,mode,amount)
+  mark(current);button('bind').textContent='Рассчитать веса и примерить'
+}
+select('alpha-mode').onchange=()=>{
+  const mode=select('alpha-mode').value as AlphaMode
+  changeAlpha(mode,mode==='cutout'?.5:.68)
+  if(current)imageControls(current)
+}
+input('alpha').oninput=()=>{
+  const amount=number('alpha')
+  setUiValue('alpha',amount);changeAlpha(select('alpha-mode').value as AlphaMode,amount/100)
+}
+input('roughness').oninput=()=>{
+  if(!current)return
+  const value=number('roughness')
+  setUiValue('roughness',value)
+  for(const material of chosenMaterials(current))if(material instanceof MeshStandardMaterial)material.roughness=value/100
+  mark(current);button('bind').textContent='Рассчитать веса и примерить'
+}
+const layerDialog=$<HTMLDialogElement>('layer-dialog')
+button('layer-open').onclick=()=>{
+  layerDialog.returnValue='';input('layer-offset').value='.65';layerDialog.showModal()
+}
+layerDialog.onclose=()=>{
+  const base=current,target=body
+  if(layerDialog.returnValue!=='apply'||!base||!target)return
+  const distance=number('layer-offset')*target.height/100
+  if(Math.abs(distance)<target.height*.0003){status('Укажите смещение слоя от 0,05%.',true);return}
+  const selection=base.surface?.split(':').map(Number)
+  const selected=selection?.length===2?[selection[0]]:index>=0?[index]:base.mesh.map((_,i)=>i)
+  void task('Создаю отдельный слой…',async()=>{
+    const pieces=selected.map(i=>{
+      const piece=offsetPiece(base.mesh[i],base.pieces[i].name,distance,selection?.[1])
+      if(base.mode==='rigid')piece.joint=base.rigid.get(i)??base.joint??base.pieces[i].joint
+      else if(base.mode==='template')piece.joint=base.rigid.get(i)??base.pieces[i].joint
+      if(selection===undefined)piece.regions=base.pieces[i].regions
+      return piece
+    })
+    const layer=addItem(base.name+' · слой',pieces,undefined,undefined,true)
+    layer.mode=base.mode
+    layer.worn=true;base.worn=true
+    tool='orbit';activateTool()
+    status('Слой создан. Его цвет, прозрачность и положение настраиваются отдельно.')
+  })
+}
 select('prints').onchange=()=>{
   if(!current)return
   current.selectedPrint=current.prints[Number(select('prints').value)]
@@ -547,6 +739,10 @@ button('demo').onclick=()=>void task('Открываю учебного перс
 })
 button('add-template').onclick=()=>void task('Строю сетку одежды…',async()=>{
   const type=select('template').value as GarmentType
+  if(type==='armor'||type==='boots'){
+    addFashion(type==='armor'?'knight':'rider',templateName(type))
+    return
+  }
   addItem(templateName(type),template(body!,type,defaultEase(type)/100,1,1,'#3d9281'),type)
   status('Вещь создана. Настройте посадку или выделите участок кистью.')
 })
@@ -573,14 +769,30 @@ function addCatalogueItem(type:'shirt'|'hoodie'|'joggers', name:string,color:str
     status(placed?'Шаблон создан. Можно менять цвет участков и примерять.':'Шаблон создан. Коснитесь футболки, чтобы поставить рисунок.')
   })
 }
+function addFashion(id:FashionId,name:string){
+  addItem(name,fashionTemplate(body!,id),undefined,undefined,false,id)
+  tool='orbit';activateTool()
+  status('Шаблон готов. Выберите деталь для подгонки.')
+}
+const thumbnails=import.meta.glob('./thumbnails/*.webp',{eager:true,query:'?url',import:'default'}) as Record<string,string>
 button('catalogue-open').onclick=()=>{
   const dialog=$<HTMLDialogElement>('catalogue'), shirts=$('catalogue-shirts'), sport=$('catalogue-sport')
-  const card=(image:HTMLCanvasElement,label:string,apply:()=>void)=>{
+  const card=(image:HTMLCanvasElement|HTMLImageElement,label:string,apply:()=>void)=>{
     const tile=make('',apply), caption=document.createElement('span')
     caption.textContent=label;tile.append(image,caption);return tile
   }
   if(!shirts.children.length){
     shirts.append(...shirtStyles.map(style=>card(shirtCard(style),style.name,()=>addCatalogueItem('shirt',style.name,style.panel,style))))
+    for(const [category,entries] of Object.entries(fashionCatalogue)){
+      for(const [id,name] of entries){
+        const img=new Image(192,192);img.alt='';img.loading='lazy';img.src=thumbnails['./thumbnails/'+id+'.webp']
+        $('catalogue-'+category).append(card(img,name,()=>{
+          if(!body||busy||moving)return
+          dialog.close()
+          void task('Подгоняю шаблон…',async()=>addFashion(id,name))
+        }))
+      }
+    }
     for(const [type,color] of [['hoodie','#557ba1'],['joggers','#59674b']] as const){
       const name=templateName(type)
       sport.append(card(sportCard(type,color),name,()=>addCatalogueItem(type,name,color)))
@@ -613,7 +825,7 @@ select('clips').onchange=()=>{viewer.play(Number(select('clips').value));button(
 input('timeline').oninput=()=>viewer.seek(number('timeline'))
 viewer.onTime=(time,length)=>{input('timeline').max=String(length);input('timeline').value=String(time);$('time').textContent=time.toFixed(2)+' с'}
 select('piece').onchange=()=>{index=Number(select('piece').value);activateTool();renderControls()}
-for(const id of ['move','rotate','scale','orbit','tighten','loosen'])button(id).onclick=()=>{tool=id;activateTool();renderControls()}
+for(const id of ['move','rotate','scale','orbit','tighten','loosen','raise','recess'])button(id).onclick=()=>{tool=id;activateTool();renderControls()}
 for(const id of ['ease','width','length','radius','strength']){
   setUiValue(id,number(id))
   input(id).oninput=()=>{
@@ -623,9 +835,10 @@ for(const id of ['ease','width','length','radius','strength']){
 }
 button('reshape').onclick=()=>{
   const item=current
-  if(!item?.type||!body||item.marks&&!confirm('Новая форма заменит мазки кисти. Продолжить?'))return
+  if(!item||!body||!(item.type||item.fashion)||item.marks&&!confirm('Новая форма заменит мазки кисти. Продолжить?'))return
   void task('Обновляю форму шаблона…',async()=>{
-    const next=template(body!,item.type!,item.ease/100,item.width/100,item.length/100,item.color)
+    const fit=[item.ease/100,item.width/100,item.length/100] as const
+    const next=item.fashion?fashionTemplate(body!,item.fashion,...fit):template(body!,item.type!,...fit,item.color)
     const center=pieceBounds(next).getCenter(new Vector3())
     next.forEach(piece=>piece.geometry.translate(-center.x,-center.y,-center.z))
     const old=item.pieces.map(piece=>piece.material)
@@ -671,10 +884,29 @@ $<HTMLDialogElement>('save-dialog').onclose=event=>{
   if((name!=='item'&&name!=='all')||!body)return
   const selected=name==='item'?(current?[current]:[]):items.filter(item=>item.worn)
   if(!selected.length){status('Выберите вещь или наденьте одежду для общего экспорта.',true);return}
-  void task('Собираю GLB…',async()=>{
+  const bake=name==='all'&&!input('bake-cloth').disabled&&input('bake-cloth').checked
+  const clip=bake?Number(select('bake-clip').value):undefined
+  if(bake&&moving)fitMode()
+  void task(bake?'Запекаю ткань в выбранный клип…':'Собираю GLB…',async()=>{
     for(const item of selected)await bind(item)
-    const dressed=await encodeGarments(body!,selected.flatMap(item=>item.bound!))
-    const result=name==='all'?combineGlb(body!.asset.source_bytes,dressed):dressed
+    const pieces=selected.flatMap(item=>item.bound!)
+    const targets:ClothTarget[]=[]
+    if(clip!==undefined){
+      let offset=0
+      for(const item of selected){
+        for(const piece of item.cloth){
+          const bound=item.bound?.[piece]
+          if(!bound||bound.joint!==undefined)continue
+          const bone=clothBone(body!,item.pieces[piece].name,bound.geometry)
+          const decals=(item.printSources??[]).flatMap((parent,i)=>parent===piece?[offset+item.mesh.length+i]:[])
+          targets.push({piece:offset+piece,bone,decals})
+        }
+        offset+=item.bound!.length
+      }
+    }
+    const baked=clip===undefined?undefined:await bakeCloth(body!,pieces,targets,clip)
+    const dressed=await encodeGarments(body!,pieces,baked)
+    const result=name==='all'?combineGlb(body!.asset.source_bytes,dressed,clip):dressed
     const title=name==='all'?body!.asset.name+' · в одежде':selected[0].name
     await exportService.save(new Blob([result],{type:'model/gltf-binary'}),title.replace(/[/?\\:<>*|]/g,'_')+'.glb')
     status('GLB сохранён.')

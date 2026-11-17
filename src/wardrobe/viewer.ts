@@ -26,6 +26,8 @@ export class FittingView {
   private changed?:()=>void
   private clip=-1
   private previous=0
+  onMotionFrame:(delta:number,time:number,paused:boolean)=>void=()=>{}
+  onPoseReset:()=>void=()=>{}
   onTime:(time:number,length:number)=>void=()=>{}
 
   constructor (container:HTMLElement) {
@@ -111,7 +113,10 @@ export class FittingView {
       const delta=this.previous ? Math.min(.06,(time-this.previous)/1000) : 0
       this.previous=time
       this.mixer?.update(delta)
-      if(this.action)this.onTime(this.action.time,this.action.getClip().duration)
+      if(this.action){
+        this.onTime(this.action.time,this.action.getClip().duration)
+        this.onMotionFrame(delta,this.action.time,this.action.paused)
+      }
       this.orbit.update()
       this.renderer.render(this.scene,this.camera)
     })
@@ -154,13 +159,13 @@ export class FittingView {
     if(!clip||!this.mixer)return
     this.clip=index;this.action=this.mixer.clipAction(clip).play()
     this.action.time=Math.min(time,clip.duration)
-    this.action.paused=paused;this.mixer.update(0)
+    this.action.paused=paused;this.mixer.update(0);this.onPoseReset()
     this.onTime(this.action.time,clip.duration)
   }
 
   current () { return {index:this.clip,time:this.action?.time??0,paused:this.action?.paused??false} }
   pause () { if(this.action)this.action.paused=!this.action.paused;return this.action?.paused??true }
-  seek (at:number) { if(this.action&&this.mixer){this.action.time=at;this.mixer.update(0)} }
+  seek (at:number) { if(this.action&&this.mixer){this.action.time=at;this.mixer.update(0);this.onPoseReset()} }
 
   printAxes (point:Vector3) {
     return {

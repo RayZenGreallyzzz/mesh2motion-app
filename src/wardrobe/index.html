@@ -47,7 +47,10 @@
       <div class="row">
         <select id="template" aria-label="Шаблон одежды" disabled></select><button id="add-template" disabled>Создать</button>
       </div>
-      <button id="catalogue-open" disabled>Каталог одежды</button>
+      <div class="row">
+        <button id="catalogue-open" disabled>Каталог одежды</button><button id="resources-open">Мои материалы</button>
+        <button id="cut-open" disabled>Нарисовать выкройку</button>
+      </div>
       <div id="outfits" aria-label="Вещи"></div>
     </section>
     <section id="details" class="panel" hidden>
@@ -71,10 +74,19 @@
           <label class="rig-option" id="fabric-region-row" hidden>Участок<select id="fabric-region" aria-label="Участок одежды"></select></label>
           <div class="row">
             <label for="color">Цвет</label><input id="color" type="color" aria-label="Цвет одежды" value="#3d9281">
-            <button id="texture">Текстура ткани</button>
-            <button id="print-add">Нанести рисунок</button>
+            <button id="texture">Текстура из файла</button><button id="texture-saved">Из текстур</button>
+            <button id="print-add">Декаль из файла</button><button id="decal-saved">Из декалей</button>
           </div>
           <label class="slider" id="fabric-settings" hidden>Повтор ткани <output id="fabric-repeat-value"></output><input id="fabric-repeat" type="range" min="1" max="16" value="1" step=".5"></label>
+          <label class="rig-option">Прозрачность
+            <select id="alpha-mode"><option value="opaque">Непрозрачный</option><option value="blend">Полупрозрачный</option><option value="cutout">Вырез по альфе</option></select>
+          </label>
+          <label class="slider" id="alpha-row" hidden><span id="alpha-label">Непрозрачность</span>
+            <output id="alpha-value"></output><input id="alpha" type="range" min="1" max="100" value="100" step="1">
+          </label>
+          <label class="slider" id="roughness-row" hidden>Матовость
+            <output id="roughness-value"></output><input id="roughness" type="range" min="0" max="100" value="75" step="1">
+          </label>
           <div id="print-settings" class="brush" hidden>
             <div class="row">
               <select id="prints" aria-label="Рисунок"></select>
@@ -89,13 +101,17 @@
           </div>
         </section>
         <div class="brush">
-          <h3>Кисть посадки</h3>
+          <h3>Посадка и объём</h3>
           <div class="row tools"><button id="tighten">Приталить</button><button id="loosen">Оттянуть</button><button id="undo" disabled>Отмена мазка</button></div>
+          <div class="row tools">
+            <button id="raise">Поднять рельеф</button><button id="recess">Углубить</button><button id="layer-open">Добавить слой</button>
+          </div>
           <label class="slider">Размер <output id="radius-value"></output><input id="radius" type="range" min=".8" max="18" value="6" step=".2"></label>
           <label class="slider">Сила <output id="strength-value"></output><input id="strength" type="range" min="5" max="100" value="30"></label>
         </div>
-        <label class="rig-option">Привязка<select id="binding"><option value="soft">Гибкая ткань</option><option value="rigid">Жёсткая пластина</option></select></label>
+        <label class="rig-option">Привязка<select id="binding"><option value="template">По деталям шаблона</option><option value="soft">Гибкая ткань</option><option value="rigid">Жёсткая пластина</option></select></label>
         <label id="bone-row" class="rig-option" hidden>Кость<select id="bone" aria-label="Кость крепления"></select></label>
+        <button id="cloth-toggle" aria-pressed="false">Ткань в движении</button>
         <button id="bind" class="accent wide">Рассчитать веса и примерить</button>
       </div>
     </section>
@@ -112,6 +128,13 @@
     <h2>Каталог одежды</h2>
     <button id="catalogue-close" aria-label="Закрыть каталог">×</button>
   </div>
+  <nav class="catalogue-links" aria-label="Разделы каталога">
+    <a href="#catalogue-clothing">Одежда</a><a href="#catalogue-armor">Броня</a>
+    <a href="#catalogue-footwear">Обувь</a><a href="#catalogue-shirts">Футболки</a>
+  </nav>
+  <h3>Одежда</h3><div id="catalogue-clothing" class="catalogue-grid"></div>
+  <h3>Броня</h3><div id="catalogue-armor" class="catalogue-grid"></div>
+  <h3>Обувь</h3><div id="catalogue-footwear" class="catalogue-grid"></div>
   <h3>Футболки</h3>
   <div id="catalogue-shirts" class="catalogue-grid"></div>
   <h3>Спортивная одежда</h3>
@@ -121,7 +144,60 @@
   <form method="dialog">
     <h2>Сохранить GLB</h2>
     <p>Сохраняются надетые вещи. Отдельная вещь сохраняется со скелетом.</p>
+    <div id="bake-options" class="brush" hidden>
+      <label><input id="bake-cloth" type="checkbox"> Запечь движение ткани в GLB с персонажем</label>
+      <label class="rig-option">Клип <select id="bake-clip"></select></label>
+    </div>
     <div class="row"><button value="item">Текущую вещь</button><button value="all" class="accent">Персонажа в одежде</button><button value="cancel">Отмена</button></div>
+  </form>
+</dialog>
+<dialog id="resource-dialog">
+  <div class="catalogue-heading"><h2>Мои материалы</h2><form method="dialog"><button aria-label="Закрыть библиотеку">×</button></form></div>
+  <div class="resource-tabs row" role="group" aria-label="Виды материалов"></div>
+  <p>Файлы хранятся в Студии на этом устройстве.</p>
+  <button type="button" data-import>Добавить файлы</button>
+  <input type="file" multiple hidden>
+  <p role="status"></p>
+  <div class="resource-list"></div>
+</dialog>
+<dialog id="layer-dialog">
+  <form method="dialog">
+    <h2>Добавить слой</h2>
+    <p>Слой повторяет выбранную сетку. Отрицательное смещение помещает его с внутренней стороны.</p>
+    <label class="rig-option">Смещение, % роста<input id="layer-offset" type="number" min="-4" max="4" value=".65" step=".05" required></label>
+    <div class="row"><button value="cancel" formnovalidate>Отмена</button><button value="apply" class="accent">Создать слой</button></div>
+  </form>
+</dialog>
+<dialog id="cut-dialog">
+  <form>
+    <h2>Нарисовать выкройку</h2>
+    <p>Поставьте точки по краю. Первая и последняя точки соединятся при раскрое.</p>
+    <label class="rig-option">Имя детали<input type="text" name="name" maxlength="64" value="Полотно"></label>
+    <svg class="cut-view" aria-label="Ткань и контур выкройки"></svg>
+    <div class="row">
+      <button type="button" data-outline>Контур щита</button><button type="button" data-load>Контур SVG</button>
+      <button type="button" data-saved>Из выкроек</button><select name="panel" aria-label="Полотно SVG" hidden></select>
+      <button type="button" data-undo>Отменить точку</button><button type="button" data-clear>Очистить</button>
+    </div>
+    <div class="row">
+      <span>Сдвинуть контур</span>
+      <button type="button" data-nudge="-.03,0" aria-label="Сдвинуть влево">←</button>
+      <button type="button" data-nudge=".03,0" aria-label="Сдвинуть вправо">→</button>
+      <button type="button" data-nudge="0,-.03" aria-label="Сдвинуть вверх">↑</button>
+      <button type="button" data-nudge="0,.03" aria-label="Сдвинуть вниз">↓</button>
+    </div>
+    <input type="file" name="outline" accept=".svg,image/svg+xml" hidden>
+    <div class="cut-options">
+      <label>Ширина, % роста<input type="number" name="width" min="2" max="100" value="25" required></label>
+      <label>Высота от таза, % роста<input type="number" name="height" min="-65" max="62" value="14" required></label>
+      <label>Толщина, мм<input type="number" name="thickness" min="0" max="12" step=".5" value="0" required></label>
+      <label>Сторона
+        <select name="angle"><option value="0">Спереди</option><option value="180">Сзади</option><option value="90">Слева</option><option value="270">Справа</option></select>
+      </label>
+    </div>
+    <label><input type="checkbox" name="save" checked> Сохранить контур в «Мои материалы»</label>
+    <p role="status"></p>
+    <div class="row"><button type="button" data-cancel>Отмена</button><button class="accent">Вырезать 3D-полотно</button></div>
   </form>
 </dialog>
 <dialog id="pattern-dialog"></dialog>

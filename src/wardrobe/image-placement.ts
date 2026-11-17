@@ -63,7 +63,7 @@ export function projectPrint(geometry: BufferGeometry, model: Matrix4, anchor: P
     frame[i*3+1]=point.dot(vertical)
     frame[i*3+2]=point.dot(normal)
   }
-  const positions:number[]=[], normals:number[]=[], uv:number[]=[], joints:number[]=[], weights:number[]=[]
+  const sourceVertices:number[]=[], positions:number[]=[], normals:number[]=[], uv:number[]=[], joints:number[]=[], weights:number[]=[]
   const ni=skin?.getAttribute('skinIndex'), nw=skin?.getAttribute('skinWeight')
   const normalMatrix=new Matrix3().getNormalMatrix(model)
   const edge1=new Vector3(),edge2=new Vector3(),face=new Vector3(), vNormal=new Vector3()
@@ -78,7 +78,7 @@ export function projectPrint(geometry: BufferGeometry, model: Matrix4, anchor: P
     if(face.dot(normal)<.24)continue
     const ids=anchor.side>0?[first,second,third]:[first,third,second]
     for(const id of ids){
-      corner(id,point)
+      corner(id,point);sourceVertices.push(id)
       if(norm)vNormal.fromBufferAttribute(norm,id).applyNormalMatrix(normalMatrix)
       else vNormal.copy(face)
       if(vNormal.dot(face)<0)vNormal.negate()
@@ -97,6 +97,7 @@ export function projectPrint(geometry: BufferGeometry, model: Matrix4, anchor: P
   result.setAttribute('normal',new BufferAttribute(Float32Array.from(normals),3))
   result.setAttribute('uv',new BufferAttribute(Float32Array.from(uv),2))
   if(ni&&nw){
+    result.userData.wardrobePrintVertices=sourceVertices
     result.setAttribute('skinIndex',new BufferAttribute(Uint16Array.from(joints),4))
     result.setAttribute('skinWeight',new BufferAttribute(Float32Array.from(weights),4))
   }

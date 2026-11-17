@@ -3,7 +3,7 @@ import type { FittingBody } from './body.ts'
 
 /** Edit the garment in world space so the brush size does not change with item scale. */
 export function fitPatch(body:FittingBody,mesh:Mesh,center:Vector3,faceNormal:Vector3,
-  radius:number,strength:number,mode:'tighten'|'loosen',soft:boolean):boolean {
+  radius:number,strength:number,mode:'tighten'|'loosen'|'raise'|'recess',soft:boolean):boolean {
   const p=mesh.geometry.attributes.position,n=mesh.geometry.attributes.normal
   const inverse=mesh.matrixWorld.clone().invert(), normalMatrix=new Matrix3().getNormalMatrix(mesh.matrixWorld)
   const targetNormal=faceNormal.clone().applyNormalMatrix(normalMatrix)
@@ -24,7 +24,10 @@ export function fitPatch(body:FittingBody,mesh:Mesh,center:Vector3,faceNormal:Ve
       const amount=(gap-body.height*.0025)*falloff*strength*.42
       if(Math.abs(amount)<body.height*.0001)continue
       world.addScaledVector(delta,-amount)
-    }else world.addScaledVector(norm,radius*.16*falloff*strength*(mode==='loosen'?1:-1))
+    }else{
+      const relief=mode==='raise'||mode==='recess'
+      world.addScaledVector(norm,radius*(relief?.31:.16)*falloff*strength*(mode==='loosen'||mode==='raise'?1:-1))
+    }
     world.applyMatrix4(inverse)
     p.setXYZ(i,world.x,world.y,world.z);changed=true
   }
