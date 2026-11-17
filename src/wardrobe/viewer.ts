@@ -47,7 +47,12 @@ export class FittingView {
     key.position.set(3,4,5);fill.position.set(-3,3,-2)
     this.scene.add(this.edited,this.dressed,this.gizmo.getHelper(),this.grid,new HemisphereLight(0xe6f3ff,0x475071,2.25),key,fill)
     this.camera.position.set(1.5,1.25,3)
-    const active=new Set<number>()
+    const active=new Map<number,Vector2>()
+    let pinch=0
+    const pinchDistance=()=>{
+      const [first,second]=active.values()
+      return first && second ? first.distanceTo(second) : 0
+    }
     const sample=(e:PointerEvent) => {
       const r=canvas.getBoundingClientRect()
       this.cursor.set((e.clientX-r.left)*2/r.width-1,1-(e.clientY-r.top)*2/r.height)
@@ -57,14 +62,33 @@ export class FittingView {
       if(hit)this.painter?.stroke(hit as Intersection<Mesh>)
     }
     canvas.addEventListener('pointerdown',e=>{
-      active.add(e.pointerId)
+      active.set(e.pointerId,new Vector2(e.clientX,e.clientY))
       if(!this.painter||e.button!==0)return
-      if(active.size>1){if(this.stroke && canvas.hasPointerCapture(this.stroke.id))canvas.releasePointerCapture(this.stroke.id);this.stopStroke();return}
+      if(active.size>1){
+        this.stopStroke()
+        pinch=pinchDistance()
+        canvas.setPointerCapture(e.pointerId)
+        e.preventDefault();e.stopImmediatePropagation()
+        return
+      }
       this.stroke={id:e.pointerId,x:e.clientX,y:e.clientY};this.orbit.enabled=false
       canvas.setPointerCapture(e.pointerId);this.painter.begin();sample(e)
       e.preventDefault();e.stopImmediatePropagation()
     },true)
     canvas.addEventListener('pointermove',e=>{
+      active.get(e.pointerId)?.set(e.clientX,e.clientY)
+      if(pinch&&this.painter){
+        const distance=pinchDistance()
+        if(distance>0){
+          const offset=this.camera.position.clone().sub(this.orbit.target)
+          const radius=offset.length()
+          const next=Math.min(this.camera.far*.75,Math.max(this.camera.near*3,radius*pinch/distance))
+          this.camera.position.copy(this.orbit.target).add(offset.setLength(next))
+          pinch=distance
+        }
+        e.preventDefault();e.stopImmediatePropagation()
+        return
+      }
       const stroke=this.stroke
       if(stroke?.id!==e.pointerId)return
       if(Math.hypot(e.clientX-stroke.x,e.clientY-stroke.y)<5)return
@@ -74,6 +98,7 @@ export class FittingView {
     for(const event of ['pointerup','pointercancel','lostpointercapture'] as const)
       canvas.addEventListener(event,e=>{
         active.delete(e.pointerId)
+        if(active.size<2)pinch=0
         if(this.stroke?.id===e.pointerId)this.stopStroke()
       },true)
     new ResizeObserver(()=>{
@@ -136,6 +161,13 @@ export class FittingView {
   current () { return {index:this.clip,time:this.action?.time??0,paused:this.action?.paused??false} }
   pause () { if(this.action)this.action.paused=!this.action.paused;return this.action?.paused??true }
   seek (at:number) { if(this.action&&this.mixer){this.action.time=at;this.mixer.update(0)} }
+
+  printAxes (point:Vector3) {
+    return {
+      up:new Vector3(0,1,0).transformDirection(this.camera.matrixWorld),
+      towards:this.camera.getWorldPosition(new Vector3()).sub(point).normalize()
+    }
+  }
 
   move (object?:Object3D,mode:TransformControlsMode='translate',changed?:()=>void) {
     this.changed=changed
