@@ -16,6 +16,7 @@
   },
   "include": [
     "src/my-rigs/**/*.ts",
+    "src/wardrobe/**/*.ts",
     "tests/**/*.ts"
   ]
 }

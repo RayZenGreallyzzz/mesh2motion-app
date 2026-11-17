@@ -6,6 +6,7 @@
   "scripts": {
     "prebuild": "node scripts/prepare-offline-codecs.mjs",
     "build": "vite build",
+    "build:wardrobe": "vite build --config vite.wardrobe.config.js",
     "test": "vitest run --maxWorkers=1",
     "typecheck": "tsc --noEmit",
     "build:library": "node scripts/verify-phoenix-catalog.mjs static && npm run build && node scripts/verify-phoenix-catalog.mjs dist",
